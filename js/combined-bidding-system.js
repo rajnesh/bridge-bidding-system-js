@@ -1,14 +1,8 @@
 /**
  * Bridge bidding system with SAYC implementation for browser.
  * Combined BiddingSystem (parent) and SAYCBiddingSystem (child) classes.
+ * Browser-only version - depends on ConventionCard, VulnerabilityState, Auction, and Bid from global scope.
  */
-
-// Node.js imports (if running in Node environment)
-let ConventionCard, VulnerabilityState, Auction, Bid;
-if (typeof require !== 'undefined') {
-    ({ ConventionCard } = require('./convention-manager.js'));
-    ({ VulnerabilityState, Auction, Bid } = require('./bridge-types.js'));
-}
 
 // Constants
 const SUITS = ['C', 'D', 'H', 'S'];
@@ -18,7 +12,7 @@ const SUITS = ['C', 'D', 'H', 'S'];
  */
 class BiddingSystem {
     constructor() {
-        this.conventions = new ConventionCard();
+        this.conventions = new window.ConventionCard();
         this.currentAuction = null;
         this.vulnerability = null;
         this.ourSeat = null; // 'N','E','S','W'
@@ -29,8 +23,8 @@ class BiddingSystem {
      */
     startAuction(ourSeat, vulWe = false, vulThey = false) {
         this.ourSeat = ourSeat;
-        this.currentAuction = new Auction([], { ourSeat });
-        this.vulnerability = new VulnerabilityState(vulWe, vulThey);
+        this.currentAuction = new window.Auction([], { ourSeat });
+        this.vulnerability = new window.VulnerabilityState(vulWe, vulThey);
     }
 
     /**
@@ -39,8 +33,8 @@ class BiddingSystem {
      */
     startAuctionWithDealer(ourSeat, dealer, vulWe = false, vulThey = false) {
         this.ourSeat = ourSeat;
-        this.currentAuction = new Auction([], { ourSeat, dealer });
-        this.vulnerability = new VulnerabilityState(vulWe, vulThey);
+        this.currentAuction = new window.Auction([], { ourSeat, dealer });
+        this.vulnerability = new window.VulnerabilityState(vulWe, vulThey);
     }
 
     /**
@@ -58,13 +52,13 @@ class BiddingSystem {
 
         // 2C Strong opening
         if (hand.hcp >= 22) {
-            return new Bid('2C');
+            return new window.Bid('2C');
         }
 
         // 1NT opening
         const balanced = Object.values(hand.lengths).every(length => length <= 5);
         if (balanced && hand.hcp >= 15 && hand.hcp <= 17) {
-            return new Bid('1NT');
+            return new window.Bid('1NT');
         }
 
         // Natural suit opening
@@ -78,14 +72,14 @@ class BiddingSystem {
             });
             
             if (hand.lengths[suits[0]] >= 5) {
-                return new Bid(`1${suits[0]}`);
+                return new window.Bid(`1${suits[0]}`);
             }
 
             // Open 1 of shorter minor with 4-4-3-2 or 4-3-3-3
             if (hand.lengths['C'] >= 3) {
-                return new Bid('1C');
+                return new window.Bid('1C');
             }
-            return new Bid('1D');
+            return new window.Bid('1D');
         }
 
         return null;
@@ -105,7 +99,7 @@ class BiddingSystem {
             // DONT convention
             for (const suit of SUITS) {
                 if (hand.lengths[suit] >= 6) {
-                    return new Bid(`2${suit}`); // Natural
+                    return new window.Bid(`2${suit}`); // Natural
                 }
             }
             
@@ -118,7 +112,7 @@ class BiddingSystem {
             });
             
             if (hand.lengths[suits[0]] >= 5 && hand.lengths[suits[1]] >= 4) {
-                return new Bid('2C'); // Shows clubs and another suit
+                return new window.Bid('2C'); // Shows clubs and another suit
             }
         }
 
@@ -138,7 +132,7 @@ class BiddingSystem {
 
         if (isAceAsking) {
             const response = this.conventions.getAceAskingResponse(convention, hand);
-            return response ? new Bid(response) : null;
+            return response ? new window.Bid(response) : null;
         }
 
         return null;
@@ -155,7 +149,7 @@ class BiddingSystem {
         // Opening bid
         if (this._isOpeningBid()) {
             const bid = this._getOpeningBid(hand);
-            return bid || new Bid(null); // Pass if no suitable opening
+            return bid || new window.Bid(null); // Pass if no suitable opening
         }
 
         // Handle opponent's last bid
@@ -173,7 +167,7 @@ class BiddingSystem {
         }
 
         // Default to pass if no other action found
-        return new Bid(null);
+        return new window.Bid(null);
     }
 }
 
@@ -182,21 +176,8 @@ class BiddingSystem {
  * Extends BiddingSystem with comprehensive SAYC implementation.
  */
 class SAYCBiddingSystem extends BiddingSystem {
-    constructor(configPath = null) {
+    constructor() {
         super();
-        if (configPath) {
-            // For Node.js testing with sync loading
-            if (typeof require !== 'undefined') {
-                try {
-                    const fs = require('fs');
-                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
-                    this.conventions.config = config;
-                } catch (error) {
-                    console.error('Error loading config file:', error);
-                    // Fall back to default config
-                }
-            }
-        }
     }
 
     /**
@@ -216,12 +197,12 @@ class SAYCBiddingSystem extends BiddingSystem {
      */
     _getOpeningBid(hand) {
         if (hand.hcp >= 22) {
-            return new Bid('2C');
+            return new window.Bid('2C');
         }
 
         // 1NT opening (15-17 HCP, balanced)
         if (this._isBalanced(hand) && hand.hcp >= 15 && hand.hcp <= 17) {
-            return new Bid('1NT');
+            return new window.Bid('1NT');
         }
 
         // Find longest suits
@@ -239,28 +220,28 @@ class SAYCBiddingSystem extends BiddingSystem {
         if (totalPoints >= 19 || (hand.hcp >= 12 && this._isBalanced(hand))) {
             // 5+ card major
             if (hand.lengths['S'] >= hand.lengths['H'] && hand.lengths['S'] >= 5) {
-                return new Bid('1S');
+                return new window.Bid('1S');
             }
             if (hand.lengths['H'] >= 5) {
-                return new Bid('1H');
+                return new window.Bid('1H');
             }
 
             // 4-card major preference
             if (hand.lengths['S'] === 4 && hand.lengths['H'] === 4) {
-                return new Bid('1S');
+                return new window.Bid('1S');
             }
             if (hand.lengths['S'] === 4) {
-                return new Bid('1S');
+                return new window.Bid('1S');
             }
             if (hand.lengths['H'] === 4) {
-                return new Bid('1H');
+                return new window.Bid('1H');
             }
 
             // Better minor
             if (hand.lengths['D'] > hand.lengths['C']) {
-                return new Bid('1D');
+                return new window.Bid('1D');
             }
-            return new Bid('1C');
+            return new window.Bid('1C');
         }
 
         // Preemptive openings - Weak two bids
@@ -278,7 +259,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     }
                     
                     if (hand.hcp >= minHcp && hand.hcp <= maxHcp) {
-                        return new Bid(`2${suit}`);
+                        return new window.Bid(`2${suit}`);
                     }
                 }
             }
@@ -303,16 +284,16 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Check for Stayman
             if (this.conventions && this.conventions.isEnabled('stayman', 'notrump_responses') &&
                 hand.lengths['H'] >= 4 && hand.lengths['S'] >= 4) {
-                return new Bid('2C');
+                return new window.Bid('2C');
             }
 
             // Check for Jacoby transfers
             if (this.conventions && this.conventions.isEnabled('jacoby_transfers', 'notrump_responses')) {
                 if (hand.lengths['H'] >= 5) {
-                    return new Bid('2D'); // Transfer to hearts
+                    return new window.Bid('2D'); // Transfer to hearts
                 }
                 if (hand.lengths['S'] >= 5) {
-                    return new Bid('2H'); // Transfer to spades
+                    return new window.Bid('2H'); // Transfer to spades
                 }
             }
         }
@@ -343,7 +324,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 supportLength >= 3 &&
                 hand.hcp >= 10 &&
                 this.conventions.config.general?.passed_hand_variations) {
-                const bid = new Bid('2C');
+                const bid = new window.Bid('2C');
                 bid.conventionUsed = 'Drury';
                 return bid;
             }
@@ -362,7 +343,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                             // 3-level for suits higher than opener's suit, 4-level for suits lower
                             let splinterLevel = (suitIndex > openerSuitIndex) ? 3 : 4;
                             const splinterBid = `${splinterLevel}${suit}`;
-                            const bid = new Bid(splinterBid);
+                            const bid = new window.Bid(splinterBid);
                             bid.conventionUsed = 'Splinter Bid';
                             return bid;
                         }
@@ -374,7 +355,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (this.conventions && this.conventions.isEnabled('jacoby_2nt', 'responses')) {
                 if (supportLength >= 4) {
                     if (hand.hcp >= 13) {
-                        const bid = new Bid('2NT');
+                        const bid = new window.Bid('2NT');
                         bid.conventionUsed = 'Jacoby 2NT';
                         return bid;
                     } else {
@@ -404,7 +385,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const maxLvl = parseInt(maxLevel[0]) || 2;
                     
                     if (theirLevel <= maxLvl) {
-                        const bid = new Bid(null, { isDouble: true });
+                        const bid = new window.Bid(null, { isDouble: true });
                         bid.conventionUsed = 'Support Double';
                         return bid;
                     }
@@ -420,7 +401,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     this.conventions.isEnabled('cue_bid_raises', 'competitive') &&
                     theirOvercall.token &&
                     ['1', '2'].includes(theirOvercall.token[0])) {
-                    return new Bid(theirOvercall.token); // Cue bid their suit
+                    return new window.Bid(theirOvercall.token); // Cue bid their suit
                 }
             }
 
@@ -429,9 +410,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (hand.hcp >= 15) {
                     return null; // Too strong; tests expect pass
                 } else if (hand.hcp >= 12 && hand.hcp <= 14) {
-                    return new Bid('2NT');
+                    return new window.Bid('2NT');
                 } else if (hand.hcp >= 10 && hand.hcp <= 11) {
-                    return new Bid('1NT');
+                    return new window.Bid('1NT');
                 }
             }
 
@@ -441,19 +422,19 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // When Jacoby 2NT is enabled, suppress immediate raises
                     if (!this.conventions.isEnabled('jacoby_2nt', 'responses')) {
                         if (totalPoints >= 10) {
-                            return new Bid(`3${openerSuit}`);
+                            return new window.Bid(`3${openerSuit}`);
                         }
                         if (totalPoints >= 6) {
-                            return new Bid(`2${openerSuit}`);
+                            return new window.Bid(`2${openerSuit}`);
                         }
                     }
                 } else if (supportLength === 3 && !this._isBalanced(hand)) {
                     // Only raise with 3 cards if unbalanced
                     if (totalPoints >= 10) {
-                        return new Bid(`3${openerSuit}`);
+                        return new window.Bid(`3${openerSuit}`);
                     }
                     if (totalPoints >= 6) {
-                        return new Bid(`2${openerSuit}`);
+                        return new window.Bid(`2${openerSuit}`);
                     }
                 }
             }
@@ -465,9 +446,9 @@ class SAYCBiddingSystem extends BiddingSystem {
             for (const suit of ['S', 'H', 'D', 'C']) {
                 if (suit !== openerSuit && hand.lengths[suit] >= 5) {
                     if (suit > openerSuit) {
-                        return new Bid(`1${suit}`);
+                        return new window.Bid(`1${suit}`);
                     } else if (hand.hcp >= 13) {
-                        return new Bid(`2${suit}`);
+                        return new window.Bid(`2${suit}`);
                     }
                 }
             }
@@ -475,7 +456,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Then 4-card majors at 1-level
             for (const suit of ['S', 'H']) {
                 if (suit !== openerSuit && hand.lengths[suit] >= 4 && suit > openerSuit) {
-                    return new Bid(`1${suit}`);
+                    return new window.Bid(`1${suit}`);
                 }
             }
         }
@@ -509,7 +490,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 const maxLvl = parseInt(maxLevel[0]) || 2;
                 
                 if (theirLevel <= maxLvl) {
-                    const bid = new Bid(null, { isDouble: true });
+                    const bid = new window.Bid(null, { isDouble: true });
                     bid.conventionUsed = 'Support Double';
                     return bid;
                 }
@@ -543,7 +524,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (this.conventions.isEnabled('cue_bid_raises', 'competitive')) {
                 if (hand.lengths[ourSuit] >= 4 && hand.hcp >= 10) {
                     const theirLevel = parseInt(auction.bids[1].token[0]);
-                    const bid = new Bid(`${theirLevel + 1}${theirSuit}`);
+                    const bid = new window.Bid(`${theirLevel + 1}${theirSuit}`);
                     bid.conventionUsed = 'Cue Bid Raise';
                     return bid;
                 }
@@ -568,7 +549,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 );
                 
                 if (unbidSuits.length >= 2) {
-                    const bid = new Bid(null, { isDouble: true });
+                    const bid = new window.Bid(null, { isDouble: true });
                     bid.conventionUsed = 'Reopening Double';
                     return bid;
                 }
@@ -604,7 +585,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (unbidSuits >= 2) {
                 const maxLevel = this.conventions.getConventionSetting('responsive_doubles', 'thru_level', 'competitive');
                 if (parseInt(lastBid.token[0]) <= maxLevel) {
-                    return new Bid(null, { isDouble: true });
+                    return new window.Bid(null, { isDouble: true });
                 }
             }
         }
@@ -630,7 +611,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (!directOnly || auction.bids.length <= 2) {
                     // Single-suited hands through 2♣ (6+ cards)
                     if (Object.values(hand.lengths).some(len => len >= 6)) {
-                        const bid = new Bid('2C');
+                        const bid = new window.Bid('2C');
                         bid.conventionUsed = 'Meckwell';
                         return bid;
                     }
@@ -638,7 +619,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // Both majors through 2♦ (4-4 or better)
                     if (hand.lengths['H'] >= 4 && hand.lengths['S'] >= 4 &&
                         !Object.values(hand.lengths).some(len => len >= 6)) {
-                        const bid = new Bid('2D');
+                        const bid = new window.Bid('2D');
                         bid.conventionUsed = 'Meckwell (Both Majors)';
                         return bid;
                     }
@@ -649,7 +630,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                             if (hand.lengths[major] === 5) {
                                 for (const minor of ['C', 'D']) {
                                     if (hand.lengths[minor] >= 4) {
-                                        const bid = new Bid(`2${major}`);
+                                        const bid = new window.Bid(`2${major}`);
                                         bid.conventionUsed = `Meckwell (${major}+minor)`;
                                         return bid;
                                     }
@@ -665,7 +646,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // Single-suited hand
                 for (const suit of ['S', 'H', 'D', 'C']) {
                     if (hand.lengths[suit] >= 6) {
-                        const bid = new Bid(`2${suit}`);
+                        const bid = new window.Bid(`2${suit}`);
                         bid.conventionUsed = 'DONT';
                         return bid;
                     }
@@ -677,13 +658,13 @@ class SAYCBiddingSystem extends BiddingSystem {
                 
                 if (sortedLengths[0][1] >= 5 && sortedLengths[1][1] >= 4) {
                     if (sortedLengths[0][0] === 'C' || sortedLengths[1][0] === 'C') {
-                        const bid = new Bid('2C');
+                        const bid = new window.Bid('2C');
                         bid.conventionUsed = 'DONT (Two-suited)';
                         return bid;
                     }
                     if (sortedLengths[0][0] === 'D' || sortedLengths[1][0] === 'D') {
                         if (['H', 'S'].includes(sortedLengths[0][0]) || ['H', 'S'].includes(sortedLengths[1][0])) {
-                            const bid = new Bid('2D');
+                            const bid = new window.Bid('2D');
                             bid.conventionUsed = 'DONT (Two-suited)';
                             return bid;
                         }
@@ -697,10 +678,10 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Michaels cuebid
             try {
                 const result = this.conventions.isTwoSuitedOvercall(
-                    auction, new Bid(`2${oppSuit}`), hand
+                    auction, new window.Bid(`2${oppSuit}`), hand
                 );
                 if (result.isTwoSuited) {
-                    const bid = new Bid(`2${oppSuit}`);
+                    const bid = new window.Bid(`2${oppSuit}`);
                     bid.conventionUsed = 'Michaels';
                     return bid;
                 }
@@ -712,7 +693,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             for (const suit of ['S', 'H']) {
                 if (suit !== oppSuit && hand.lengths[suit] >= 5) {
                     if (level === 1 && hand.hcp >= 5) {
-                        return new Bid(`1${suit}`);
+                        return new window.Bid(`1${suit}`);
                     }
                 }
             }
@@ -721,7 +702,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (this._isBalanced(hand) &&
                 hand.hcp >= 15 && hand.hcp <= 18 &&
                 hand.lengths[oppSuit] >= 2) {
-                return new Bid('1NT');
+                return new window.Bid('1NT');
             }
 
             // Takeout double
@@ -729,14 +710,14 @@ class SAYCBiddingSystem extends BiddingSystem {
             const threeCardSuits = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
             
             if (hand.hcp >= 12 && shortOpp && threeCardSuits >= 2) {
-                return new Bid(null, { isDouble: true });
+                return new window.Bid(null, { isDouble: true });
             }
             
             // Relaxed takeout double
             if (hand.hcp >= 11 && shortOpp) {
                 const otherSuitsWith2 = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 2).length;
                 if (otherSuitsWith2 >= 2) {
-                    return new Bid(null, { isDouble: true });
+                    return new window.Bid(null, { isDouble: true });
                 }
             }
         }
@@ -761,7 +742,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Fast denial with stopper
             if (hand.hcp >= 13 && hasStopper &&
                 this.conventions.getConventionSetting('lebensohl', 'fast_denies', 'notrump_defenses')) {
-                const bid = new Bid('3NT');
+                const bid = new window.Bid('3NT');
                 bid.conventionUsed = 'Lebensohl (Fast Denial)';
                 return bid;
             }
@@ -769,14 +750,14 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Weak hands with long suit go through 2NT
             const longestSuit = Object.entries(hand.lengths).reduce((a, b) => a[1] > b[1] ? a : b)[0];
             if (hand.lengths[longestSuit] >= 6 && hand.hcp <= 10) {
-                const bid = new Bid('2NT');
+                const bid = new window.Bid('2NT');
                 bid.conventionUsed = 'Lebensohl (Slow)';
                 return bid;
             }
 
             // Game-forcing without stopper: cue-bid
             if (hand.hcp >= 13 && !hasStopper) {
-                const bid = new Bid(`3${oppSuit}`);
+                const bid = new window.Bid(`3${oppSuit}`);
                 bid.conventionUsed = 'Lebensohl (Stopper Ask)';
                 return bid;
             }
@@ -791,7 +772,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 !auction.bids.some(b => b.token && b.token.endsWith(s))
             );
             if (unbidMajors.length > 0) {
-                const bid = new Bid(null, { isDouble: true });
+                const bid = new window.Bid(null, { isDouble: true });
                 bid.conventionUsed = 'Negative Double';
                 return bid;
             }
@@ -803,10 +784,10 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (hand.lengths[ourSuit] >= 3) {
                 const totalPoints = hand.hcp + hand.distributionPoints;
                 if (totalPoints >= 10) {
-                    return new Bid(`3${ourSuit}`);
+                    return new window.Bid(`3${ourSuit}`);
                 }
                 if (totalPoints >= 6) {
-                    return new Bid(`2${ourSuit}`);
+                    return new window.Bid(`2${ourSuit}`);
                 }
             }
         }
@@ -825,14 +806,14 @@ class SAYCBiddingSystem extends BiddingSystem {
         // Opening bid
         if (this._isOpeningBid()) {
             const bid = this._getOpeningBid(hand);
-            return bid || new Bid(null);
+            return bid || new window.Bid(null);
         }
 
         // Single-bid auctions
         if (this.currentAuction.bids.length === 1) {
             const opening = this.currentAuction.bids[0].token;
             if (!opening) {
-                return new Bid(null);
+                return new window.Bid(null);
             }
 
             let lastSide = null;
@@ -850,7 +831,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     
                     const responseBid = this._handle1NTResponse(hand);
                     if (responseBid) return responseBid;
-                    return new Bid(null);
+                    return new window.Bid(null);
                 }
             }
 
@@ -882,7 +863,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // Fall back to partner response
                 const bid = this._getResponseToSuit(opening, hand);
                 if (bid) return bid;
-                return new Bid(null);
+                return new window.Bid(null);
             }
         } else {
             // Multi-bid auctions - handle responses to partner
@@ -905,25 +886,17 @@ class SAYCBiddingSystem extends BiddingSystem {
         const aceAskingResponse = this._handleAceAsking(this.currentAuction, hand);
         if (aceAskingResponse) return aceAskingResponse;
 
-        return new Bid(null); // Pass
+        return new window.Bid(null); // Pass
     }
 }
 
-// Browser global exports - ensure dependencies are available
+// Browser global exports
 if (typeof window !== 'undefined') {
-    if (typeof BiddingSystem === 'undefined') {
-        console.error('BiddingSystem not available when trying to define SAYCBiddingSystem');
-    }
     window.BiddingSystem = BiddingSystem;
     window.SAYCBiddingSystem = SAYCBiddingSystem;
     window.SUITS = SUITS;
-}
-
-// Node.js exports
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = {
-        BiddingSystem,
-        SAYCBiddingSystem,
-        SUITS
-    };
+} else if (typeof global !== 'undefined') {
+    global.BiddingSystem = BiddingSystem;
+    global.SAYCBiddingSystem = SAYCBiddingSystem;
+    global.SUITS = SUITS;
 }

@@ -1,0 +1,52 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Debug - Class Loading</title>
+</head>
+<body>
+    <h1>Debug - Class Loading</h1>
+    <div id="output"></div>
+
+    <script>
+        function log(message) {
+            const output = document.getElementById('output');
+            output.innerHTML += '<p>' + message + '</p>';
+            console.log(message);
+        }
+    </script>
+
+    <!-- Load scripts in order -->
+    <script src="js/bridge-types.js?v=6"></script>
+    <script>
+        log('After bridge-types.js: Hand = ' + typeof Hand);
+    </script>
+    
+    <script src="js/convention-manager.js?v=6"></script>
+    <script>
+        log('After convention-manager.js: ConventionCard = ' + typeof ConventionCard);
+    </script>
+    
+    <script src="js/combined-bidding-system.js?v=8"></script>
+    <script>
+        log('After combined-bidding-system.js:');
+        log('  BiddingSystem = ' + typeof BiddingSystem);
+        log('  SAYCBiddingSystem = ' + typeof SAYCBiddingSystem);
+        log('  window.BiddingSystem = ' + typeof window.BiddingSystem);
+        log('  window.SAYCBiddingSystem = ' + typeof window.SAYCBiddingSystem);
+        
+        if (typeof SAYCBiddingSystem !== 'undefined') {
+            try {
+                const testSystem = new SAYCBiddingSystem();
+                log('✓ SAYCBiddingSystem constructor successful');
+                log('  testSystem.conventions = ' + typeof testSystem.conventions);
+                log('  testSystem.conventions.config = ' + typeof testSystem.conventions.config);
+            } catch (e) {
+                log('✗ SAYCBiddingSystem constructor failed: ' + e.message);
+                log('  Error stack: ' + e.stack);
+            }
+        }
+    </script>
+</body>
+</html>

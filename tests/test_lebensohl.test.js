@@ -3,7 +3,7 @@
  * Port of test_lebensohl.py from Python version.
  */
 
-const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
+const { SAYCBiddingSystem } = require('../js/combined-bidding-system-node');
 const { Bid, Auction, Hand } = require('../js/bridge-types');
 
 describe('Lebensohl Tests', () => {
