@@ -6,10 +6,26 @@ let system = null;
 let currentHand = null;
 let systemReady = false;
 
-// Initialize the system when the page loads
-window.addEventListener('DOMContentLoaded', async () => {
+// Function to initialize the system
+async function initializeSystem() {
     try {
         console.log('Initializing bridge bidding system...');
+        
+        // Check if all required classes are available
+        if (typeof SAYCBiddingSystem === 'undefined') {
+            throw new Error('SAYCBiddingSystem is not defined - scripts may not have loaded correctly');
+        }
+        if (typeof BiddingSystem === 'undefined') {
+            throw new Error('BiddingSystem is not defined');
+        }
+        if (typeof ConventionCard === 'undefined') {
+            throw new Error('ConventionCard is not defined');
+        }
+        if (typeof Hand === 'undefined') {
+            throw new Error('Hand is not defined');
+        }
+        
+        console.log('All required classes are available');
         system = new SAYCBiddingSystem();
         console.log('SAYCBiddingSystem created');
         
@@ -42,7 +58,15 @@ window.addEventListener('DOMContentLoaded', async () => {
         alert('Error loading bidding system: ' + error.message + '\nPlease check the console for details.');
         systemReady = false;
     }
-});
+}
+
+// Initialize the system when the page loads
+if (document.readyState === 'loading') {
+    window.addEventListener('DOMContentLoaded', initializeSystem);
+} else {
+    // DOM is already ready, initialize immediately
+    setTimeout(initializeSystem, 100);
+}
 
 /**
  * Parse the hand from input and display it.

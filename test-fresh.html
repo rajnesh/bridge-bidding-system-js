@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal System Test</title>
+</head>
+<body>
+    <div id="result">Loading...</div>
+    
+    <script src="js/bridge-types.js?v=3"></script>
+    <script src="js/convention-manager.js?v=3"></script>
+    <script src="js/bidding-system.js?v=3"></script>
+    <script src="js/sayc-system.js?v=3"></script>
+    
+    <script>
+        const result = document.getElementById('result');
+        
+        window.addEventListener('DOMContentLoaded', () => {
+            try {
+                result.innerHTML = 'Testing...<br>';
+                
+                // Check classes
+                result.innerHTML += 'SAYCBiddingSystem: ' + (typeof SAYCBiddingSystem !== 'undefined' ? 'OK' : 'MISSING') + '<br>';
+                result.innerHTML += 'BiddingSystem: ' + (typeof BiddingSystem !== 'undefined' ? 'OK' : 'MISSING') + '<br>';
+                result.innerHTML += 'ConventionCard: ' + (typeof ConventionCard !== 'undefined' ? 'OK' : 'MISSING') + '<br>';
+                result.innerHTML += 'Hand: ' + (typeof Hand !== 'undefined' ? 'OK' : 'MISSING') + '<br>';
+                
+                // Try to create system
+                const system = new SAYCBiddingSystem();
+                result.innerHTML += 'System created: OK<br>';
+                
+                result.innerHTML += '<span style="color: green;">SUCCESS!</span>';
+                
+            } catch (error) {
+                result.innerHTML += '<span style="color: red;">ERROR: ' + error.message + '</span><br>';
+                result.innerHTML += '<span style="color: red;">Stack: ' + error.stack + '</span>';
+            }
+        });
+    </script>
+</body>
+</html>
