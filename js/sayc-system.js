@@ -170,6 +170,28 @@ class SAYCBiddingSystem extends BiddingSystem {
                 return bid;
             }
 
+            // Splinter bids - jump to show game-forcing values with 4+ support and singleton/void
+            if (this.conventions && this.conventions.isEnabled('splinter_bids', 'responses')) {
+                if (supportLength >= 4 && hand.hcp >= 13) {
+                    // Look for a singleton or void to splinter
+                    const suitOrder = ['C', 'D', 'H', 'S'];
+                    const openerSuitIndex = suitOrder.indexOf(openerSuit);
+                    
+                    for (const suit of suitOrder) {
+                        if (suit !== openerSuit && hand.lengths[suit] <= 1) {
+                            const suitIndex = suitOrder.indexOf(suit);
+                            // Calculate appropriate splinter level
+                            // 3-level for suits higher than opener's suit, 4-level for suits lower
+                            let splinterLevel = (suitIndex > openerSuitIndex) ? 3 : 4;
+                            const splinterBid = `${splinterLevel}${suit}`;
+                            const bid = new Bid(splinterBid);
+                            bid.conventionUsed = 'Splinter Bid';
+                            return bid;
+                        }
+                    }
+                }
+            }
+
             // Jacoby 2NT
             if (this.conventions && this.conventions.isEnabled('jacoby_2nt', 'responses')) {
                 if (supportLength >= 4) {

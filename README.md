@@ -5,6 +5,7 @@ A comprehensive JavaScript implementation of the Standard American Yellow Card (
 ## Features
 
 ### Core Bidding Logic
+
 - **Opening Bids**: 1NT (15-17 HCP), suit openings, weak twos
 - **Balanced Hand Detection**: 4-3-3-3, 4-4-3-2, 5-3-3-2 distributions
 - **Rule of 20**: Smart opening decisions based on HCP + longest two suits
@@ -13,22 +14,27 @@ A comprehensive JavaScript implementation of the Standard American Yellow Card (
 ### Major Conventions Supported
 
 #### Slam Conventions
+
 - **Blackwood (4NT)**: Classic ace-asking with proper responses (0-4 aces)
 - **Roman Key Card Blackwood (RKCB)**: 1430 and 3014 variants
 - **Gerber (4C)**: Ace-asking after notrump bids
 
 #### Notrump Defenses
+
 - **DONT** (Disturbing Opponents' NoTrump): Single-suited, two-suited, and three-suited patterns
 - **Meckwell**: Comprehensive defense including single-suited and two-suited combinations
 
 #### Major Suit Responses
+
 - **Jacoby 2NT**: Game-forcing raise showing 4+ card support and 13+ HCP
+- **Splinter Bids**: Jump bids in new suits showing game-forcing values with 4+ support and singleton/void
 - **Lebensohl**: Complex sequences after opponent interference over 1NT
   - Fast vs slow denial of stopper
   - Stopper asking with proper detection (A, Kx+, Qxx+)
   - Cue bid sequences
 
 #### Competitive Bidding
+
 - **Support Doubles**: Show exactly 3-card support in competitive auctions
 - **Negative Doubles**: Takeout doubles after partner opens
 - **Responsive Doubles**: Takeout after partner's takeout double
@@ -38,10 +44,12 @@ A comprehensive JavaScript implementation of the Standard American Yellow Card (
 - **Relaxed Takeout Doubles**: Shape-based with 11+ HCP when short in opponent's suit
 
 #### Other Conventions
+
 - **Drury**: Passed hand evaluation (when enabled)
 - **Passed Hand Variations**: Adjusted bidding after initial pass
 
 ### Web Interface Features
+
 - **Interactive Hand Input**: Enter hands in standard format
 - **Visual Hand Display**: Color-coded suits with symbols (♠ ♥ ♦ ♣)
 - **Live HCP Calculation**: Automatic point counting
@@ -51,6 +59,7 @@ A comprehensive JavaScript implementation of the Standard American Yellow Card (
 - **Vulnerability Control**: Set vulnerability for both sides
 
 ### Auction Management
+
 - **Seat Tracking**: Proper dealer and position tracking
 - **Vulnerability Awareness**: Adjusts bidding ranges based on vulnerability
 - **Convention Attribution**: Each bid tracks which convention was used
@@ -58,9 +67,11 @@ A comprehensive JavaScript implementation of the Standard American Yellow Card (
 ## Quick Start
 
 ### Option 1: Open Directly in Browser
+
 Simply open `index.html` in a modern web browser (Chrome, Firefox, Safari, Edge).
 
 ### Option 2: Local Web Server (Recommended)
+
 For full functionality:
 
 ```bash
@@ -79,11 +90,13 @@ Then visit: `http://localhost:8000`
 ## Usage Guide
 
 ### 1. Enter Your Hand
+
 - Format: **Spades Hearts Diamonds Clubs** (space-separated)
 - Example: `AKQ2 J432 32 32`
 - Click **Parse Hand** to analyze
 
 ### 2. Start an Auction
+
 - Select **Our Seat** and **Dealer**
 
 - Set vulnerability checkboxes if needed├── bidding_system.py # Base bidding system framework
@@ -157,9 +170,9 @@ system.startAuction(0); // our_seat = 0 (North)
 
 // Get a bid for the hand
 const bid = system.getBid(hand);
-console.log(`Bid: ${bid.token}`);  // e.g., "1S"
+console.log(`Bid: ${bid.token}`); // e.g., "1S"
 if (bid.conventionUsed) {
-    console.log(`Convention: ${bid.conventionUsed}`);
+  console.log(`Convention: ${bid.conventionUsed}`);
 }
 ```
 
@@ -211,6 +224,7 @@ npm test tests/test_sayc.test.js
 ### Debugging
 
 Open browser DevTools (F12) for debugging. The console will show:
+
 - Parsed hand information
 - Bidding logic decisions
 - Convention matches

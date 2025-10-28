@@ -33,6 +33,12 @@
     "responses": {
         "jacoby_2nt": {
             "enabled": true
+        },
+        "splinter_bids": {
+            "enabled": true,
+            "min_hcp": 13,
+            "min_support": 4,
+            "max_shortness": 1
         }
     },
     "competitive": {

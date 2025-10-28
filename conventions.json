@@ -32,6 +32,13 @@
         "jacoby_2nt": {
             "enabled": true,
             "description": "When responder has 4+ card support for partner's 1H/1S and 13+ HCP, 2NT is Jacoby (game forcing)."
+        },
+        "splinter_bids": {
+            "enabled": true,
+            "description": "Jump bids in new suits showing game-forcing values with 4+ support for partner's major and singleton/void in bid suit.",
+            "min_hcp": 13,
+            "min_support": 4,
+            "max_shortness": 1
         }
     },
     "competitive": {
