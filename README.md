@@ -1,6 +1,6 @@
-# Bridge Bidding System (SAYC) - JavaScript/Web Implementation
+# Bridge Bidding System (SAYC) - Browser Application
 
-A comprehensive JavaScript implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring an interactive Bootstrap-based web interface.
+A comprehensive browser-based implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring an interactive Bootstrap-based web interface. This application runs entirely in the browser with no server requirements.
 
 ## Features
 
@@ -98,28 +98,20 @@ Then visit: `http://localhost:8000`
 ### 2. Start an Auction
 
 - Select **Our Seat** and **Dealer**
+- Set vulnerability checkboxes if needed
+- Click **Start New Auction**
 
-- Set vulnerability checkboxes if needed├── bidding_system.py # Base bidding system framework
+### 3. Get Bidding Suggestion
 
-- Click **Start New Auction**├── bridge_types.py # Core types: Card, Hand, Bid, Auction
+- Click **Get My Bid** to see the recommended bid
+- Shows bid and convention used
 
-├── sayc_system.py # SAYC implementation with all conventions
+### 4. Build the Auction
 
-### 3. Get Bidding Suggestion├── convention_manager.py # Convention configuration and checking
+- Type bids: **1S, 2NT, PASS, X, XX**
+- Click **Add** to add them to the auction history
 
-- Click **Get My Bid** to see the recommended bid├── conventions.json # Convention settings and configurations
-
-├── tests/
-
-### 4. Build the Auction│ ├── test_sayc.py # Core SAYC bidding tests
-
-- Type bids: **1S, 2NT, PASS, X, XX**│ ├── test_advanced.py # Advanced convention tests
-
-│ ├── test_competitive.py # Competitive bidding tests
-
-## Development│ ├── test_comprehensive.py # Integration tests
-
-│ └── test_lebensohl.py # Lebensohl-specific tests
+## Development
 
 ## Project Structure
 
@@ -211,15 +203,15 @@ Edit `conventions.json` to enable/disable conventions or change settings:
 
 ## Development
 
-### Running Tests
+> **Note**: This application is now browser-only. Node.js tests are no longer supported.
 
-```bash
-# Run all tests
-npm test
+### Testing in Browser
 
-# Run specific test file
-npm test tests/test_sayc.test.js
-```
+The application includes several test pages for debugging:
+
+- `browser-test.html` - Complete system functionality test
+- `minimal-test.html` - Basic class functionality test
+- `debug.html` - Detailed debugging with console output
 
 ### Debugging
 
