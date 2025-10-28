@@ -449,4 +449,8 @@ class ConventionCard {
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { VulnerabilityState, ConventionCard };
+} else if (typeof window !== 'undefined') {
+    // Browser global exports
+    window.VulnerabilityState = VulnerabilityState;
+    window.ConventionCard = ConventionCard;
 }

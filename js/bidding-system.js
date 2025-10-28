@@ -182,4 +182,8 @@ class BiddingSystem {
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { BiddingSystem, SUITS };
+} else if (typeof window !== 'undefined') {
+    // Browser global exports
+    window.BiddingSystem = BiddingSystem;
+    window.SUITS = SUITS;
 }

@@ -18,6 +18,10 @@ const SUITS = ['C', 'D', 'H', 'S'];
  */
 class SAYCBiddingSystem extends BiddingSystem {
     constructor(conventionConfig = null) {
+        // In Node.js environment, default to loading conventions.json
+        if (typeof require !== 'undefined' && conventionConfig === null) {
+            conventionConfig = 'conventions.json';
+        }
         super(conventionConfig);
     }
 
@@ -734,4 +738,8 @@ class SAYCBiddingSystem extends BiddingSystem {
 // Export for use in other modules
 if (typeof module !== 'undefined' && module.exports) {
     module.exports = { SAYCBiddingSystem, SUITS };
+} else if (typeof window !== 'undefined') {
+    // Browser global exports
+    window.SAYCBiddingSystem = SAYCBiddingSystem;
+    window.SUITS = SUITS;
 }
