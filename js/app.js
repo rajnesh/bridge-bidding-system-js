@@ -6,12 +6,30 @@ let system = null;
 let currentHand = null;
 let systemReady = false;
 
+// Function to wait for scripts to load
+function waitForScripts() {
+    return new Promise((resolve) => {
+        if (window.bridgeScriptsLoaded && 
+            typeof SAYCBiddingSystem !== 'undefined' &&
+            typeof BiddingSystem !== 'undefined' &&
+            typeof ConventionCard !== 'undefined' &&
+            typeof Hand !== 'undefined') {
+            resolve();
+        } else {
+            setTimeout(() => waitForScripts().then(resolve), 50);
+        }
+    });
+}
+
 // Function to initialize the system
 async function initializeSystem() {
     try {
+        console.log('Waiting for scripts to load...');
+        await waitForScripts();
+        
         console.log('Initializing bridge bidding system...');
         
-        // Check if all required classes are available
+        // Double-check all required classes are available
         if (typeof SAYCBiddingSystem === 'undefined') {
             throw new Error('SAYCBiddingSystem is not defined - scripts may not have loaded correctly');
         }

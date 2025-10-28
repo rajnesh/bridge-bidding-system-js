@@ -190,8 +190,10 @@ class Auction {
 }
 
 // Browser global exports
-window.Card = Card;
-window.Hand = Hand;
-window.Bid = Bid;
-window.Auction = Auction;
-window.POINTS = POINTS;
+if (typeof window !== 'undefined') {
+    window.Card = Card;
+    window.Hand = Hand;
+    window.Bid = Bid;
+    window.Auction = Auction;
+    window.POINTS = POINTS;
+}

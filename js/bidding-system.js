@@ -170,4 +170,6 @@ class BiddingSystem {
 }
 
 // Browser global exports
-window.BiddingSystem = BiddingSystem;
+if (typeof window !== 'undefined') {
+    window.BiddingSystem = BiddingSystem;
+}

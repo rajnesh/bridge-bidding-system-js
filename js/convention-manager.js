@@ -421,5 +421,7 @@ class ConventionCard {
 }
 
 // Browser global exports
-window.VulnerabilityState = VulnerabilityState;
-window.ConventionCard = ConventionCard;
+if (typeof window !== 'undefined') {
+    window.VulnerabilityState = VulnerabilityState;
+    window.ConventionCard = ConventionCard;
+}

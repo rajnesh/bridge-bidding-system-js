@@ -722,6 +722,11 @@ class SAYCBiddingSystem extends BiddingSystem {
     }
 }
 
-// Browser global exports
-window.SAYCBiddingSystem = SAYCBiddingSystem;
-window.SUITS = SUITS;
+// Browser global exports - ensure dependencies are available
+if (typeof window !== 'undefined') {
+    if (typeof BiddingSystem === 'undefined') {
+        console.error('BiddingSystem not available when trying to define SAYCBiddingSystem');
+    }
+    window.SAYCBiddingSystem = SAYCBiddingSystem;
+    window.SUITS = SUITS;
+}
