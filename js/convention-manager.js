@@ -24,7 +24,7 @@ class VulnerabilityState {
 class ConventionCard {
     static SUITS = ['C', 'D', 'H', 'S']; // Suit ordering
 
-    constructor(configPath = 'conventions.json') {
+    constructor(configPath = null) {
         this._lastAuction = null;
         
         // Load config synchronously for Node.js, async for browser
@@ -44,7 +44,7 @@ class ConventionCard {
             // Config object passed directly
             this.config = configPath;
         } else {
-            // Browser environment - use default config for now
+            // Browser environment - use default config initially
             this.config = this._getDefaultConfig();
         }
     }

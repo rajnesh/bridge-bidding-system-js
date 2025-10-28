@@ -24,6 +24,7 @@
             margin-bottom: 30px;
         }
         .card-suit {
+
             font-size: 1.2em;
             font-weight: bold;
         }
@@ -100,6 +101,11 @@
                 <i class="bi bi-suit-club-fill"></i>
             </h1>
             
+            <!-- Loading indicator -->
+            <div id="loadingIndicator" class="alert alert-info text-center">
+                <i class="bi bi-hourglass-split"></i> Initializing bidding system...
+            </div>
+            
             <div class="row">
                 <!-- Left Column: Hand Input -->
                 <div class="col-lg-6">
@@ -109,14 +115,14 @@
                         </div>
                         <div class="card-body">
                             <div class="mb-3">
-                                <label for="hand Input" class="form-label">Enter your hand (PBN format):</label>
+                                <label for="handInput" class="form-label">Enter your hand (PBN format):</label>
                                 <input type="text" class="form-control" id="handInput" 
                                        placeholder="e.g., AKQ2 J432 32 32"
                                        value="AKQ2 J432 32 32">
                                 <small class="text-muted">Format: Spades Hearts Diamonds Clubs</small>
                             </div>
                             
-                            <button class="btn btn-primary w-100" onclick="parseHand()">
+                            <button class="btn btn-primary w-100" onclick="parseHand()" disabled>
                                 <i class="bi bi-arrow-repeat"></i> Parse Hand
                             </button>
                         </div>
@@ -196,10 +202,10 @@
                                     </div>
                                 </div>
                             </div>
-                            <button class="btn btn-success w-100 mt-3" onclick="startAuction()">
+                            <button class="btn btn-success w-100 mt-3" onclick="startAuction()" disabled>
                                 <i class="bi bi-play-fill"></i> Start New Auction
                             </button>
-                            <button class="btn btn-warning w-100 mt-2" onclick="getBid()">
+                            <button class="btn btn-warning w-100 mt-2" onclick="getBid()" disabled>
                                 <i class="bi bi-lightbulb"></i> Get My Bid
                             </button>
                         </div>
@@ -240,7 +246,7 @@
                             <div class="input-group">
                                 <input type="text" class="form-control" id="bidToAdd" 
                                        placeholder="e.g., 1S, 2NT, PASS, X">
-                                <button class="btn btn-secondary" onclick="addBid()">
+                                <button class="btn btn-secondary" onclick="addBid()" disabled>
                                     <i class="bi bi-plus"></i> Add
                                 </button>
                             </div>

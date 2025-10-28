@@ -17,7 +17,7 @@ const SUITS = ['C', 'D', 'H', 'S'];
  * SAYC bidding system with configurable conventions.
  */
 class SAYCBiddingSystem extends BiddingSystem {
-    constructor(conventionConfig = 'conventions.json') {
+    constructor(conventionConfig = null) {
         super(conventionConfig);
     }
 

@@ -4,17 +4,43 @@
 
 let system = null;
 let currentHand = null;
+let systemReady = false;
 
 // Initialize the system when the page loads
 window.addEventListener('DOMContentLoaded', async () => {
     try {
+        console.log('Initializing bridge bidding system...');
         system = new SAYCBiddingSystem();
+        console.log('SAYCBiddingSystem created');
+        
         // Load conventions configuration
         await system.conventions.loadConfig('conventions.json');
-        console.log('Bridge bidding system initialized');
+        console.log('Conventions config loaded');
+        
+        systemReady = true;
+        console.log('Bridge bidding system initialized successfully');
+        
+        // Hide loading indicator
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        if (loadingIndicator) {
+            loadingIndicator.style.display = 'none';
+        }
+        
+        // Enable UI elements
+        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        
     } catch (error) {
         console.error('Error initializing system:', error);
-        alert('Error loading bidding system. Please check the console for details.');
+        
+        // Update loading indicator to show error
+        const loadingIndicator = document.getElementById('loadingIndicator');
+        if (loadingIndicator) {
+            loadingIndicator.className = 'alert alert-danger text-center';
+            loadingIndicator.innerHTML = '<i class="bi bi-exclamation-triangle"></i> Error loading bidding system: ' + error.message;
+        }
+        
+        alert('Error loading bidding system: ' + error.message + '\nPlease check the console for details.');
+        systemReady = false;
     }
 });
 
@@ -66,8 +92,8 @@ function displayHandStats(hand) {
  * Start a new auction.
  */
 function startAuction() {
-    if (!system) {
-        alert('System not initialized yet');
+    if (!system || !systemReady) {
+        alert('System not initialized yet. Please wait for initialization to complete.');
         return;
     }
     
@@ -76,7 +102,13 @@ function startAuction() {
     const vulWe = document.getElementById('vulWe').checked;
     const vulThey = document.getElementById('vulThey').checked;
     
-    system.startAuctionWithDealer(ourSeat, dealer, vulWe, vulThey);
+    try {
+        system.startAuctionWithDealer(ourSeat, dealer, vulWe, vulThey);
+    } catch (error) {
+        alert('Error starting auction: ' + error.message);
+        console.error(error);
+        return;
+    }
     
     updateAuctionDisplay();
     document.getElementById('bidResult').style.display = 'none';
@@ -88,7 +120,12 @@ function startAuction() {
  * Get recommended bid for current hand.
  */
 function getBid() {
-    if (!system || !system.currentAuction) {
+    if (!system || !systemReady) {
+        alert('System not initialized yet. Please wait for initialization to complete.');
+        return;
+    }
+    
+    if (!system.currentAuction) {
         alert('Please start an auction first');
         return;
     }
@@ -143,7 +180,12 @@ function displayBid(bid) {
  * Add a bid to the current auction.
  */
 function addBid() {
-    if (!system || !system.currentAuction) {
+    if (!system || !systemReady) {
+        alert('System not initialized yet. Please wait for initialization to complete.');
+        return;
+    }
+    
+    if (!system.currentAuction) {
         alert('Please start an auction first');
         return;
     }

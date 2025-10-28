@@ -1,0 +1,30 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Minimal Bridge System Test</title>
+</head>
+<body>
+    <div id="result"></div>
+    
+    <script src="js/bridge-types.js"></script>
+    <script>
+        const result = document.getElementById('result');
+        
+        try {
+            result.innerHTML += '<p>Step 1: Testing Hand class...</p>';
+            const hand = new Hand('AKQ2 J432 32 32');
+            result.innerHTML += '<p>✓ Hand created successfully, HCP: ' + hand.hcp + '</p>';
+            
+            result.innerHTML += '<p>Step 2: Testing Bid class...</p>';
+            const bid = new Bid('1S');
+            result.innerHTML += '<p>✓ Bid created successfully: ' + bid.token + '</p>';
+            
+            result.innerHTML += '<p>All basic tests passed!</p>';
+        } catch (error) {
+            result.innerHTML += '<p style="color: red;">ERROR: ' + error.message + '</p>';
+            result.innerHTML += '<p style="color: red;">Stack: ' + error.stack + '</p>';
+            console.error(error);
+        }
+    </script>
+</body>
+</html>
