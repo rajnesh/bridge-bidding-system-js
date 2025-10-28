@@ -1,0 +1,16 @@
+# Temporary/debug scripts
+debug_*.py
+
+# Output artifacts
+output.txt
+
+# Python cache
+__pycache__/
+*.pyc
+
+# pytest cache
+.pytest_cache/
+
+# OS junk
+.DS_Store
+Thumbs.db

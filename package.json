@@ -1,0 +1,37 @@
+{
+  "name": "bridge-bidding-sayc",
+  "version": "1.0.0",
+  "description": "Standard American Yellow Card (SAYC) Bridge Bidding System - Web Application",
+  "main": "index.html",
+  "scripts": {
+    "test": "jest",
+    "test:verbose": "jest --verbose",
+    "test:coverage": "jest --coverage",
+    "start": "npx http-server -p 8000 -o",
+    "serve": "python -m http.server 8000"
+  },
+  "keywords": [
+    "bridge",
+    "bidding",
+    "sayc",
+    "card-game",
+    "contract-bridge"
+  ],
+  "author": "Rajnesh Kathuria",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rajnesh/bridge-bidding-system.git"
+  },
+  "devDependencies": {
+    "http-server": "^14.1.1",
+    "jest": "^30.2.0"
+  },
+  "directories": {
+    "test": "tests"
+  },
+  "bugs": {
+    "url": "https://github.com/rajnesh/bridge-bidding-system/issues"
+  },
+  "homepage": "https://github.com/rajnesh/bridge-bidding-system#readme"
+}
