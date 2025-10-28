@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Debug Initialization</title>
+</head>
+<body>
+    <div id="output"></div>
+    
+    <script>
+        const output = document.getElementById('output');
+        
+        function log(msg) {
+            output.innerHTML += '<div>' + new Date().toLocaleTimeString() + ': ' + msg + '</div>';
+            console.log(msg);
+        }
+        
+        log('Starting debug...');
+        
+        window.addEventListener('error', (e) => {
+            log('ERROR: ' + e.message + ' at ' + e.filename + ':' + e.lineno);
+        });
+    </script>
+    
+    <script src="js/bridge-types.js?v=3"></script>
+    <script>
+        log('bridge-types.js loaded - Hand: ' + (typeof Hand !== 'undefined' ? 'OK' : 'MISSING'));
+    </script>
+    
+    <script src="js/convention-manager.js?v=3"></script>
+    <script>
+        log('convention-manager.js loaded - ConventionCard: ' + (typeof ConventionCard !== 'undefined' ? 'OK' : 'MISSING'));
+    </script>
+    
+    <script src="js/bidding-system.js?v=3"></script>
+    <script>
+        log('bidding-system.js loaded - BiddingSystem: ' + (typeof BiddingSystem !== 'undefined' ? 'OK' : 'MISSING'));
+    </script>
+    
+    <script src="js/sayc-system.js?v=3"></script>
+    <script>
+        log('sayc-system.js loaded - SAYCBiddingSystem: ' + (typeof SAYCBiddingSystem !== 'undefined' ? 'OK' : 'MISSING'));
+        
+        window.bridgeScriptsLoaded = true;
+        log('bridgeScriptsLoaded set to true');
+        
+        // Test the waitForScripts logic
+        function waitForScripts() {
+            return new Promise((resolve) => {
+                log('Checking script readiness...');
+                log('- bridgeScriptsLoaded: ' + window.bridgeScriptsLoaded);
+                log('- SAYCBiddingSystem: ' + (typeof SAYCBiddingSystem !== 'undefined'));
+                log('- BiddingSystem: ' + (typeof BiddingSystem !== 'undefined'));
+                log('- ConventionCard: ' + (typeof ConventionCard !== 'undefined'));
+                log('- Hand: ' + (typeof Hand !== 'undefined'));
+                
+                if (window.bridgeScriptsLoaded && 
+                    typeof SAYCBiddingSystem !== 'undefined' &&
+                    typeof BiddingSystem !== 'undefined' &&
+                    typeof ConventionCard !== 'undefined' &&
+                    typeof Hand !== 'undefined') {
+                    log('All conditions met, resolving...');
+                    resolve();
+                } else {
+                    log('Conditions not met, retrying in 50ms...');
+                    setTimeout(() => waitForScripts().then(resolve), 50);
+                }
+            });
+        }
+        
+        async function testInit() {
+            try {
+                log('Starting waitForScripts...');
+                await waitForScripts();
+                log('waitForScripts completed!');
+                
+                log('Creating SAYCBiddingSystem...');
+                const system = new SAYCBiddingSystem();
+                log('System created successfully!');
+                
+                log('Loading config...');
+                await system.conventions.loadConfig('conventions.json');
+                log('Config loaded successfully!');
+                
+                log('🎉 Full initialization successful!');
+                
+            } catch (error) {
+                log('❌ Error: ' + error.message);
+                log('Stack: ' + error.stack);
+            }
+        }
+        
+        setTimeout(testInit, 100);
+    </script>
+</body>
+</html>

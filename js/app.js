@@ -6,26 +6,10 @@ let system = null;
 let currentHand = null;
 let systemReady = false;
 
-// Function to wait for scripts to load
-function waitForScripts() {
-    return new Promise((resolve) => {
-        if (window.bridgeScriptsLoaded && 
-            typeof SAYCBiddingSystem !== 'undefined' &&
-            typeof BiddingSystem !== 'undefined' &&
-            typeof ConventionCard !== 'undefined' &&
-            typeof Hand !== 'undefined') {
-            resolve();
-        } else {
-            setTimeout(() => waitForScripts().then(resolve), 50);
-        }
-    });
-}
-
 // Function to initialize the system
 async function initializeSystem() {
     try {
-        console.log('Waiting for scripts to load...');
-        await waitForScripts();
+        console.log('Starting initialization...');
         
         console.log('Initializing bridge bidding system...');
         
@@ -44,24 +28,49 @@ async function initializeSystem() {
         }
         
         console.log('All required classes are available');
+        console.log('Creating SAYCBiddingSystem...');
         system = new SAYCBiddingSystem();
-        console.log('SAYCBiddingSystem created');
+        console.log('SAYCBiddingSystem created successfully');
+        console.log('System conventions object:', system.conventions);
         
-        // Load conventions configuration
-        await system.conventions.loadConfig('conventions.json');
-        console.log('Conventions config loaded');
+        // Load conventions configuration with timeout and fallback
+        console.log('Loading conventions config...');
+        try {
+            const configPromise = system.conventions.loadConfig('conventions.json');
+            const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Config loading timeout after 5 seconds')), 5000)
+            );
+            
+            await Promise.race([configPromise, timeoutPromise]);
+            console.log('Conventions config loaded successfully');
+        } catch (configError) {
+            console.warn('Config loading failed, using default config:', configError.message);
+            // System should already have default config, so continue
+        }
         
         systemReady = true;
         console.log('Bridge bidding system initialized successfully');
         
         // Hide loading indicator
+        console.log('Looking for loading indicator...');
         const loadingIndicator = document.getElementById('loadingIndicator');
+        console.log('Loading indicator found:', loadingIndicator !== null);
         if (loadingIndicator) {
+            console.log('Hiding loading indicator...');
             loadingIndicator.style.display = 'none';
+            console.log('Loading indicator hidden');
         }
         
         // Enable UI elements
-        document.querySelectorAll('button').forEach(btn => btn.disabled = false);
+        console.log('Enabling buttons...');
+        const buttons = document.querySelectorAll('button');
+        console.log('Found buttons:', buttons.length);
+        buttons.forEach(btn => {
+            btn.disabled = false;
+            console.log('Enabled button:', btn.textContent.trim());
+        });
+        
+        console.log('🎉 Initialization complete!');
         
     } catch (error) {
         console.error('Error initializing system:', error);
@@ -79,12 +88,10 @@ async function initializeSystem() {
 }
 
 // Initialize the system when the page loads
-if (document.readyState === 'loading') {
-    window.addEventListener('DOMContentLoaded', initializeSystem);
-} else {
-    // DOM is already ready, initialize immediately
-    setTimeout(initializeSystem, 100);
-}
+window.addEventListener('DOMContentLoaded', () => {
+    console.log('DOM loaded, starting initialization in 500ms...');
+    setTimeout(initializeSystem, 500);
+});
 
 /**
  * Parse the hand from input and display it.
