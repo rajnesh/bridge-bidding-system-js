@@ -2,16 +2,6 @@
  * Bridge bidding system with SAYC and configurable conventions.
  */
 
-// Node.js requires
-if (typeof require !== 'undefined') {
-    const { Auction, Bid } = require('./bridge-types.js');
-    const { ConventionCard, VulnerabilityState } = require('./convention-manager.js');
-    global.Auction = Auction;
-    global.Bid = Bid;
-    global.ConventionCard = ConventionCard;
-    global.VulnerabilityState = VulnerabilityState;
-}
-
 // Constants
 const SUITS = ['C', 'D', 'H', 'S'];
 
@@ -19,8 +9,8 @@ const SUITS = ['C', 'D', 'H', 'S'];
  * Base bidding system implementing SAYC with configurable conventions.
  */
 class BiddingSystem {
-    constructor(conventionConfig = null) {
-        this.conventions = new ConventionCard(conventionConfig);
+    constructor() {
+        this.conventions = new ConventionCard();
         this.currentAuction = null;
         this.vulnerability = null;
         this.ourSeat = null; // 'N','E','S','W'
@@ -179,11 +169,5 @@ class BiddingSystem {
     }
 }
 
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { BiddingSystem, SUITS };
-} else if (typeof window !== 'undefined') {
-    // Browser global exports
-    window.BiddingSystem = BiddingSystem;
-    window.SUITS = SUITS;
-}
+// Browser global exports
+window.BiddingSystem = BiddingSystem;

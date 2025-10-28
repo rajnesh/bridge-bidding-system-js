@@ -189,14 +189,9 @@ class Auction {
     }
 }
 
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { Card, Hand, Bid, Auction, POINTS };
-} else if (typeof window !== 'undefined') {
-    // Browser global exports
-    window.Card = Card;
-    window.Hand = Hand;
-    window.Bid = Bid;
-    window.Auction = Auction;
-    window.POINTS = POINTS;
-}
+// Browser global exports
+window.Card = Card;
+window.Hand = Hand;
+window.Bid = Bid;
+window.Auction = Auction;
+window.POINTS = POINTS;

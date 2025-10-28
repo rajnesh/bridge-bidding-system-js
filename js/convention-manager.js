@@ -2,12 +2,6 @@
  * Bridge bidding conventions manager and utility functions.
  */
 
-// Node.js requires
-if (typeof require !== 'undefined') {
-    const fs = require('fs');
-    const path = require('path');
-}
-
 /**
  * Represents vulnerability state for both sides.
  */
@@ -24,29 +18,9 @@ class VulnerabilityState {
 class ConventionCard {
     static SUITS = ['C', 'D', 'H', 'S']; // Suit ordering
 
-    constructor(configPath = null) {
+    constructor() {
         this._lastAuction = null;
-        
-        // Load config synchronously for Node.js, async for browser
-        if (typeof require !== 'undefined' && typeof configPath === 'string') {
-            // Node.js environment
-            try {
-                const fs = require('fs');
-                const path = require('path');
-                const fullPath = path.resolve(__dirname, '..', configPath);
-                const data = fs.readFileSync(fullPath, 'utf8');
-                this.config = JSON.parse(data);
-            } catch (error) {
-                console.error('Error loading convention configuration:', error);
-                this.config = this._getDefaultConfig();
-            }
-        } else if (typeof configPath === 'object') {
-            // Config object passed directly
-            this.config = configPath;
-        } else {
-            // Browser environment - use default config initially
-            this.config = this._getDefaultConfig();
-        }
+        this.config = this._getDefaultConfig();
     }
 
     /**
@@ -446,11 +420,6 @@ class ConventionCard {
     }
 }
 
-// Export for use in other modules
-if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { VulnerabilityState, ConventionCard };
-} else if (typeof window !== 'undefined') {
-    // Browser global exports
-    window.VulnerabilityState = VulnerabilityState;
-    window.ConventionCard = ConventionCard;
-}
+// Browser global exports
+window.VulnerabilityState = VulnerabilityState;
+window.ConventionCard = ConventionCard;
