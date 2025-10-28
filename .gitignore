@@ -4,19 +4,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
-# Temporary/debug scripts
-debug_*.py
-
-# Output artifacts
-output.txt
-
-# Python cache
-__pycache__/
-*.pyc
-
-# pytest cache
-.pytest_cache/
-
 # Coverage directory used by tools like istanbul
 coverage/
 .nyc_output
