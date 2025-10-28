@@ -58,12 +58,11 @@ Tests:       29 passed, 29 total
 
 ### JavaScript Version
 
-- **Total Lines**: 1,621 lines
+- **Total Lines**: ~1,450 lines (after merging bidding system files)
 - **Core Files**:
-  - `bridge-types.js`: 195 lines
-  - `convention-manager.js`: 453 lines
-  - `bidding-system.js`: 183 lines
-  - `sayc-system.js`: 716 lines
+  - `bridge-types.js`: ~210 lines (added VulnerabilityState)
+  - `convention-manager.js`: ~430 lines (removed VulnerabilityState)
+  - `combined-bidding-system.js`: ~920 lines (merged BiddingSystem + SAYCBiddingSystem)
   - `app.js`: 74 lines
 
 ### Python Version (for comparison)

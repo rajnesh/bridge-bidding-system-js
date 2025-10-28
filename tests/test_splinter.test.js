@@ -5,7 +5,7 @@
  */
 
 const { makeHandFromRanks } = require('./test-helpers');
-const { SAYCBiddingSystem } = require('../js/sayc-system');
+const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
 const { Bid, Auction } = require('../js/bridge-types');
 
 describe('Splinter Bid Tests', () => {

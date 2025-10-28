@@ -9,8 +9,9 @@ if (typeof require !== 'undefined') {
     global.Bid = require('../js/bridge-types.js').Bid;
     global.Auction = require('../js/bridge-types.js').Auction;
     global.ConventionCard = require('../js/convention-manager.js').ConventionCard;
-    global.BiddingSystem = require('../js/bidding-system.js').BiddingSystem;
-    global.SAYCBiddingSystem = require('../js/sayc-system.js').SAYCBiddingSystem;
+    const combinedSystem = require('../js/combined-bidding-system.js');
+    global.BiddingSystem = combinedSystem.BiddingSystem;
+    global.SAYCBiddingSystem = combinedSystem.SAYCBiddingSystem;
 }
 
 /**

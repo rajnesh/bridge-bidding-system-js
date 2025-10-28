@@ -6,47 +6,28 @@ let system = null;
 let currentHand = null;
 let systemReady = false;
 
-// Function to initialize the system
-async function initializeSystem() {
+// Function to initialize the system - scripts are loaded synchronously now
+function initializeSystem() {
     try {
         console.log('Starting initialization...');
         
-        console.log('Initializing bridge bidding system...');
-        
-        // Double-check all required classes are available
+        // Check if classes are available
         if (typeof SAYCBiddingSystem === 'undefined') {
             throw new Error('SAYCBiddingSystem is not defined - scripts may not have loaded correctly');
-        }
-        if (typeof BiddingSystem === 'undefined') {
-            throw new Error('BiddingSystem is not defined');
-        }
-        if (typeof ConventionCard === 'undefined') {
-            throw new Error('ConventionCard is not defined');
-        }
-        if (typeof Hand === 'undefined') {
-            throw new Error('Hand is not defined');
         }
         
         console.log('All required classes are available');
         console.log('Creating SAYCBiddingSystem...');
         system = new SAYCBiddingSystem();
         console.log('SAYCBiddingSystem created successfully');
-        console.log('System conventions object:', system.conventions);
         
-        // Load conventions configuration with timeout and fallback
+        // Load conventions configuration
         console.log('Loading conventions config...');
-        try {
-            const configPromise = system.conventions.loadConfig('conventions.json');
-            const timeoutPromise = new Promise((_, reject) => 
-                setTimeout(() => reject(new Error('Config loading timeout after 5 seconds')), 5000)
-            );
-            
-            await Promise.race([configPromise, timeoutPromise]);
+        system.conventions.loadConfig('conventions.json').then(() => {
             console.log('Conventions config loaded successfully');
-        } catch (configError) {
+        }).catch(configError => {
             console.warn('Config loading failed, using default config:', configError.message);
-            // System should already have default config, so continue
-        }
+        });
         
         systemReady = true;
         console.log('Bridge bidding system initialized successfully');
@@ -87,10 +68,10 @@ async function initializeSystem() {
     }
 }
 
-// Initialize the system when the page loads
+// Initialize the system when the page loads - scripts are loaded synchronously
 window.addEventListener('DOMContentLoaded', () => {
-    console.log('DOM loaded, starting initialization in 500ms...');
-    setTimeout(initializeSystem, 500);
+    console.log('DOM loaded, starting initialization...');
+    initializeSystem();
 });
 
 /**

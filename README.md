@@ -116,18 +116,17 @@ Then visit: `http://localhost:8000`
 ## Project Structure
 
 ```
-├── index.html              # Main web interface
+├── index.html                    # Main web interface
 ├── js/
-│   ├── app.js               # Main application logic
-│   ├── bridge-types.js      # Core types: Card, Hand, Bid, Auction
-│   ├── bidding-system.js    # Base bidding system framework
-│   ├── sayc-system.js       # SAYC implementation with all conventions
-│   └── convention-manager.js # Convention configuration and management
-├── css/                     # Styling files
-├── cards/                   # Card data files
-├── conventions.json         # Convention settings and configurations
-└── tests/                   # Test files
-    ├── test-helpers.js      # Testing utilities
+│   ├── app.js                   # Main application logic
+│   ├── bridge-types.js          # Core types: Card, Hand, Bid, Auction, VulnerabilityState
+│   ├── combined-bidding-system.js # Combined BiddingSystem + SAYCBiddingSystem implementation
+│   └── convention-manager.js     # Convention configuration and management
+├── css/                         # Styling files
+├── cards/                       # Card data files
+├── conventions.json             # Convention settings and configurations
+└── tests/                       # Test files
+    ├── test-helpers.js          # Testing utilities
     ├── test_sayc.test.js    # Core SAYC bidding tests
     ├── test_advanced.test.js # Advanced convention tests
     ├── test_competitive.test.js # Competitive bidding tests

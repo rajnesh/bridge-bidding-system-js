@@ -189,11 +189,34 @@ class Auction {
     }
 }
 
+/**
+ * Represents vulnerability state for both sides.
+ */
+class VulnerabilityState {
+    constructor(we = false, they = false) {
+        this.we = we;
+        this.they = they;
+    }
+}
+
 // Browser global exports
 if (typeof window !== 'undefined') {
     window.Card = Card;
     window.Hand = Hand;
     window.Bid = Bid;
     window.Auction = Auction;
+    window.VulnerabilityState = VulnerabilityState;
     window.POINTS = POINTS;
+}
+
+// Node.js exports
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        Card,
+        Hand,
+        Bid,
+        Auction,
+        VulnerabilityState,
+        POINTS
+    };
 }

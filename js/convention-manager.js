@@ -3,16 +3,6 @@
  */
 
 /**
- * Represents vulnerability state for both sides.
- */
-class VulnerabilityState {
-    constructor(we = false, they = false) {
-        this.we = we;
-        this.they = they;
-    }
-}
-
-/**
  * Manages bridge bidding conventions and their configuration.
  */
 class ConventionCard {
@@ -422,6 +412,12 @@ class ConventionCard {
 
 // Browser global exports
 if (typeof window !== 'undefined') {
-    window.VulnerabilityState = VulnerabilityState;
     window.ConventionCard = ConventionCard;
+}
+
+// Node.js exports
+if (typeof module !== 'undefined' && module.exports) {
+    module.exports = {
+        ConventionCard
+    };
 }
