@@ -182,8 +182,21 @@ class BiddingSystem {
  * Extends BiddingSystem with comprehensive SAYC implementation.
  */
 class SAYCBiddingSystem extends BiddingSystem {
-    constructor() {
+    constructor(configPath = null) {
         super();
+        if (configPath) {
+            // For Node.js testing with sync loading
+            if (typeof require !== 'undefined') {
+                try {
+                    const fs = require('fs');
+                    const config = JSON.parse(fs.readFileSync(configPath, 'utf8'));
+                    this.conventions.config = config;
+                } catch (error) {
+                    console.error('Error loading config file:', error);
+                    // Fall back to default config
+                }
+            }
+        }
     }
 
     /**
