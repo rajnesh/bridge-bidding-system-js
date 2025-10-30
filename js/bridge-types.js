@@ -71,6 +71,15 @@ class Bid {
         this.isRedouble = options.isRedouble || false;
         this.conventionUsed = options.conventionUsed || null;
         this.seat = options.seat || null; // 'N','E','S','W'
+        
+        // Parse level and suit from token for contract bids
+        if (token && typeof token === 'string' && /^[1-7](C|D|H|S|NT)$/.test(token)) {
+            this.level = parseInt(token[0]);
+            this.suit = token.slice(1);
+        } else {
+            this.level = null;
+            this.suit = null;
+        }
     }
 }
 

@@ -1,6 +1,6 @@
-# Bridge Bidding System (SAYC) - Browser Application
+# Bridge Bidding System (SAYC)
 
-A comprehensive browser-based implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring an interactive Bootstrap-based web interface. This application runs entirely in the browser with no server requirements.
+A comprehensive, test-backed implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring a modern browser UI and a Node/Jest test suite.
 
 ## Features
 
@@ -8,6 +8,7 @@ A comprehensive browser-based implementation of the Standard American Yellow Car
 
 - **Opening Bids**: 1NT (15-17 HCP), suit openings, weak twos
 - **Balanced Hand Detection**: 4-3-3-3, 4-4-3-2, 5-3-3-2 distributions
+  - Optional: treat 5-4-2-2 as “semi-balanced” (configurable)
 - **Rule of 20**: Smart opening decisions based on HCP + longest two suits
 - **Better Minor**: Intelligent choice between clubs and diamonds
 
@@ -28,6 +29,7 @@ A comprehensive browser-based implementation of the Standard American Yellow Car
 
 - **Jacoby 2NT**: Game-forcing raise showing 4+ card support and 13+ HCP
 - **Splinter Bids**: Jump bids in new suits showing game-forcing values with 4+ support and singleton/void
+- **Texas Transfers** and **Jacoby Transfers** over NT
 - **Lebensohl**: Complex sequences after opponent interference over 1NT
   - Fast vs slow denial of stopper
   - Stopper asking with proper detection (A, Kx+, Qxx+)
@@ -57,6 +59,7 @@ A comprehensive browser-based implementation of the Standard American Yellow Car
 - **Bid Recommendations**: Get AI-powered bidding suggestions
 - **Convention Attribution**: See which convention was used for each bid
 - **Vulnerability Control**: Set vulnerability for both sides
+- **Live RKCB Label Update**: When changing the RKCB response structure (1430/3014) in General Settings, the convention label updates immediately with a subtle highlight to draw attention.
 
 ### Auction Management
 
@@ -123,8 +126,7 @@ Then visit: `http://localhost:8000`
 │   ├── combined-bidding-system.js # Combined BiddingSystem + SAYCBiddingSystem implementation
 │   └── convention-manager.js     # Convention configuration and management
 ├── css/                         # Styling files
-├── cards/                       # Card data files
-├── conventions.json             # Convention settings and configurations
+├── .github/workflows/           # CI workflows (GitHub Actions)
 └── tests/                       # Test files
     ├── test-helpers.js          # Testing utilities
     ├── test_sayc.test.js    # Core SAYC bidding tests
@@ -183,26 +185,46 @@ const bid = system.getBid(hand);
 
 ### Configuring Conventions
 
-Edit `conventions.json` to enable/disable conventions or change settings:
+This app uses an inline, browser-safe configuration (Option B). You can override defaults from the page by defining `window.DEFAULT_CONVENTIONS_CONFIG` before scripts load, or by modifying `js/convention-manager.js` defaults.
 
-```json
-{
-  "ace_asking": {
-    "blackwood": {
-      "enabled": true,
-      "variant": "rkcb"
-    }
+Key toggles you can set under `config`:
+
+```js
+window.DEFAULT_CONVENTIONS_CONFIG = {
+  notrump_responses: {
+    stayman: { enabled: true },
+    jacoby_transfers: { enabled: true },
+    texas_transfers: { enabled: true },
   },
-  "notrump_defenses": {
-    "dont": { "enabled": true },
-    "meckwell": { "enabled": true }
-  }
-}
+  responses: {
+    jacoby_2nt: { enabled: true },
+    splinter_bids: { enabled: true },
+  },
+  competitive: {
+    michaels: { enabled: true },
+    negative_doubles: { enabled: true },
+    responsive_doubles: { enabled: true },
+    support_doubles: { enabled: true, thru: "2S" },
+    reopening_doubles: { enabled: true },
+  },
+  general: {
+    vulnerability_adjustments: true,
+    passed_hand_variations: true,
+    balanced_shapes: {
+      include_5422: false, // when true, treat 5-4-2-2 as semi-balanced for NT logic
+    },
+  },
+};
 ```
 
-## Development
+### Testing
 
-> **Note**: This application is now browser-only. Node.js tests are no longer supported.
+Run the Node/Jest suite locally:
+
+```bash
+npm install
+npm test
+```
 
 ### Testing in Browser
 

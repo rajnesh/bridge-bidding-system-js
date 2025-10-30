@@ -225,4 +225,111 @@ describe('Comprehensive SAYC Tests', () => {
             expect(bid.isDouble || false).toBe(shouldDouble);
         }
     });
+
+    test('Strong 2 Club Opening', () => {
+        // Enable Strong 2 Clubs convention
+        system.conventions.config.opening_bids = system.conventions.config.opening_bids || {};
+        system.conventions.config.opening_bids.strong_2_clubs = { enabled: true, min_hcp: 22 };
+
+        const hands = [
+            // 22 HCP balanced - should open 2C
+            [makeHandFromPattern('AKQ2', 'AKQ2', 'AKQ2', '32'), '2C'],
+            // 23 HCP unbalanced - should open 2C
+            [makeHandFromPattern('AKQJ432', 'AK2', 'AK2', '3'), '2C'],
+            // 15-17 HCP balanced - should open 1NT
+            [makeHandFromPattern('AQJ2', 'KJ32', 'Q32', 'Q2'), '1NT'],
+            // Game in hand - should open 2C
+            [makeHandFromPattern('AKQJ4321', 'AK', 'AK', '3'), '2C']
+        ];
+
+        for (const [hand, expected] of hands) {
+            system.startAuction('N');
+            const bid = system._getOpeningBid(hand);
+            expect(bid.token).toBe(expected);
+        }
+    });
+
+    test('Strong 2 Club Responses', () => {
+        system.conventions.config.opening_bids = system.conventions.config.opening_bids || {};
+        system.conventions.config.opening_bids.strong_2_clubs = { enabled: true, min_hcp: 22 };
+
+        const responseHands = [
+            // 2D waiting response (under 8 HCP)
+            [makeHandFromPattern('432', '432', '432', '4321'), '2D'],
+            // 2D waiting response (8+ HCP but no 5-card suit)
+            [makeHandFromPattern('KQ32', 'KQ32', 'K32', '32'), '2D'],
+            // 2H positive (8+ HCP with 5+ hearts)
+            [makeHandFromPattern('432', 'KQJ32', '432', '32'), '2H'],
+            // 2S positive (8+ HCP with 5+ spades)
+            [makeHandFromPattern('KQJ32', '432', '432', '32'), '2S'],
+            // 3C positive (8+ HCP with 5+ clubs)
+            [makeHandFromPattern('432', '432', '432', 'KQJ32'), '3C'],
+            // 3D positive (8+ HCP with 5+ diamonds)
+            [makeHandFromPattern('432', '432', 'KQJ32', '432'), '3D'],
+            // 2NT positive (8-10 HCP balanced)
+            [makeHandFromPattern('KQ32', 'KQ32', 'K32', '32'), '2D'], // Actually this should be 2D waiting
+            // 3NT positive (11-13 HCP balanced)
+            [makeHandFromPattern('KQJ2', 'KQJ2', 'K32', '32'), '3NT']
+        ];
+
+        for (const [hand, expected] of responseHands) {
+            system.startAuction('N');
+            system.currentAuction.add(new Bid('2C')); // Partner opens 2C
+            const bid = system._getResponseToSuit('2C', hand);
+            expect(bid.token).toBe(expected);
+        }
+    });
+
+    test('Forced Response to Strong 2C', () => {
+        system.conventions.config.opening_bids = system.conventions.config.opening_bids || {};
+        system.conventions.config.opening_bids.strong_2_clubs = { enabled: true, min_hcp: 22 };
+
+        // Test that responses to 2C are forced (cannot pass)
+        const weakHands = [
+            // 0 HCP - must still respond 2D
+            makeHandFromPattern('432', '432', '432', '4321'),
+            // 3 HCP - must still respond 2D  
+            makeHandFromPattern('432', 'K32', '432', '4321'),
+            // 5 HCP - must still respond 2D
+            makeHandFromPattern('Q32', 'K32', '432', '4321')
+        ];
+
+        for (const hand of weakHands) {
+            system.startAuction('N');
+            system.currentAuction.add(new Bid('2C')); // Partner opens 2C
+            const bid = system._getResponseToSuit('2C', hand);
+            
+            // Should never be null (pass) - must respond
+            expect(bid).not.toBeNull();
+            expect(bid.token).toBe('2D'); // Waiting response required
+            expect(bid.conventionUsed).toBe('Strong 2C Waiting Response');
+        }
+    });
+
+    test('Control Showing Cue Bids', () => {
+        system.conventions.config.slam_bidding = system.conventions.config.slam_bidding || {};
+        system.conventions.config.slam_bidding.control_showing_cue_bids = { enabled: true };
+
+        // After Jacoby 2NT (game force + 4+ support), cue bids show controls
+        system.startAuction('N');
+        system.currentAuction.add(new Bid('1H')); // Open 1H
+        system.currentAuction.add(new Bid(null)); // Pass
+        system.currentAuction.add(new Bid('2NT')); // Jacoby 2NT
+        system.currentAuction.add(new Bid(null)); // Pass
+
+        const cueBidHands = [
+            // Should cue bid 3C (ace of clubs)
+            [makeHandFromPattern('432', 'AKQ32', '432', 'A32'), '3C'],
+            // Should cue bid 3D (ace of diamonds)
+            [makeHandFromPattern('432', 'AKQ32', 'A432', '32'), '3D'],
+            // Should cue bid 3S (ace of spades)
+            [makeHandFromPattern('A32', 'AKQ32', '432', '432'), '3S']
+        ];
+
+        for (const [hand, expected] of cueBidHands) {
+            const bid = system._getResponseToSuit('2NT', hand); // Response after Jacoby
+            expect(bid.token).toBe(expected);
+            expect(bid.conventionUsed).toBe('Control Showing Cue Bid');
+        }
+    });
 });

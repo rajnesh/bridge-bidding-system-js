@@ -35,14 +35,21 @@ class ConventionCard {
                 unusual_nt: { enabled: true, direct: true, passed_hand: false },
                 lebensohl: { enabled: true, after_interference: true, fast_denies: true }
             },
+            notrump_responses: {
+                stayman: { enabled: true },
+                jacoby_transfers: { enabled: true },
+                texas_transfers: { enabled: true },
+                minor_suit_transfers: { enabled: false, description: '2S transfers to clubs; 2NT transfers to diamonds over 1NT' }
+            },
             responses: {
-                jacoby_2nt: { enabled: true }
+                jacoby_2nt: { enabled: true },
+                splinter_bids: { enabled: true }
             },
             competitive: {
                 michaels: { enabled: true, strength: 'wide_range', direct_only: true },
                 responsive_doubles: { enabled: true, thru_level: 3, min_strength: 8 },
                 negative_doubles: { enabled: true, thru_level: 3 },
-                maximal_doubles: { enabled: true },
+
                 support_doubles: { enabled: true, thru: '2S' },
                 cue_bid_raises: { enabled: true },
                 reopening_doubles: { enabled: true }
@@ -56,7 +63,11 @@ class ConventionCard {
             general: {
                 vulnerability_adjustments: true,
                 passed_hand_variations: true,
-                balance_of_power: true
+                balance_of_power: true,
+                relaxed_takeout_doubles: true,
+                balanced_shapes: {
+                    include_5422: false
+                }
             }
         };
     }
@@ -64,13 +75,17 @@ class ConventionCard {
     /**
      * Load convention configuration (async for browser).
      */
-    async loadConfig(configPath = 'conventions.json') {
+    async loadConfig() {
+        // Option B: Avoid CORS by using inline configuration when available; otherwise use built-in defaults
         try {
-            const response = await fetch(configPath);
-            this.config = await response.json();
+            if (typeof window !== 'undefined' && window.DEFAULT_CONVENTIONS_CONFIG) {
+                this.config = window.DEFAULT_CONVENTIONS_CONFIG;
+            } else {
+                this.config = this._getDefaultConfig();
+            }
             return this.config;
         } catch (error) {
-            console.error('Error loading convention configuration:', error);
+            console.error('Error initializing convention configuration:', error);
             this.config = this._getDefaultConfig();
             return this.config;
         }
@@ -197,11 +212,65 @@ class ConventionCard {
             return { isAceAsking: false, convention: '' };
         }
 
-        // Check for Gerber
+        // Check for Gerber (4C over partner's NT, not when clubs are agreed trumps)
+        if (this.isEnabled('gerber', 'ace_asking') && bid.token === '4C') {
+            // Determine last contract prior to this bid
+            let lastContract = null;
+            let lastContractSeat = null;
+            const bidsToScan = (auction.bids.length > 0 && auction.bids[auction.bids.length - 1] === bid)
+                ? auction.bids.slice(0, -1)
+                : auction.bids;
+            for (let i = bidsToScan.length - 1; i >= 0; i--) {
+                const prevBid = bidsToScan[i];
+                if (prevBid.token && !prevBid.isDouble && !prevBid.isRedouble) {
+                    lastContract = prevBid.token;
+                    lastContractSeat = prevBid.seat || null;
+                    break;
+                }
+            }
+
+            // Only treat as Gerber if last contract was NT by our side
+            if (lastContract && lastContract.slice(-2) === 'NT') {
+                // Ensure the last NT was by our side, not opponents
+                let lastNtSide = null;
+                if (typeof auction.lastSide === 'function') {
+                    // Temporarily simulate lastSide for lastContractSeat
+                    const usNS = ['N', 'S'].includes(auction.ourSeat);
+                    const lastIsNS = ['N', 'S'].includes(lastContractSeat);
+                    lastNtSide = (usNS && lastIsNS) || (!usNS && !lastIsNS) ? 'we' : 'they';
+                }
+
+                const trumpSuit = this._findTrumpSuit(auction);
+                const clubsAgreed = trumpSuit === 'C';
+
+                if ((lastNtSide === 'we' || lastContractSeat === null) && !clubsAgreed) {
+                    return { isAceAsking: true, convention: 'gerber' };
+                }
+            }
+        }
+
+        // Gerber continuations: 5C asks for kings after a Gerber response
         if (this.isEnabled('gerber', 'ace_asking') &&
-            bid.token === '4C' &&
-            auction.bids.some(b => b.token && b.token.includes('NT'))) {
-            return { isAceAsking: true, convention: 'gerber' };
+            this.getConventionSetting('gerber', 'continuations', 'ace_asking') &&
+            bid.token === '5C') {
+            // Pattern: we bid 4C (ask), partner responded at 4D/4H/4S/4NT, we now bid 5C (king ask)
+            const bids = auction.bids;
+            // Find last 4C and ensure current 5C is by same seat (the original asker)
+            let last4cIndex = -1;
+            for (let i = bids.length - 1; i >= 0; i--) {
+                if (bids[i].token === '4C') { last4cIndex = i; break; }
+            }
+            if (last4cIndex !== -1) {
+                const askerSeat = bids[last4cIndex].seat;
+                const currentSeat = bid.seat;
+                // Validate one partner response in between and no new suit agreement
+                const between = bids.slice(last4cIndex + 1, bids.length - 1).filter(x => x.token);
+                const validResponseTokens = ['4D','4H','4S','4NT'];
+                const hasSingleResponse = between.length === 1 && validResponseTokens.includes(between[0].token);
+                if (askerSeat === currentSeat && hasSingleResponse) {
+                    return { isAceAsking: true, convention: 'gerber_kings' };
+                }
+            }
         }
 
         // Check for Blackwood/RKCB
@@ -274,6 +343,19 @@ class ConventionCard {
             if (aceCount === 2) return '4S';
             if (aceCount === 3) return '4NT';
             return '4D';
+
+        } else if (convention === 'gerber_kings') {
+            // Standard Gerber king ask: 5D=0/4, 5H=1, 5S=2, 5NT=3
+            let kingCount = 0;
+            ['S', 'H', 'D', 'C'].forEach(suit => {
+                kingCount += hand.suitBuckets[suit].some(card => card.rank === 'K') ? 1 : 0;
+            });
+
+            if (kingCount === 0 || kingCount === 4) return '5D';
+            if (kingCount === 1) return '5H';
+            if (kingCount === 2) return '5S';
+            if (kingCount === 3) return '5NT';
+            return '5D';
 
         } else if (convention.startsWith('blackwood')) {
             const responses = this.getConventionSetting('blackwood', 'responses', 'ace_asking');
@@ -391,7 +473,8 @@ class ConventionCard {
         const adjustments = {
             'overcall': { fav: -1, unfav: 1 },
             'preempt': { fav: -2, unfav: 2 },
-            'weak_two': { fav: -1, unfav: 4 }  // Very conservative when vulnerable
+            // Tune weak two vulnerability: slightly tighter when vulnerable, not overly punitive
+            'weak_two': { fav: -1, unfav: 4 }
         };
 
         if (!(bidType in adjustments)) {
