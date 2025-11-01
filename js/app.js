@@ -2061,7 +2061,24 @@ function updateAuctionTable() {
                 try {
                     alertable = isAlertableExplanation(entry.explanation) && !['PASS','X','XX'].includes(bidToken);
                 } catch (_) { /* noop */ }
-                bidDiv.innerHTML = formatBidForAuction(bidToken, alertable);
+                // Base formatted bid (with suit color and alert marker)
+                let html = formatBidForAuction(bidToken, alertable);
+                // Small UI hint for 2NT: Natural vs Unusual (based on explanation text)
+                try {
+                    const expl = (entry.explanation || '').toLowerCase();
+                    if (bidToken === '2NT' && expl) {
+                        if (expl.includes('unusual nt')) {
+                            html += ' <span class="bid-tag unusual" title="Unusual 2NT — minors, 5-5">U</span>';
+                        } else if (expl.includes('natural 2nt overcall')) {
+                            html += ' <span class="bid-tag natural" title="Natural 2NT — 19–21 balanced with stopper">N</span>';
+                        }
+                    }
+                    // Tooltip with explanation for any bid
+                    if (entry.explanation) {
+                        bidDiv.title = entry.explanation;
+                    }
+                } catch (_) { /* ignore tooltip/hint issues */ }
+                bidDiv.innerHTML = html;
                 if (pos === 'S') bidDiv.classList.add('player-bid');
             } else {
                 bidDiv.innerHTML = '-';

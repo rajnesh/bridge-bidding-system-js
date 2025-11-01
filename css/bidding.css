@@ -1055,3 +1055,19 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
             'west';
     }
 }
+
+/* Tiny hint tag for special bid meanings (e.g., 2NT Natural vs Unusual) */
+.bid-tag {
+    display: inline-block;
+    margin-left: 4px;
+    padding: 0px 4px;
+    font-size: 0.65em;
+    line-height: 1.4;
+    border-radius: 4px;
+    background: #eef2f7;
+    color: #44536a;
+    vertical-align: super;
+    border: 1px solid rgba(0,0,0,0.06);
+}
+.bid-tag.unusual { background: #fdecea; color: #b23b32; border-color: #f3b1ab; }
+.bid-tag.natural { background: #eaf7ee; color: #267a42; border-color: #bde5c7; }
