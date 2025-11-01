@@ -337,8 +337,9 @@ class SAYCBiddingSystem extends BiddingSystem {
             try {
                 const bidsSoFar = (this.currentAuction && Array.isArray(this.currentAuction.bids)) ? this.currentAuction.bids : [];
                 const allPassesSoFar = bidsSoFar.length > 0 && bidsSoFar.every(b => this._isPassToken(b.token));
-                const thirdOrLaterSeat = allPassesSoFar && bidsSoFar.length >= 2; // after two passes
-                if (thirdOrLaterSeat) {
+                // Allow 4-card major only in exactly third seat (after two passes), not fourth seat
+                const exactlyThirdSeat = allPassesSoFar && bidsSoFar.length === 2;
+                if (exactlyThirdSeat) {
                     if (hand.lengths['S'] === 4 && hand.lengths['H'] === 4) {
                         return new window.Bid('1S');
                     }
@@ -1093,6 +1094,28 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             }
 
+            // Unusual 2NT overcall over a MINOR opening (optional): show two lowest unbid suits (5-5)
+            // Enabled only when config notrump_defenses.unusual_nt.over_minors === true
+            if (this.conventions?.isEnabled('unusual_nt', 'notrump_defenses') && (oppSuit === 'C' || oppSuit === 'D')) {
+                const overMinors = !!(this.conventions.getConventionSetting('unusual_nt', 'over_minors', 'notrump_defenses'));
+                if (overMinors) {
+                    // Determine the two lowest unbid suits relative to the opening suit
+                    const order = ['C','D','H','S'];
+                    const lowestTwo = order.filter(s => s !== oppSuit).slice(0, 2);
+                    const a = lowestTwo[0], b = lowestTwo[1];
+                    const lenA = hand.lengths[a] || 0;
+                    const lenB = hand.lengths[b] || 0;
+                    if (lenA >= 5 && lenB >= 5) {
+                        const bid = new window.Bid('2NT');
+                        const direct = this.conventions.getConventionSetting('unusual_nt', 'direct', 'notrump_defenses');
+                        const style = direct === false ? ' (indirect)' : '';
+                        const vul = this.vulnerability ? (this.vulnerability.we && !this.vulnerability.they ? 'unfav' : (!this.vulnerability.we && this.vulnerability.they ? 'fav' : 'equal')) : 'equal';
+                        bid.conventionUsed = `Unusual NT (${a}+${b}, 5-5${style}; hcp=${hand.hcp}, vul=${vul})`;
+                        return bid;
+                    }
+                }
+            }
+
             // Michaels cuebid
             try {
                 const result = this.conventions.isTwoSuitedOvercall(
@@ -1135,9 +1158,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
 
             // Natural 2NT overcall over a MINOR opening: strong balanced (19–21) with a stopper
-            // Reserve 2NT as Unusual only over MAJOR openings (handled above). This keeps
-            // conventions separate: over 1C/1D we allow natural 2NT; over 1H/1S 2NT remains Unusual (minors).
-            if ((oppSuit === 'C' || oppSuit === 'D') && this._isBalanced(hand) && hand.hcp >= 19 && hand.hcp <= 21) {
+            // Guarded by config: if unusual_nt.over_minors is enabled, prefer Unusual 2NT above; otherwise allow natural.
+            if ((oppSuit === 'C' || oppSuit === 'D') && !this.conventions.getConventionSetting('unusual_nt', 'over_minors', 'notrump_defenses') && this._isBalanced(hand) && hand.hcp >= 19 && hand.hcp <= 21) {
                 // Require a stopper in their suit
                 const ranks = (hand.suitBuckets[oppSuit] || []).map(c => c.rank);
                 const len = hand.lengths[oppSuit] || 0;
@@ -1272,18 +1294,46 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         }
 
-        // Competitive raises
+        // Competitive raises (only by opener's side after opponents interfere)
         if (auction.bids.length >= 3) {
-            const ourSuit = auction.bids[0].token[1];
-            if (hand.lengths[ourSuit] >= 3) {
-                const totalPoints = hand.hcp + hand.distributionPoints;
-                if (totalPoints >= 10) {
-                    return new window.Bid(`3${ourSuit}`);
+            try {
+                const bids = auction.bids;
+                // Find the first actual contract bid (ignore passes/doubles), treat as the opening
+                let openerIndex = -1;
+                for (let i = 0; i < bids.length; i++) {
+                    const b = bids[i];
+                    if (b && b.token && /^[1-7][CDHS]$/.test(b.token)) { openerIndex = i; break; }
                 }
-                if (totalPoints >= 6) {
-                    return new window.Bid(`2${ourSuit}`);
+                if (openerIndex === -1) {
+                    // No detectable opening
+                } else {
+                    const openerBid = bids[openerIndex];
+                    const openedSuit = openerBid.token[1];
+                    // Opponents interfered if the next call after opening is a non-pass by the other side
+                    const nextAfterOpen = bids[openerIndex + 1];
+                    const oppInterfered = !!(nextAfterOpen && nextAfterOpen.token && !this._isPassToken(nextAfterOpen.token));
+
+                    // Determine if current actor is on opener's side
+                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const currentSeat = ctx?.currentSeat || this.currentAuction?.ourSeat || null;
+                    const openerSeat = openerBid.seat || null;
+                    let onOpenersSide = false;
+                    if (openerSeat && currentSeat && typeof this._sameSideAs === 'function') {
+                        onOpenersSide = this._sameSideAs(openerSeat, currentSeat);
+                    }
+
+                    // Only allow these raises when: opponents interfered and we are on opener's side
+                    if (oppInterfered && onOpenersSide && hand.lengths[openedSuit] >= 3) {
+                        const totalPoints = hand.hcp + hand.distributionPoints;
+                        if (totalPoints >= 10) {
+                            return new window.Bid(`3${openedSuit}`);
+                        }
+                        if (totalPoints >= 6) {
+                            return new window.Bid(`2${openedSuit}`);
+                        }
+                    }
                 }
-            }
+            } catch (_) { /* be conservative: no raise if uncertain */ }
         }
 
         return null;
@@ -1589,11 +1639,27 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (op2) return op2;
             }
 
-            // Suit opening responses (only when it's our side's turn to act)
+            // Suit opening responses: prefer when it's our side's turn, but be tolerant when partner clearly opened
             const currentOnOurSide = this._sameSideAs(ctx.currentSeat, this.ourSeat);
-            if (currentOnOurSide && lastByPartner && /^\d/.test(lastByPartner) && lastByPartner !== '1NT' && lastByPartner !== '2NT') {
-                const resp = this._getResponseToSuit(lastByPartner, hand);
-                if (resp) return resp;
+            const partnerWasOpener = bids[0]?.seat === ctx.partnerSeat || !bids[0]?.seat; // tolerate missing seat
+            if ((currentOnOurSide || partnerWasOpener) && lastByPartner && /^\d/.test(lastByPartner) && lastByPartner !== '1NT' && lastByPartner !== '2NT') {
+                // Gate responder logic: ensure the first contract bid of the auction was made by our side
+                let firstContractIdx = -1;
+                for (let i = 0; i < bids.length; i++) {
+                    const b = bids[i];
+                    if (b && b.token && /^[1-7](C|D|H|S|NT)$/.test(b.token)) { firstContractIdx = i; break; }
+                }
+                let ourSideOpened = false;
+                if (firstContractIdx >= 0) {
+                    const openedSeat = bids[firstContractIdx].seat;
+                    // Determine side relative to our currentAuction.ourSeat when available (actor's side in tests/UI)
+                    const effOurSeat = (this.currentAuction && this.currentAuction.ourSeat) ? this.currentAuction.ourSeat : this.ourSeat;
+                    ourSideOpened = this._sameSideAs(openedSeat, effOurSeat);
+                }
+                if (ourSideOpened) {
+                    const resp = this._getResponseToSuit(lastByPartner, hand);
+                    if (resp) return resp;
+                }
             }
         }
 

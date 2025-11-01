@@ -1540,6 +1540,64 @@ function makeSystemBid() {
     // Get bid recommendation
     let recommendedBid = forcedBid || system.getBid(hand);
     let explanation = recommendedBid.conventionUsed || 'Standard bid';
+
+        // Safety filter: prevent weak/indirect or invalid-shape cue-bids of opener's suit (e.g., Michaels)
+        // Context: Occasionally, in multi-bid auctions like 1m - Pass - 1H - (?), a 2m cue-bid can slip through
+        // from engine fallbacks even with very weak hands. In mainstream styles, a cue-bid of opener's suit here
+        // should be either a conventional two-suited overcall (Michaels) made in direct seat, or a strong raise
+        // by opener's side after interference (which we never are when partner passed). Guard it at UI level to
+        // avoid surprising bids during practice when HCP is clearly insufficient.
+        if (!forcedBid && recommendedBid && recommendedBid.token && /^[2-7][CDHS]$/.test(recommendedBid.token)) {
+            try {
+                // Identify original opening suit (first contract in the auction history)
+                const openingEntry = (auctionHistory || []).find(e => e && e.bid && e.bid.token && /^[1-7](C|D|H|S|NT)$/.test(e.bid.token));
+                const openingToken = openingEntry?.bid?.token;
+                const openingSuit = openingToken && openingToken.length >= 2 && openingToken !== '1NT' ? openingToken[1] : null;
+
+                // Determine if there was any intervening non-pass action after the opening (i.e., not direct seat)
+                let nonPassAfterOpening = false;
+                if (openingToken) {
+                    let seenOpening = false;
+                    for (const e of (auctionHistory || [])) {
+                        const tok = e?.bid?.token || (e?.bid?.isDouble ? 'X' : e?.bid?.isRedouble ? 'XX' : 'PASS');
+                        if (!seenOpening) {
+                            if (tok === openingToken) seenOpening = true;
+                            continue;
+                        }
+                        if (seenOpening && tok && tok !== 'PASS') { nonPassAfterOpening = true; break; }
+                    }
+                }
+
+                // Is this a cue-bid of the opener's suit at the 2-level?
+                const isCueOfOpeningSuit = (openingSuit && recommendedBid.token === `2${openingSuit}`);
+
+                // Config: honor Michaels settings; if direct_only is true, disallow indirect seat cue-bids as two-suited overcalls.
+                const michaelsCfg = system?.conventions?.config?.competitive?.michaels || {};
+                const directOnly = (michaelsCfg.direct_only !== undefined) ? !!michaelsCfg.direct_only : true;
+
+                // HCP threshold for any indirect cue-bid: require at least 8 HCP to proceed.
+                const tooWeak = (hand.hcp || 0) < 8;
+
+                // Shape check for Michaels validity when cueing opener's suit
+                let invalidMichaelsShape = false;
+                if (isCueOfOpeningSuit && hand && hand.lengths) {
+                    const len = hand.lengths;
+                    const majors55 = (len.H >= 5 && len.S >= 5);
+                    const spadesPlusMinor55 = (len.S >= 5 && (len.C >= 5 || len.D >= 5));
+                    const heartsPlusMinor55 = (len.H >= 5 && (len.C >= 5 || len.D >= 5));
+                    if ((openingSuit === 'C' || openingSuit === 'D') && !majors55) invalidMichaelsShape = true;
+                    if (openingSuit === 'H' && !spadesPlusMinor55) invalidMichaelsShape = true;
+                    if (openingSuit === 'S' && !heartsPlusMinor55) invalidMichaelsShape = true;
+                }
+
+                if (isCueOfOpeningSuit && (nonPassAfterOpening && (directOnly || tooWeak) || invalidMichaelsShape)) {
+                    // Downgrade to Pass instead of making a speculative/invalid cue-bid
+                    console.warn(`Blocking indirect/weak cue-bid ${recommendedBid.token} with ${hand.hcp} HCP; using PASS instead.`);
+                    recommendedBid = new window.Bid('PASS');
+                    explanation = 'Pass';
+                }
+            } catch (_) { /* non-fatal */ }
+        }
         console.log('Final recommended bid:', recommendedBid.token || 'PASS');
         
         console.log(`${currentTurn} making bid:`);
@@ -1566,7 +1624,7 @@ function makeSystemBid() {
         // Competitive cue-bid explanation: if bidding opponents' previously-bid suit
         if (!forcedBid && recommendedBid.token && recommendedBid.token !== 'PASS' && recommendedBid.token !== 'X' && recommendedBid.token !== 'XX') {
             try {
-                const michaelsInfo = detectMichaelsCueBid(currentTurn, recommendedBid, auctionHistory);
+                const michaelsInfo = detectMichaelsCueBid(currentTurn, recommendedBid, auctionHistory, hand);
                 if (michaelsInfo) {
                     explanation = michaelsInfo; // Detailed Michaels description
                 } else {
@@ -1654,7 +1712,7 @@ function isCueBidOfOpponentsSuit(position, bid, history) {
 }
 
 // Identify Michaels cue-bid and return a descriptive explanation when appropriate
-function detectMichaelsCueBid(position, bid, history) {
+function detectMichaelsCueBid(position, bid, history, hand) {
     try {
         if (!bid || !bid.token) return null;
         const token = bid.token;
@@ -1696,6 +1754,17 @@ function detectMichaelsCueBid(position, bid, history) {
                 // If opponents made another non-pass (besides opener) before our cue, also not direct
                 if (oppSide.includes(e.position) && t !== 'PASS' && e !== firstNonPass) return null;
             }
+        }
+
+        // If we have the hand, validate that shape matches Michaels requirements (5-5 patterns)
+        if (hand && hand.lengths) {
+            const len = hand.lengths;
+            const hasMajors55 = (len.H >= 5 && len.S >= 5);
+            const hasSpadesPlusMinor55 = (len.S >= 5 && (len.C >= 5 || len.D >= 5));
+            const hasHeartsPlusMinor55 = (len.H >= 5 && (len.C >= 5 || len.D >= 5));
+            if ((openerSuit === 'C' || openerSuit === 'D') && !hasMajors55) return null;
+            if (openerSuit === 'H' && !hasSpadesPlusMinor55) return null;
+            if (openerSuit === 'S' && !hasHeartsPlusMinor55) return null;
         }
 
         // Build explanation based on opener's suit
@@ -2210,17 +2279,13 @@ function isAlertableExplanation(explanation) {
     return needles.some(n => txt.includes(n));
 }
 
-// Render a suit symbol with appropriate color class for the auction grid
+// Render a suit symbol for the auction grid (neutral, no color)
 function renderSuitSpan(suitLetter) {
-    const map = {
-        'S': { symbol: '♠', cls: 'suit-spades' },
-        'H': { symbol: '♥', cls: 'suit-hearts' },
-        'D': { symbol: '♦', cls: 'suit-diamonds' },
-        'C': { symbol: '♣', cls: 'suit-clubs' }
-    };
-    const m = map[suitLetter];
-    if (!m) return '';
-    return `<span class="card-suit ${m.cls}">${m.symbol}</span>`;
+    const map = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
+    const symbol = map[suitLetter];
+    if (!symbol) return '';
+    // Neutral rendering: no suit color class in the auction grid
+    return `<span class="card-suit">${symbol}</span>`;
 }
 
 // Format a bid token into HTML with suit symbols/colors and optional alert marker
@@ -2538,6 +2603,7 @@ function saveGeneralSettings() {
             support_doubles_thru: (cfg?.competitive?.support_doubles?.thru) || '2S',
             responsive_doubles_thru: Number(cfg?.competitive?.responsive_doubles?.thru_level) || 3,
             michaels_strength: (cfg?.competitive?.michaels?.strength) || 'wide_range',
+            unusual_nt_over_minors: !!(cfg?.notrump_defenses?.unusual_nt?.over_minors),
             relaxed_takeout: !!(cfg?.general?.relaxed_takeout_doubles),
             systems_on_over_1nt_interference: {
                 // Back-compat: omit 'stayman' from persistence; if present from old store, we'll still read/apply it
@@ -2624,6 +2690,13 @@ function applyGeneralSettingsToConfig(settings) {
         cfg.competitive.michaels = cfg.competitive.michaels || { enabled: true };
         if (settings.michaels_strength) cfg.competitive.michaels.strength = settings.michaels_strength;
 
+        // Unusual NT over minors toggle
+        cfg.notrump_defenses = cfg.notrump_defenses || {};
+        cfg.notrump_defenses.unusual_nt = cfg.notrump_defenses.unusual_nt || { enabled: true, direct: true, passed_hand: false, over_minors: false };
+        if (typeof settings.unusual_nt_over_minors === 'boolean') {
+            cfg.notrump_defenses.unusual_nt.over_minors = settings.unusual_nt_over_minors;
+        }
+
         // Systems-on over 1NT interference (general)
         cfg.general.systems_on_over_1nt_interference = cfg.general.systems_on_over_1nt_interference || {
             stayman: false,
@@ -2657,6 +2730,7 @@ function createGeneralSettingsSection() {
         const supportThru = (cfg?.competitive?.support_doubles?.thru) || '2S';
         const respDblThru = (cfg?.competitive?.responsive_doubles?.thru_level) || 3;
     const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
+    const unusualOverMinors = !!(cfg?.notrump_defenses?.unusual_nt?.over_minors);
     const sysOn = (cfg?.general?.systems_on_over_1nt_interference) || { transfers:false, stolen_bid_double:false };
 
         container.innerHTML = `
@@ -2728,6 +2802,13 @@ function createGeneralSettingsSection() {
                             <option value="strong_only" ${michaelsStrength === 'strong_only' ? 'selected' : ''}>Strong only</option>
                         </select>
                         <span class="general-help-inline">Wide range allows lighter 6-9 HCP Michaels; strong only uses ~10+ HCP.</span>
+                    </label>
+                </div>
+                <div class="general-settings-row" style="margin-top:8px;">
+                    <label class="toggle">
+                        <input type="checkbox" id="toggle_unusual_nt_over_minors" ${unusualOverMinors ? 'checked' : ''} />
+                        <span>Unusual 2NT over minors</span>
+                        <span class="general-help-inline">2NT over 1♣/1♦ shows the two lowest unbid suits (5-5). When off, 2NT over minors is natural 19–21 with a stopper.</span>
                     </label>
                 </div>
                 <div class="general-settings-divider" style="margin:10px 0; border-top:1px solid #ddd;"></div>
@@ -2877,6 +2958,25 @@ function createGeneralSettingsSection() {
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update michaels.strength:', err);
+                }
+            });
+        }
+
+        const unnOverMin = document.getElementById('toggle_unusual_nt_over_minors');
+        if (unnOverMin) {
+            unnOverMin.addEventListener('change', (e) => {
+                try {
+                    if (!system?.conventions?.config) return;
+                    const cfg = system.conventions.config;
+                    cfg.notrump_defenses = cfg.notrump_defenses || {};
+                    cfg.notrump_defenses.unusual_nt = cfg.notrump_defenses.unusual_nt || { enabled: true, direct: true, passed_hand: false, over_minors: false };
+                    cfg.notrump_defenses.unusual_nt.over_minors = !!e.target.checked;
+                    container.classList.add('flash-updated');
+                    setTimeout(() => container.classList.remove('flash-updated'), 600);
+                    console.log('Updated unusual_nt.over_minors to', e.target.checked);
+                    saveGeneralSettings();
+                } catch (err) {
+                    console.warn('Failed to update unusual_nt.over_minors:', err);
                 }
             });
         }
@@ -3106,6 +3206,25 @@ async function loadAvailableConventions() {
         
         console.log('Conventions loaded from inline/default config:', Object.keys(availableConventions));
 
+        // Add a practice-only selector for "Unusual NT (over minors)" without adding an Active checkbox
+        try {
+            const label = 'Unusual NT (over minors)';
+            // Avoid duplicates on reload
+            if (!availableConventions[label]) {
+                availableConventions[label] = {
+                    category: 'competitive',
+                    key: 'unusual_nt_over_minors',
+                    description: '2NT over 1♣/1♦ shows the two lowest unbid suits (5-5). When off, 2NT over minors is natural 19–21 with a stopper.',
+                    enabled: true, // practice-only; enablement handled dynamically in Practice tab
+                    isGeneral: false,
+                    practiceOnly: true
+                };
+                if (conventionCategories['competitive']) {
+                    conventionCategories['competitive'].conventions.push(label);
+                }
+            }
+        } catch (_) { /* ignore */ }
+
         // Reorder categories for a balanced two-column layout, with Slam Bidding below Responses (first column)
         const desiredOrder = ['opening_bids','notrump_responses','responses','competitive','slam_bidding','notrump_defenses'];
         const orderedCategories = {};
@@ -3324,6 +3443,8 @@ function createConventionCheckboxes() {
         category.conventions.forEach(conventionName => {
             const convention = availableConventions[conventionName];
             if (!convention) return;
+            // Skip practice-only pseudo items from Active Conventions UI
+            if (convention.practiceOnly) return;
 
             const itemDiv = document.createElement('div');
             itemDiv.className = 'convention-item';
@@ -3397,7 +3518,14 @@ function createPracticeConventionOptions() {
             itemDiv.className = 'convention-item';
             itemDiv.title = convention.description;
 
-            const isActiveEnabled = enabledConventions[conventionName];
+            // For practice-only items, enablement depends on current engine config (not an Active checkbox)
+            let isActiveEnabled = enabledConventions[conventionName];
+            if (convention.practiceOnly) {
+                try {
+                    const unn = system?.conventions?.config?.notrump_defenses?.unusual_nt;
+                    isActiveEnabled = !!(unn && unn.enabled !== false && unn.over_minors === true);
+                } catch (_) { isActiveEnabled = false; }
+            }
             const isChecked = selectedPracticeConventions[categoryKey] === conventionName && isActiveEnabled;
 
             if (!isActiveEnabled) {
@@ -3405,6 +3533,11 @@ function createPracticeConventionOptions() {
                 itemDiv.style.cursor = 'not-allowed';
             }
 
+            // Build label + optional tooltip for practice-only entries
+            const isUnusualOverMinors = !!(convention.practiceOnly && convention.key === 'unusual_nt_over_minors');
+            const tipText = isUnusualOverMinors
+                ? 'Unusual 2NT over minors:\nOver 1♣ → shows ♦ + ♥ (5-5).\nOver 1♦ → shows ♣ + ♥ (5-5).'
+                : '';
             itemDiv.innerHTML = `
                 <input type="radio" name="practice_${categoryKey}" id="practice_${conventionName.replace(/\s+/g, '_')}" 
                        ${isChecked ? 'checked' : ''} 
@@ -3413,6 +3546,7 @@ function createPracticeConventionOptions() {
                 <label for="practice_${conventionName.replace(/\s+/g, '_')}" ${!isActiveEnabled ? 'style=\"color: #6c757d;\"' : ''}>
                     ${conventionName}
                 </label>
+                ${isUnusualOverMinors ? `<span class="practice-help" title="${tipText}" aria-label="${tipText}" style="margin-left:6px; cursor:help; user-select:none;">ⓘ</span>` : ''}
             `;
 
             rowDiv.appendChild(itemDiv);
@@ -3683,6 +3817,10 @@ function validateHandForConvention(southHand, conventionName) {
         case 'Unusual NT':
             return southHand.hcp >= 8 && 
                    southHand.lengths.C >= 5 && southHand.lengths.D >= 5;
+        case 'Unusual NT (over minors)':
+            return southHand.hcp >= 8 &&
+                   southHand.lengths.H >= 5 &&
+                   (southHand.lengths.C >= 5 || southHand.lengths.D >= 5);
                    
         case 'Michaels':
             return southHand.hcp >= 8 && 
@@ -3781,6 +3919,12 @@ function showTab(tabId) {
 document.addEventListener('DOMContentLoaded', function() {
     // Add delay to ensure all scripts are loaded
     setTimeout(initializeSystem, 500);
+    // Enhance bid buttons to color suit icons only on the buttons (not in the auction grid)
+    try {
+        enhanceBidButtonsSuitIcons();
+    } catch (e) {
+        console.warn('Failed to enhance bid button suits:', e);
+    }
     // Compute equal chevron widths based on the longest label
     try {
         const setTabChevronWidths = () => {
@@ -3814,3 +3958,28 @@ document.addEventListener('DOMContentLoaded', function() {
         console.warn('Failed to set tab chevron widths:', e);
     }
 });
+
+// Enhance bid button labels by wrapping suit symbols with color classes
+function enhanceBidButtonsSuitIcons() {
+    const buttons = document.querySelectorAll('.bid-button');
+    if (!buttons || !buttons.length) return;
+    const wrapSuit = (text) => {
+        if (!text || typeof text !== 'string') return text;
+        // Avoid double-wrapping
+        if (text.includes('<span')) return text;
+        // Replace single suit symbols with colored spans
+        return text
+            .replace('♣', '<span class="card-suit suit-clubs">♣</span>')
+            .replace('♦', '<span class="card-suit suit-diamonds">♦</span>')
+            .replace('♥', '<span class="card-suit suit-hearts">♥</span>')
+            .replace('♠', '<span class="card-suit suit-spades">♠</span>');
+    };
+    buttons.forEach(btn => {
+        // Only transform the visible label, keep onclick handlers untouched
+        const original = btn.innerHTML || btn.textContent;
+        const transformed = wrapSuit(original);
+        if (transformed !== original) {
+            btn.innerHTML = transformed;
+        }
+    });
+}

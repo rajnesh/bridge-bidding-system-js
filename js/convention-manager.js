@@ -32,7 +32,7 @@ class ConventionCard {
             },
             notrump_defenses: {
                 dont: { enabled: true, style: 'standard' },
-                unusual_nt: { enabled: true, direct: true, passed_hand: false },
+                unusual_nt: { enabled: true, direct: true, passed_hand: false, over_minors: false },
                 lebensohl: { enabled: true, after_interference: true, fast_denies: true }
             },
             notrump_responses: {
@@ -458,11 +458,49 @@ class ConventionCard {
             }
         }
 
-        // Check for Unusual NT
+        // Check for Unusual NT (two lowest unbid suits), shape-aware when hand provided
         if (this.isEnabled('unusual_nt', 'notrump_defenses')) {
             const lastContract = auction.lastContract();
             if (bid.token === '2NT' && lastContract && lastContract[0] === '1') {
-                return { isTwoSuited: true, convention: 'unusual_nt', suits: ['C', 'D'] };
+                try {
+                    const openingSuit = lastContract[1];
+                    const order = ['C','D','H','S'];
+                    // Two lowest unbid suits relative to opening suit
+                    const unbid = order.filter(s => s !== openingSuit);
+                    const lowestTwo = unbid.slice(0, 2);
+
+                    // Enforce direct overcall if configured
+                    const directOnly = !!(this.config?.notrump_defenses?.unusual_nt?.direct);
+                    if (directOnly) {
+                        // Require that there are no other non-pass bids after the opening before this 2NT is considered Unusual
+                        let sawOpening = false;
+                        for (const b of auction.bids) {
+                            const t = b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS');
+                            if (!sawOpening) {
+                                if (t === lastContract) sawOpening = true;
+                                continue;
+                            }
+                            if (t !== 'PASS') {
+                                // If anything else happened, treat as not direct for classification purposes
+                                return { isTwoSuited: false, convention: '', suits: [] };
+                            }
+                        }
+                    }
+
+                    // If hand is provided, validate 5-5 length in the two lowest unbid suits
+                    if (hand && hand.lengths) {
+                        const a = lowestTwo[0], b = lowestTwo[1];
+                        if (!a || !b) return { isTwoSuited: false, convention: '', suits: [] };
+                        if ((hand.lengths[a] || 0) < 5 || (hand.lengths[b] || 0) < 5) {
+                            return { isTwoSuited: false, convention: '', suits: [] };
+                        }
+                    }
+
+                    return { isTwoSuited: true, convention: 'unusual_nt', suits: lowestTwo };
+                } catch (_) {
+                    // On any parsing error, be conservative and do not classify as two-suited
+                    return { isTwoSuited: false, convention: '', suits: [] };
+                }
             }
         }
 
