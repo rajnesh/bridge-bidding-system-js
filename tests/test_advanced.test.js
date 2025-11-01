@@ -111,8 +111,8 @@ describe('Advanced Convention Tests', () => {
             C: ['2', '3']
         });
 
-        const bid = system.getBid(hand);
-        expect(bid.token).toBeNull(); // Should pass when vulnerable
+    const bid = system.getBid(hand);
+    expect(bid.token).toBe('PASS'); // Should pass when vulnerable
 
         // Same hand not vulnerable
         system.startAuction('N', false, true);

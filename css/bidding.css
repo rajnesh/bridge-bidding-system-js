@@ -671,11 +671,105 @@ h6 { font-size: 16px; }
      App Tabs and Two-Column Layout
      ============================= */
 .tab-container { padding: 20px; height: 100%; }
-.tab-nav { display: flex; gap: 6px; margin-bottom: 0; border-bottom: 1px solid #e9ecef; }
-.tab-button { padding: 10px 18px; border: 1px solid transparent; border-bottom: none; background: #f8f9fa; color: #6c757d; cursor: pointer; border-radius: 0; font-weight: 600; transition: all 0.2s ease; }
-.tab-button.active { background: #E84E4E; color: #fff; border: 1px solid #e9ecef; border-bottom: 0; margin-bottom: -1px; border-top: 3px solid #cc3f3f; }
-.tab-button:hover:not(.active) { background: #ffe9e9; color: #495057; }
+/* Chevron-style tab nav to imply flow */
+.tab-nav { display: flex; gap: 0; margin-bottom: 4px; border-bottom: none; align-items: stretch; overflow-x: auto; position: relative; counter-reset: tabstep; }
+.tab-button {
+    position: relative;
+    padding: 8px 24px 8px 32px; /* slightly reduced height and width padding */
+    border: none;
+    background: linear-gradient(135deg, #eaf4ff 0%, #d7ebff 100%);
+    color: #1e6bb8;
+    cursor: pointer;
+    font-weight: 700;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease, transform 0.12s ease;
+    /* Chevron shape via clip-path */
+    -webkit-clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
+    clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
+    margin-right: 8px;
+    z-index: 1;
+    /* Equal width based on longest tab (set via --tab-width in JS) */
+    width: var(--tab-width, auto);
+    flex: 0 0 var(--tab-width, auto);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* Step number circle */
+.tab-button::before {
+    counter-increment: tabstep;
+    content: counter(tabstep);
+    position: absolute;
+    left: 8px;
+    top: 50%;
+    transform: translateY(-50%);
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+    font-weight: 800;
+    background: #ffffff;
+    color: #1e6bb8;
+    border: 2px solid #cfe1f9;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.06);
+}
+.tab-button.active::before {
+    background: #fff;
+    color: #E84E4E;
+    border-color: #ffb3b3;
+}
+.tab-button + .tab-button {
+    /* Slight overlap so arrows interlock and indicate direction */
+    margin-left: -12px;
+}
+.tab-button:hover:not(.active) {
+    background: #dff0ff;
+    color: #144a7d;
+}
+.tab-button:focus-visible {
+    outline: 3px solid rgba(232,78,78,0.35);
+    outline-offset: 2px;
+}
+.tab-button.active {
+    background: #E84E4E;
+    color: #fff;
+    z-index: 2; /* sit above neighbors so the arrow tip is prominent */
+    box-shadow: 0 2px 10px rgba(232,78,78,0.25);
+}
+/* Provide a subtle separator between chevrons */
+.tab-button:not(.active) {
+    box-shadow: inset -1px 0 0 #cfe1f9;
+}
+/* Compact on small screens to keep shape readable */
+@media (max-width: 600px) {
+    .tab-button { padding: 8px 22px 8px 12px; font-weight: 600; }
+}
 .tab-content { height: calc(100vh - 120px); overflow-y: auto; border: 1px solid #e9ecef; border-top: none; border-radius: 0; }
+
+/* Progress track and fill under tabs */
+.tab-nav::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    bottom: -4px;
+    height: 4px;
+    background: #e9eef3;
+    border-radius: 2px;
+}
+.tab-nav::after {
+    content: "";
+    position: absolute;
+    left: 0;
+    bottom: -4px;
+    height: 4px;
+    width: calc((var(--progress, 1) / 5) * 100%);
+    background: #E84E4E;
+    border-radius: 2px;
+    transition: width 220ms ease;
+}
 .tab-panel { display: none; height: 100%; }
 .tab-panel.active { display: block; }
 

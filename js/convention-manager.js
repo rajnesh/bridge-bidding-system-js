@@ -43,7 +43,9 @@ class ConventionCard {
             },
             responses: {
                 jacoby_2nt: { enabled: true },
-                splinter_bids: { enabled: true }
+                splinter_bids: { enabled: true },
+                // New: Bergen Raises (off by default)
+                bergen_raises: { enabled: false, style: 'standard' }
             },
             competitive: {
                 michaels: { enabled: true, strength: 'wide_range', direct_only: true },
@@ -67,6 +69,12 @@ class ConventionCard {
                 relaxed_takeout_doubles: true,
                 balanced_shapes: {
                     include_5422: false
+                },
+                // New: user-selectable behavior over interference of our 1NT opening
+                systems_on_over_1nt_interference: {
+                    stayman: false,
+                    transfers: false,
+                    stolen_bid_double: false
                 }
             }
         };

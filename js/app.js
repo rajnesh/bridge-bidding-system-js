@@ -1083,6 +1083,8 @@ function isPartnerResponse(auctionLength) {
 
 function getConventionExplanation(bid, auction) {
     const bidToken = bid.token;
+    const tokens = auction.map(b => b.token).filter(Boolean);
+    const suitName = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
     
     // Strong 2C opening
     if (bidToken === '2C' && auction.length === 0) {
@@ -1091,6 +1093,11 @@ function getConventionExplanation(bid, auction) {
         if (strongTwoClubsEnabled) {
             return 'Strong 2 Clubs (22+ HCP, artificial and game forcing)';
         }
+    }
+
+    // Weak Two openings (2D/2H/2S) — simple UI explanation for user's own opening
+    if (auction.length === 0 && ['2D','2H','2S'].includes(bidToken)) {
+        return 'Weak Two opening (6+ card suit, about 6-10 HCP; stricter when vulnerable)';
     }
     
     // Strong 2C responses only apply to partner (North-South or East-West partnerships)
@@ -1132,7 +1139,7 @@ function getConventionExplanation(bid, auction) {
     
     // NT conventions: Stayman, Jacoby, Texas
     try {
-        const tokens = auction.map(b => b.token).filter(Boolean);
+        // tokens already computed above
         const lastByUs = (window.system?.currentAuction?.lastSide && window.system.currentAuction.lastSide()) === 'we';
         const lastContract = tokens.slice().reverse().find(t => /(NT|[CDHS])$/.test(t));
 
@@ -1165,9 +1172,75 @@ function getConventionExplanation(bid, auction) {
         }
     } catch (e) { /* ignore */ }
 
+    // Weak Two responder and continuations (UI-only heuristics)
+    try {
+        // Feature ask after a Weak Two opening
+        if (auction.length >= 1 && ['2D','2H','2S'].includes(tokens[0])) {
+            const openerSuit = tokens[0].slice(-1); // C/D/H/S
+            // 2NT by partner: feature ask
+            if (auction.length === 1 && bidToken === '2NT') {
+                return 'Feature ask over Weak Two (asks opener to show A/K in a side suit)';
+            }
+            // Natural 3NT over Weak Two Major
+            if (auction.length === 1 && bidToken === '3NT' && (openerSuit === 'H' || openerSuit === 'S')) {
+                return 'Natural 3NT over Weak Two Major';
+            }
+            // Simple raise to the 3-level
+            if (auction.length === 1 && bidToken.length === 2 && bidToken.startsWith('3') && bidToken.slice(-1) === openerSuit) {
+                return 'Raise over Weak Two';
+            }
+            // Raise to game over Weak Two (4M over 2M; 5D over 2D)
+            if (auction.length === 1) {
+                if ((tokens[0] === '2H' && bidToken === '4H') || (tokens[0] === '2S' && bidToken === '4S') || (tokens[0] === '2D' && bidToken === '5D')) {
+                    return 'Raise to game over Weak Two';
+                }
+            }
+            // New suit forcing at the 3-level (3 of a new suit)
+            if (auction.length === 1 && /^3[CDHS]$/.test(bidToken) && bidToken.slice(-1) !== openerSuit) {
+                return 'New suit forcing over Weak Two';
+            }
+            // Opener responses to feature ask: 2M - 2NT - 3X
+            if (auction.length === 2 && tokens[1] === '2NT' && /^3[CDHS]$/.test(bidToken)) {
+                const respSuit = bidToken.slice(-1);
+                if (respSuit === openerSuit) {
+                    return `No feature over 2NT ask (rebid ${suitName(respSuit)} at 3-level)`;
+                }
+                return `Feature shown over 2NT ask: ${suitName(respSuit)}`;
+            }
+        }
+    } catch (e) { /* ignore Weak Two UI heuristics */ }
+
+    // Cue-bid raise (limit+ raise of partner's suit) — UI-only heuristic for user's bid
+    try {
+        if (auction.length >= 2) {
+            const opener = tokens[0];
+            const partnerOvercall = tokens[1];
+            const isSuitOpening = /^[1-3][CDHS]$/.test(opener);
+            const isPartnerSuitOvercall = /[CDHS]$/.test(partnerOvercall) && !/NT$/.test(partnerOvercall);
+            if (isSuitOpening && isPartnerSuitOvercall) {
+                const oppSuit = opener.slice(-1);
+                const partnerSuit = partnerOvercall.slice(-1);
+                if (oppSuit !== partnerSuit && /^[2-5][CDHS]$/.test(bidToken) && bidToken.slice(-1) === oppSuit) {
+                    return "Cue Bid Raise (limit+ raise of partner's suit)";
+                }
+            }
+        }
+    } catch (e) { /* ignore cue-bid UI */ }
+
+    // Reopening Double (balancing) — UI mapping for user's bid
+    try {
+        if (bidToken === 'X' && tokens.length >= 3) {
+            const last3 = tokens.slice(-3);
+            const openingLike = /^[1-3][CDHS]$/.test(last3[0]);
+            if (openingLike && last3[1] === 'PASS' && last3[2] === 'PASS') {
+                return 'Reopening Double (balancing position)';
+            }
+        }
+    } catch (e) { /* ignore reopening double UI */ }
+
     // Gerber ask (4C) over NT
     try {
-        const tokens = auction.map(b => b.token).filter(Boolean);
+        // tokens already computed above
         const lastContract = [...tokens].reverse().find(t => /NT$/.test(t));
         if (bidToken === '4C' && lastContract) {
             return 'Gerber: asking for aces';
@@ -1457,6 +1530,13 @@ function makeSystemBid() {
         const forcedBid = checkForcedResponse(hand, currentAuction);
         console.log('Forced bid result:', forcedBid ? forcedBid.token : 'none');
         
+    // Ensure the engine evaluates from the current actor's perspective
+    try {
+        if (system.currentAuction) {
+            system.currentAuction.ourSeat = currentTurn;
+        }
+    } catch (e) { /* ignore */ }
+
     // Get bid recommendation
     let recommendedBid = forcedBid || system.getBid(hand);
     let explanation = recommendedBid.conventionUsed || 'Standard bid';
@@ -1680,7 +1760,15 @@ function getRecommendedBid() {
             currentAuction.forEach(bid => {
                 system.currentAuction.bids.push(bid);
             });
+        } else {
+            // Keep vulnerability in sync even when reusing the auction object
+            try {
+                system.currentAuction.weVulnerable = vulnerability.ns;
+                system.currentAuction.theyVulnerable = vulnerability.ew;
+            } catch (_) { /* noop */ }
         }
+        // Always evaluate recommendation from South's perspective
+        try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) {}
         
         const recommendedBid = system.getBid(currentHands.S);
         const explanation = recommendedBid.conventionUsed || 'Standard bid';
@@ -1968,8 +2056,12 @@ function updateAuctionTable() {
             bidDiv.className = 'auction-bid';
             const entry = round.find(e => e.position === pos);
             if (entry) {
-                const bidDisplay = entry.bid.token || 'PASS';
-                bidDiv.innerHTML = `<strong>${bidDisplay}</strong>`;
+                const bidToken = entry.bid.token || 'PASS';
+                let alertable = false;
+                try {
+                    alertable = isAlertableExplanation(entry.explanation) && !['PASS','X','XX'].includes(bidToken);
+                } catch (_) { /* noop */ }
+                bidDiv.innerHTML = formatBidForAuction(bidToken, alertable);
                 if (pos === 'S') bidDiv.classList.add('player-bid');
             } else {
                 bidDiv.innerHTML = '-';
@@ -2027,16 +2119,111 @@ function computeSouthHint() {
         if (typeof system.currentAuction.reseat === 'function') {
             system.currentAuction.reseat(dealer);
         }
+    } else {
+        // Ensure vulnerability stays in sync even when we reuse the auction object
+        try {
+            system.currentAuction.weVulnerable = vulnerability.ns;
+            system.currentAuction.theyVulnerable = vulnerability.ew;
+        } catch (_) { /* noop */ }
     }
+    // Always evaluate hint from South's perspective regardless of previous engine calls
+    try {
+        if (system.currentAuction) {
+            system.currentAuction.ourSeat = 'S';
+        }
+    } catch (_) { /* noop */ }
     const rec = system.getBid(currentHands.S);
     const display = rec.token || 'PASS';
-    const explanation = rec.conventionUsed || getConventionExplanation(rec, currentAuction) || 'Standard bid';
+    let explanation = rec.conventionUsed || getConventionExplanation(rec, currentAuction) || 'Standard bid';
+
+    // If PASS is recommended on the opening bid, add a helpful reason when a weak two was close
+    try {
+        const openingContext = (currentAuction.length === 0) || (currentAuction.length < 4 && currentAuction.every(b => (b.token || 'PASS') === 'PASS'));
+        if (display === 'PASS' && openingContext) {
+            const lenS = currentHands.S.lengths['S'] || 0;
+            const lenH = currentHands.S.lengths['H'] || 0;
+            const lenD = currentHands.S.lengths['D'] || 0;
+            const hasSixMajor = (lenS >= 6 || lenH >= 6);
+            if (hasSixMajor) {
+                // Mirror engine thresholds
+                const weVul = !!vulnerability.ns;
+                const baseMin = 6, baseMax = 10;
+                // Engine uses ConventionManager.adjustForVulnerability('weak_two', vuln)
+                // Favorable: min-1, Unfavorable: min+4
+                let minHcp = baseMin;
+                let maxHcp = baseMax;
+                if (weVul === true) {
+                    minHcp += 4; // be disciplined when vulnerable
+                } else if (weVul === false && vulnerability.ew === true) {
+                    // equal/favorable logic: if only they are vul, treat as favorable (-1)
+                    minHcp -= 1;
+                }
+                const ourHcp = currentHands.S.hcp || 0;
+                // If we were blocked by the vulnerable threshold, explain that
+                if (ourHcp < minHcp) {
+                    const suitTxt = lenS >= 6 ? 'spades' : 'hearts';
+                    explanation = `Pass (disciplined preempts when vulnerable): ${ourHcp} HCP with 6 ${suitTxt}; needs ${minHcp}+ HCP for a Weak Two while vulnerable`;
+                }
+            }
+        }
+    } catch (_) { /* best-effort */ }
+
     return { bid: display, explanation };
 }
 
 function getTurnName(position) {
     const names = { N: 'North', E: 'East', S: 'South (You)', W: 'West' };
     return names[position];
+}
+
+// Determine if a bid's explanation implies an alertable convention
+function isAlertableExplanation(explanation) {
+    if (!explanation || typeof explanation !== 'string') return false;
+    const txt = explanation.toLowerCase();
+    // Common alertable/conventional phrases
+    const needles = [
+        'stayman', 'transfer', 'texas', 'gerber', 'blackwood', 'rkcb',
+        'splinter', 'drury', 'jacoby 2nt', 'minor suit transfer', 'mst',
+        'support double', 'negative double', 'responsive double', 'reopening double',
+        'michaels', 'unusual nt', 'cue bid', 'cue bid raise',
+        'weak two', 'feature ask', 'ogust', 'quantitative', 'control showing cue bid',
+        'strong 2 club', 'strong 2c', 'waiting response', 'positive response',
+        'bergen'
+    ];
+    return needles.some(n => txt.includes(n));
+}
+
+// Render a suit symbol with appropriate color class for the auction grid
+function renderSuitSpan(suitLetter) {
+    const map = {
+        'S': { symbol: '♠', cls: 'suit-spades' },
+        'H': { symbol: '♥', cls: 'suit-hearts' },
+        'D': { symbol: '♦', cls: 'suit-diamonds' },
+        'C': { symbol: '♣', cls: 'suit-clubs' }
+    };
+    const m = map[suitLetter];
+    if (!m) return '';
+    return `<span class="card-suit ${m.cls}">${m.symbol}</span>`;
+}
+
+// Format a bid token into HTML with suit symbols/colors and optional alert marker
+function formatBidForAuction(token, alertable) {
+    const t = token || 'PASS';
+    if (t === 'PASS' || t === 'X' || t === 'XX') {
+        return `<strong>${t}</strong>`;
+    }
+    // Handle NT bids as plain text (no suit color)
+    if (t.endsWith('NT')) {
+        return `<strong>${t}${alertable ? '!' : ''}</strong>`;
+    }
+    // Suit bids: level followed by suit letter
+    const level = t.charAt(0);
+    const denom = t.slice(1);
+    if (['S','H','D','C'].includes(denom)) {
+        return `<strong>${level}${renderSuitSpan(denom)}${alertable ? '!' : ''}</strong>`;
+    }
+    // Fallback: just show as text
+    return `<strong>${t}${alertable ? '!' : ''}</strong>`;
 }
 
 function updateBidButtons() {
@@ -2335,6 +2522,11 @@ function saveGeneralSettings() {
             responsive_doubles_thru: Number(cfg?.competitive?.responsive_doubles?.thru_level) || 3,
             michaels_strength: (cfg?.competitive?.michaels?.strength) || 'wide_range',
             relaxed_takeout: !!(cfg?.general?.relaxed_takeout_doubles),
+            systems_on_over_1nt_interference: {
+                // Back-compat: omit 'stayman' from persistence; if present from old store, we'll still read/apply it
+                transfers: !!(cfg?.general?.systems_on_over_1nt_interference?.transfers),
+                stolen_bid_double: !!(cfg?.general?.systems_on_over_1nt_interference?.stolen_bid_double)
+            },
             // UI preferences not part of engine config
             show_all_hands_by_default: (function(){
                 try {
@@ -2414,6 +2606,19 @@ function applyGeneralSettingsToConfig(settings) {
         if (settings.responsive_doubles_thru) cfg.competitive.responsive_doubles.thru_level = Number(settings.responsive_doubles_thru);
         cfg.competitive.michaels = cfg.competitive.michaels || { enabled: true };
         if (settings.michaels_strength) cfg.competitive.michaels.strength = settings.michaels_strength;
+
+        // Systems-on over 1NT interference (general)
+        cfg.general.systems_on_over_1nt_interference = cfg.general.systems_on_over_1nt_interference || {
+            stayman: false,
+            transfers: false,
+            stolen_bid_double: false
+        };
+        if (settings.systems_on_over_1nt_interference && typeof settings.systems_on_over_1nt_interference === 'object') {
+            const s = settings.systems_on_over_1nt_interference;
+            if (typeof s.stayman === 'boolean') cfg.general.systems_on_over_1nt_interference.stayman = s.stayman;
+            if (typeof s.transfers === 'boolean') cfg.general.systems_on_over_1nt_interference.transfers = s.transfers;
+            if (typeof s.stolen_bid_double === 'boolean') cfg.general.systems_on_over_1nt_interference.stolen_bid_double = s.stolen_bid_double;
+        }
     } catch (e) {
         console.warn('applyGeneralSettingsToConfig failed:', e);
     }
@@ -2434,7 +2639,8 @@ function createGeneralSettingsSection() {
         const rkcbResp = (cfg?.ace_asking?.blackwood?.responses) || (cfg?.slam_bidding?.blackwood_rkcb?.responses) || '1430';
         const supportThru = (cfg?.competitive?.support_doubles?.thru) || '2S';
         const respDblThru = (cfg?.competitive?.responsive_doubles?.thru_level) || 3;
-        const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
+    const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
+    const sysOn = (cfg?.general?.systems_on_over_1nt_interference) || { transfers:false, stolen_bid_double:false };
 
         container.innerHTML = `
             <div class="general-settings-card">
@@ -2505,6 +2711,22 @@ function createGeneralSettingsSection() {
                             <option value="strong_only" ${michaelsStrength === 'strong_only' ? 'selected' : ''}>Strong only</option>
                         </select>
                         <span class="general-help-inline">Wide range allows lighter 6-9 HCP Michaels; strong only uses ~10+ HCP.</span>
+                    </label>
+                </div>
+                <div class="general-settings-divider" style="margin:10px 0; border-top:1px solid #ddd;"></div>
+                <div class="general-settings-header">Systems over 1NT interference</div>
+                <div class="general-settings-row" style="margin-top:8px;">
+                    <label class="toggle">
+                        <input type="checkbox" id="toggle_sys_on_transfers" ${sysOn.transfers ? 'checked' : ''} />
+                        <span>Keep transfers on over 2♣</span>
+                        <span class="general-help-inline">2♦ transfers to ♥ and 2♥ transfers to ♠ after 1NT – (2♣).</span>
+                    </label>
+                </div>
+                <div class="general-settings-row" style="margin-top:8px;">
+                    <label class="toggle">
+                        <input type="checkbox" id="toggle_sys_on_stolen" ${sysOn.stolen_bid_double ? 'checked' : ''} />
+                        <span>Stolen-bid double over 2♣ (X = Stayman)</span>
+                        <span class="general-help-inline">When enabled (and Stayman is part of your system), double over 2♣ shows Stayman with 8+ HCP and a 4-card major.</span>
                     </label>
                 </div>
             </div>
@@ -2656,6 +2878,42 @@ function createGeneralSettingsSection() {
                 }
             });
         }
+
+        const sysTrans = document.getElementById('toggle_sys_on_transfers');
+        if (sysTrans) {
+            sysTrans.addEventListener('change', (e) => {
+                try {
+                    if (!system?.conventions?.config?.general) return;
+                    const g = system.conventions.config.general;
+                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers:false, stolen_bid_double:false };
+                    g.systems_on_over_1nt_interference.transfers = !!e.target.checked;
+                    container.classList.add('flash-updated');
+                    setTimeout(() => container.classList.remove('flash-updated'), 600);
+                    console.log('Updated systems_on_over_1nt_interference.transfers to', e.target.checked);
+                    saveGeneralSettings();
+                } catch (err) {
+                    console.warn('Failed to update systems_on_over_1nt_interference.transfers:', err);
+                }
+            });
+        }
+
+        const sysStolen = document.getElementById('toggle_sys_on_stolen');
+        if (sysStolen) {
+            sysStolen.addEventListener('change', (e) => {
+                try {
+                    if (!system?.conventions?.config?.general) return;
+                    const g = system.conventions.config.general;
+                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers:false, stolen_bid_double:false };
+                    g.systems_on_over_1nt_interference.stolen_bid_double = !!e.target.checked;
+                    container.classList.add('flash-updated');
+                    setTimeout(() => container.classList.remove('flash-updated'), 600);
+                    console.log('Updated systems_on_over_1nt_interference.stolen_bid_double to', e.target.checked);
+                    saveGeneralSettings();
+                } catch (err) {
+                    console.warn('Failed to update systems_on_over_1nt_interference.stolen_bid_double:', err);
+                }
+            });
+        }
     } catch (e) {
         console.warn('createGeneralSettingsSection failed:', e);
     }
@@ -2682,14 +2940,6 @@ function updateRKCBLabelAndRerender() {
 
     // Move availableConventions entry
     const oldEntry = oldLabel ? availableConventions[oldLabel] : null;
-    if (oldEntry) {
-        availableConventions[newLabel] = { ...oldEntry };
-        delete availableConventions[oldLabel];
-    } else if (!availableConventions[newLabel]) {
-        // If neither exists (edge case), create a minimal entry under slam_bidding
-        availableConventions[newLabel] = { category: 'slam_bidding', key: 'blackwood_rkcb', description: `Roman Key Card Blackwood with ${variant} responses`, enabled: true, isGeneral: false };
-    }
-
     // Preserve enabled state
     if (oldLabel && enabledConventions.hasOwnProperty(oldLabel)) {
         enabledConventions[newLabel] = enabledConventions[oldLabel];
@@ -2910,7 +3160,8 @@ function getConventionDisplayName(conventionKey) {
         'support_doubles': 'Support Doubles',
         'reopening_doubles': 'Reopening Doubles',
         'cue_bid_raises': 'Cue Bid Raises',
-        'drury': 'Drury'
+        'drury': 'Drury',
+        'bergen_raises': 'Bergen Raises'
 
     };
     return conventionNames[conventionKey] || conventionKey;
@@ -2940,7 +3191,8 @@ function getDefaultDescription(conventionKey) {
         'takeout_doubles': 'Double for takeout, asking partner to bid',
         'support_doubles': 'Double showing 3-card support for partner\'s suit',
         'reopening_doubles': 'Doubles in reopening position',
-        'cue_bid_raises': 'Cue bids showing strong raises after interference'
+        'cue_bid_raises': 'Cue bids showing strong raises after interference',
+        'bergen_raises': '3♣ = 7-10 HCP and 4+ trumps; 3♦ = 11-12 HCP and 4+ trumps; 3M = preemptive (0-6 HCP, 4+ trumps)'
 
     };
     return descriptions[conventionKey] || 'Bridge convention';
@@ -2964,7 +3216,8 @@ function loadFallbackConventions() {
         'DONT': { category: 'notrump_defenses', key: 'dont', description: 'Defense against 1NT opening', enabled: true, isGeneral: false },
         'Meckwell': { category: 'notrump_defenses', key: 'meckwell', description: 'Defense against strong club systems', enabled: false, isGeneral: false },
         'Jacoby 2NT': { category: 'responses', key: 'jacoby_2nt', description: 'Game forcing raise of major suit', enabled: true, isGeneral: false },
-        'Splinter Bids': { category: 'responses', key: 'splinter_bids', description: 'Jump bids showing shortness and support', enabled: true, isGeneral: false },
+    'Splinter Bids': { category: 'responses', key: 'splinter_bids', description: 'Jump bids showing shortness and support', enabled: true, isGeneral: false },
+    'Bergen Raises': { category: 'responses', key: 'bergen_raises', description: '3♣/3♦ raises with 4+ trumps (7-10, 11-12); 3M preemptive 0-6', enabled: false, isGeneral: false },
         'Lebensohl': { category: 'competitive', key: 'lebensohl', description: 'Lebensohl convention after interference', enabled: true, isGeneral: false },
         'Unusual NT': { category: 'competitive', key: 'unusual_nt', description: 'Unusual No Trump showing minors', enabled: true, isGeneral: false },
         'Michaels': { category: 'competitive', key: 'michaels', description: 'Cue bid showing 5-5 in majors or major+minor', enabled: true, isGeneral: false },
@@ -2984,7 +3237,7 @@ function loadFallbackConventions() {
     conventionCategories = {
         'opening_bids': { name: 'Opening Bids', conventions: ['Strong 2 Clubs', 'Weak 2 Bids'] },
     'notrump_responses': { name: 'No Trump Responses', conventions: ['Stayman', 'Jacoby Transfers', 'Texas Transfers', 'Minor Suit Transfers'] },
-        'responses': { name: 'Responses', conventions: ['Jacoby 2NT', 'Splinter Bids', 'Drury'] },
+    'responses': { name: 'Responses', conventions: ['Jacoby 2NT', 'Splinter Bids', 'Bergen Raises', 'Drury'] },
         'competitive': { name: 'Competitive Bidding', conventions: ['Lebensohl', 'Unusual NT', 'Michaels', 'Responsive Doubles', 'Negative Doubles', 'Takeout Doubles', 'Support Doubles', 'Reopening Doubles', 'Cue Bid Raises'] },
     'slam_bidding': { name: 'Slam Bidding', conventions: ['Gerber', 'Regular Blackwood', rkcbName, 'Control Showing Cue Bids'] },
         'notrump_defenses': { name: 'No Trump Defenses', conventions: ['DONT', 'Meckwell'] }
@@ -3434,6 +3687,10 @@ function validateHandForConvention(southHand, conventionName) {
         case 'Drury':
             return southHand.hcp >= 8 && southHand.hcp <= 12 && // Drury range
                    (southHand.lengths.H >= 3 || southHand.lengths.S >= 3); // Need major support
+        
+        case 'Bergen Raises':
+            // Hands suitable for Bergen raises as responder: 4+ card support in a major and up to invitational values
+            return southHand.hcp <= 12 && (southHand.lengths.H >= 4 || southHand.lengths.S >= 4);
             
         default:
             return southHand.hcp >= 12; // Generic opening hand strength
@@ -3477,7 +3734,21 @@ function switchTab(tabName) {
     document.getElementById(tabName + 'Panel').classList.add('active');
     
     // Add active class to selected tab button
-    document.getElementById(tabName + 'Tab').classList.add('active');
+    const activeBtn = document.getElementById(tabName + 'Tab');
+    if (activeBtn) activeBtn.classList.add('active');
+
+    // Update tab progress underline (1..5 based on position among buttons)
+    try {
+        const nav = document.querySelector('.tab-nav');
+        if (nav) {
+            const buttons = Array.from(nav.querySelectorAll('.tab-button'));
+            const idx = Math.max(1, buttons.findIndex(b => b === activeBtn) + 1);
+            nav.style.setProperty('--progress', idx);
+        }
+    } catch (e) {
+        // non-fatal
+        console.warn('Failed to update tab progress:', e);
+    }
 }
 
 // Helper function for startAuction compatibility
@@ -3493,4 +3764,36 @@ function showTab(tabId) {
 document.addEventListener('DOMContentLoaded', function() {
     // Add delay to ensure all scripts are loaded
     setTimeout(initializeSystem, 500);
+    // Compute equal chevron widths based on the longest label
+    try {
+        const setTabChevronWidths = () => {
+            const nav = document.querySelector('.tab-nav');
+            if (!nav) return;
+            const buttons = Array.from(nav.querySelectorAll('.tab-button'));
+            if (!buttons.length) return;
+            // Reset widths to auto for accurate measurement
+            buttons.forEach(b => { b.style.width = 'auto'; b.style.flexBasis = 'auto'; });
+            // Prefer width of the "Active Conventions" tab
+            const activeConventionsBtn = document.getElementById('activeTab');
+            let targetWidth = 0;
+            if (activeConventionsBtn) {
+                targetWidth = Math.ceil(activeConventionsBtn.scrollWidth);
+            }
+            // Fallback: if not found or measured 0, use the maximum label width
+            if (!targetWidth) {
+                targetWidth = buttons.reduce((m, b) => Math.max(m, Math.ceil(b.scrollWidth)), 0);
+            }
+            // Add a tiny buffer to account for subpixel/font rounding
+            nav.style.setProperty('--tab-width', (targetWidth + 2) + 'px');
+        };
+        setTabChevronWidths();
+        // Recompute on window resize (debounced)
+        let t;
+        window.addEventListener('resize', () => {
+            clearTimeout(t);
+            t = setTimeout(setTabChevronWidths, 150);
+        });
+    } catch (e) {
+        console.warn('Failed to set tab chevron widths:', e);
+    }
 });

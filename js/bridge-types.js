@@ -88,6 +88,9 @@ class Bid {
  */
 class Auction {
     static TURN_ORDER = ['N', 'E', 'S', 'W'];
+    static isPassToken(token) {
+        return token === null || token === undefined || (typeof token === 'string' && token.toUpperCase() === 'PASS');
+    }
 
     constructor(bids = [], options = {}) {
         this.bids = bids;
@@ -111,7 +114,8 @@ class Auction {
     lastContract() {
         for (let i = this.bids.length - 1; i >= 0; i--) {
             const bid = this.bids[i];
-            if (bid.token && !bid.isDouble && !bid.isRedouble) {
+            if (!bid || bid.isDouble || bid.isRedouble) continue;
+            if (bid.token && /^[1-7](C|D|H|S|NT)$/.test(bid.token)) {
                 return bid.token;
             }
         }
@@ -126,12 +130,12 @@ class Auction {
         
         // Check for three consecutive passes
         const lastThree = this.bids.slice(-3);
-        if (lastThree.length === 3 && lastThree.every(bid => bid.token === null)) {
+        if (lastThree.length === 3 && lastThree.every(bid => Auction.isPassToken(bid.token))) {
             return true;
         }
         
         // Check for four passes from start
-        if (this.bids.length === 4 && this.bids.every(bid => bid.token === null)) {
+        if (this.bids.length === 4 && this.bids.every(bid => Auction.isPassToken(bid.token))) {
             return true;
         }
         
@@ -156,8 +160,11 @@ class Auction {
      */
     lastBidderSeat() {
         for (let i = this.bids.length - 1; i >= 0; i--) {
-            if (this.bids[i].token !== null) {
-                return this.bids[i].seat;
+            const b = this.bids[i];
+            if (!b) continue;
+            // Consider only actual contract bids (ignore passes and doubles/redoubles)
+            if (b.token && /^[1-7](C|D|H|S|NT)$/.test(b.token)) {
+                return b.seat;
             }
         }
         return null;

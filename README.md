@@ -34,6 +34,7 @@ A comprehensive, test-backed implementation of the Standard American Yellow Card
   - Fast vs slow denial of stopper
   - Stopper asking with proper detection (A, Kx+, Qxx+)
   - Cue bid sequences
+  - Optional systems-on over interference (configurable): stolen-bid double and transfers over 2♣
 
 #### Competitive Bidding
 
@@ -58,6 +59,7 @@ A comprehensive, test-backed implementation of the Standard American Yellow Card
 - **Auction Tracker**: Real-time auction history with seat tracking
 - **Bid Recommendations**: Get AI-powered bidding suggestions
 - **Convention Attribution**: See which convention was used for each bid
+- **Explicit Explanations for Key Conventions**: The UI now explains Weak Two (including 2NT feature ask and opener replies), Cue Bid Raises, and Reopening Doubles for both computer and your own bids.
 - **Vulnerability Control**: Set vulnerability for both sides
 - **Live RKCB Label Update**: When changing the RKCB response structure (1430/3014) in General Settings, the convention label updates immediately with a subtle highlight to draw attention.
 
@@ -108,6 +110,34 @@ Then visit: `http://localhost:8000`
 
 - Click **Get My Bid** to see the recommended bid
 - Shows bid and convention used
+
+### Convention Explanations in the UI
+
+The auction panel shows a short, human-friendly explanation beside each bid when a convention is detected. Newly enhanced explanations include:
+
+- Weak Two openings and continuations:
+  - Opening 2♦/2♥/2♠ as “Weak Two opening (6+ card suit, about 6–10 HCP; stricter when vulnerable)”
+  - 2NT over a Weak Two as “Feature ask over Weak Two (asks opener to show A/K in a side suit)”
+  - Opener’s 3-level reply showing a side-suit ace/king: “Feature shown over 2NT ask: clubs/diamonds/hearts/spades”
+  - Opener’s 3-of-the-opened-suit after 2NT: “No feature over 2NT ask (rebid … at 3-level)”
+  - Simple raise: “Raise over Weak Two”; Game raise: “Raise to game over Weak Two”
+  - 3NT over a Weak Two major: “Natural 3NT over Weak Two Major”
+- Cue Bid Raises (limit+ raise of partner’s suit) after partner overcalls and you bid the opponents’ suit
+- Reopening Doubles (balancing position) after opener’s suit is followed by two passes
+
+Examples (seat letters omitted for brevity):
+
+- Weak Two feature ask and reply
+  - 2♠ — 2NT — 3♣ → “Feature shown over 2NT ask: clubs”
+  - 2♥ — 2NT — 3♥ → “No feature over 2NT ask (rebid hearts at 3-level)”
+- Weak Two other continuations
+  - 2♥ — 3NT → “Natural 3NT over Weak Two Major”
+  - 2♦ — 3♦ → “Raise over Weak Two”
+  - 2♠ — 4♠ → “Raise to game over Weak Two”
+- Cue Bid Raise (after partner’s suit overcall)
+  - 1♥ — 1♠ — 2♥ → “Cue Bid Raise (limit+ raise of partner’s suit)”
+- Reopening Double (balancing)
+  - 1♦ — PASS — PASS — X → “Reopening Double (balancing position)”
 
 ### 4. Build the Auction
 
@@ -191,10 +221,20 @@ Key toggles you can set under `config`:
 
 ```js
 window.DEFAULT_CONVENTIONS_CONFIG = {
+  ace_asking: {
+    gerber: {
+      enabled: true,
+      continuations: true,
+      responses_map: ["4D", "4H", "4S", "4NT"],
+    },
+    blackwood: { enabled: true, variant: "rkcb", responses: "1430" },
+  },
   notrump_responses: {
     stayman: { enabled: true },
     jacoby_transfers: { enabled: true },
     texas_transfers: { enabled: true },
+    // Minor Suit Transfers over 1NT: 2S -> 3C, 2NT -> 3D (opener acceptance)
+    minor_suit_transfers: { enabled: false },
   },
   responses: {
     jacoby_2nt: { enabled: true },
@@ -202,8 +242,10 @@ window.DEFAULT_CONVENTIONS_CONFIG = {
   },
   competitive: {
     michaels: { enabled: true },
-    negative_doubles: { enabled: true },
-    responsive_doubles: { enabled: true },
+    // Negative doubles can be limited by thru_level (default 3)
+    negative_doubles: { enabled: true, thru_level: 3 },
+    // Responsive doubles also honor thru_level
+    responsive_doubles: { enabled: true, thru_level: 3 },
     support_doubles: { enabled: true, thru: "2S" },
     reopening_doubles: { enabled: true },
   },
@@ -211,11 +253,37 @@ window.DEFAULT_CONVENTIONS_CONFIG = {
     vulnerability_adjustments: true,
     passed_hand_variations: true,
     balanced_shapes: {
-      include_5422: false, // when true, treat 5-4-2-2 as semi-balanced for NT logic
+      include_5422: false, // when true, treat 5-4-2-2 as semi-balanced for 1NT/2NT logic
+    },
+    // Optional: keep systems on over interference of our 1NT opening
+    systems_on_over_1nt_interference: {
+      stayman: false, // allow Stayman logic after interference
+      transfers: false, // allow simple transfers over 2C interference: 2D->H, 2H->S
+      stolen_bid_double: false, // double over 2C = Stayman when stayman=true and responder has 8+ HCP and a 4-card major
     },
   },
 };
 ```
+
+Key notes:
+
+- Vulnerability adjustments tighten/loosen preempts (e.g., weak two ranges are stricter when vulnerable).
+- Support doubles apply through the configured level (e.g., thru: '2S').
+- Negative/Responsive doubles respect their `thru_level` settings.
+- Minor Suit Transfers (MST) add these mappings in opener acceptance:
+  - 1NT – 2S -> 3C (clubs)
+  - 1NT – 2NT -> 3D (diamonds)
+    Ensure MST is enabled to use these sequences.
+- Systems-on over 1NT interference (when enabled via general.systems_on_over_1nt_interference):
+  - Stolen-bid double: 1NT (we) – (2C) – X denotes Stayman if responder has 8+ HCP and a 4-card major.
+  - Transfers on over 2C: 1NT (we) – (2C) – 2D/2H act as transfers to hearts/spades.
+  - Negative doubles are applied only after our 1-level suit openings (not after 1NT), preventing conflict with stolen-bid behavior.
+
+### Pass token standardization
+
+- Internally, all passes are represented with the literal token `"PASS"`.
+- For backward compatibility, auction utilities still recognize `null` as a pass input from legacy code and tests.
+- Tests expecting a pass should check for `bid.token === 'PASS'`.
 
 ### Testing
 

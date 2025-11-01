@@ -45,7 +45,8 @@ describe('Comprehensive SAYC Tests', () => {
 
         for (const [hand, shouldOvercall] of hands) {
             const bid = system.getBid(hand);
-            expect(!!(bid && bid.token)).toBe(shouldOvercall);
+            const isContract = !!(bid && bid.token && /^[1-7](C|D|H|S|NT)$/.test(bid.token));
+            expect(isContract).toBe(shouldOvercall);
         }
     });
 
@@ -85,9 +86,9 @@ describe('Comprehensive SAYC Tests', () => {
             // Perfect Jacoby 2NT (4 spades, 13 HCP)
             [makeHandFromPattern('KQ32', 'AK32', 'Q32', '32'), '2NT'],
             // Too weak for Jacoby 2NT
-            [makeHandFromPattern('KQ32', 'K432', 'Q32', '32'), null],
+            [makeHandFromPattern('KQ32', 'K432', 'Q32', '32'), 'PASS'],
             // Not enough trump support
-            [makeHandFromPattern('K32', 'AKQ2', 'QJ2', '432'), null]
+            [makeHandFromPattern('K32', 'AKQ2', 'QJ2', '432'), 'PASS']
         ];
 
         for (const [hand, expected] of hands) {
