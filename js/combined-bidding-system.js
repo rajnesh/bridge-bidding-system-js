@@ -623,7 +623,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         // Not enough points to respond to regular openings
         if (totalPoints < 6) return null;
 
-        // Support partner's major
+    // Support partner's major
         if (['H', 'S'].includes(openerSuit)) {
             const supportLength = hand.lengths[openerSuit];
 
@@ -801,6 +801,33 @@ class SAYCBiddingSystem extends BiddingSystem {
                         return new window.Bid(`2${openerSuit}`);
                     }
                 }
+                }
+            }
+        }
+
+        // Balanced responder over minor openings (no interference): prefer NT when no 4-card major and <4-card support
+        if (['C','D'].includes(openerSuit)) {
+            const bids = this.currentAuction.bids || [];
+            // Determine no-opponent-interference relative to this specific opening token
+            let openedIdx = -1;
+            for (let i = 0; i < bids.length; i++) {
+                const bi = bids[i];
+                if (bi && bi.token === opening) { openedIdx = i; break; }
+            }
+            const noOppInterference = openedIdx >= 0 && !bids.slice(openedIdx + 1).some(b => (b && b.token && !this._isPassToken(b.token)));
+            const supportLen = hand.lengths[openerSuit] || 0;
+            const noFourCardMajor = (hand.lengths['H'] < 4 && hand.lengths['S'] < 4);
+            // Don't preempt a natural 1D response over a 1C opening when we hold 4+ diamonds
+            const naturalOneDiamondAvailable = (opening === '1C' && (hand.lengths['D'] || 0) >= 4);
+            if (noOppInterference && this._isBalanced(hand) && noFourCardMajor && supportLen < 4 && !naturalOneDiamondAvailable) {
+                // Align NT ranges with major-opening responder logic for consistency:
+                // 10–11 -> 1NT, 12–14 -> 2NT, 15+ -> consider 3NT
+                if (hand.hcp >= 15) {
+                    return new window.Bid('3NT');
+                } else if (hand.hcp >= 12 && hand.hcp <= 14) {
+                    return new window.Bid('2NT');
+                } else if (hand.hcp >= 10 && hand.hcp <= 11) {
+                    return new window.Bid('1NT');
                 }
             }
         }
