@@ -1210,6 +1210,26 @@ function getConventionExplanation(bid, auction) {
         }
     } catch (e) { /* ignore Weak Two UI heuristics */ }
 
+    // Natural raise to game after partner's invitational/limit raise (not a cue-bid)
+    try {
+        if (tokens.length >= 3) {
+            const opener = tokens[0];
+            const resp3 = tokens[2];
+            const isSuitOpening = /^1[CDHS]$/.test(opener);
+            const sameSuitAt3 = /^3[CDHS]$/.test(resp3) && opener.slice(-1) === resp3.slice(-1);
+            if (isSuitOpening && sameSuitAt3) {
+                const s = opener.slice(-1);
+                // Game raise in majors: 4H/4S; in minors: 5C/5D
+                if ((s === 'H' || s === 'S') && bidToken === `4${s}`) {
+                    return `Raise to game in ${suitName(s)}`;
+                }
+                if ((s === 'C' || s === 'D') && bidToken === `5${s}`) {
+                    return `Raise to game in ${suitName(s)}`;
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+
     // Cue-bid raise (limit+ raise of partner's suit) — UI-only heuristic for user's bid
     try {
         if (auction.length >= 2) {
