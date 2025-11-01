@@ -1134,6 +1134,21 @@ class SAYCBiddingSystem extends BiddingSystem {
                 return new window.Bid('1NT');
             }
 
+            // Natural 2NT overcall over a MINOR opening: strong balanced (19–21) with a stopper
+            // Reserve 2NT as Unusual only over MAJOR openings (handled above). This keeps
+            // conventions separate: over 1C/1D we allow natural 2NT; over 1H/1S 2NT remains Unusual (minors).
+            if ((oppSuit === 'C' || oppSuit === 'D') && this._isBalanced(hand) && hand.hcp >= 19 && hand.hcp <= 21) {
+                // Require a stopper in their suit
+                const ranks = (hand.suitBuckets[oppSuit] || []).map(c => c.rank);
+                const len = hand.lengths[oppSuit] || 0;
+                const hasStopper = ranks.includes('A') || (ranks.includes('K') && len >= 2) || (ranks.includes('Q') && len >= 3);
+                if (hasStopper) {
+                    const bid = new window.Bid('2NT');
+                    bid.conventionUsed = 'Natural 2NT overcall (19–21 balanced with stopper)';
+                    return bid;
+                }
+            }
+
             // Takeout double
             const shortOpp = hand.lengths[oppSuit] <= 2;
             const threeCardSuits = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
