@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Bridge SAYC Bidding Engine</title>
+    <title>PT Bridge Engine</title>
     
     <!-- Custom Bidding System Styles -->
     <link rel="icon" type="image/svg+xml" href="favicon.svg">
@@ -12,17 +12,27 @@
 <body>
     <div class="app-container">
         <div class="main-container">
-            <!-- Header removed to maximize vertical space -->
+            <div class="app-header" role="banner" aria-label="PT Bridge Engine">
+                <div class="header-row">
+                    <div class="header-text">
+                        <div class="app-title">
+                            <span class="suit-icon spade">♠</span>
+                            <span class="suit-icon heart">♥</span>
+                            PT Bridge Engine
+                            <span class="suit-icon club">♣</span>
+                            <span class="suit-icon diamond">♦</span>
+                        </div>
+                        <div class="app-subtitle">A platform for members of the Panchshil Towers bridge community</div>
+                    </div>
+                </div>
+            </div>
             
             <!-- Loading indicator -->
             <div id="loadingIndicator" class="alert alert-info">
                 ⏳ Initializing bidding system...
             </div>
             
-            <!-- Compact persistent banner above tabs -->
-            <div class="page-banner" role="banner">
-                Bidding practice platform for members of the Panchshil Towers bridge community
-            </div>
+            <!-- Removed old page-banner in favor of restored header -->
             
             <!-- Tab Navigation -->
             <div class="tab-container">

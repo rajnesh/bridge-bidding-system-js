@@ -7,6 +7,11 @@
     box-sizing: border-box;
 }
 
+:root {
+    /* Responsive header size shared by title and suit icons */
+    --header-title-size: clamp(1.6rem, 2.0vw + 1.2rem, 2.2rem);
+}
+
 body {
     font-family: "Poppins", sans-serif;
     background: #ffffff;
@@ -74,23 +79,44 @@ h6 { font-size: 16px; }
 .app-header {
     background: #f8f9fa;
     color: #333;
-    padding: 20px;
+    padding: 10px 12px; /* reduced vertical padding from earlier version */
     text-align: center;
     border-bottom: 2px solid #dee2e6;
 }
 
+.app-header .header-row {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 0; /* exact spacing controlled via header-text margins */
+}
+
+.app-header .header-text { display: flex; flex-direction: column; align-items: center; margin: 0 4px; }
+
 .app-title {
-    font-size: 2.2rem;
+    font-size: var(--header-title-size);
     font-weight: 700;
     margin-bottom: 8px;
     color: #333;
 }
 
 .app-subtitle {
-    font-size: 1.1rem;
+    font-size: 1.05rem;
     opacity: 0.9;
     font-weight: 300;
+    font-style: italic; /* subtitle in italics as requested */
 }
+
+.suit-icons { display: inline-flex; gap: 6px; }
+.suit-icon { font-size: var(--header-title-size); line-height: 1; font-weight: 700; }
+.suit-icon.spade { color: #000; }
+.suit-icon.club { color: #000; }
+.suit-icon.heart { color: #d63031; }
+.suit-icon.diamond { color: #d63031; }
+
+/* Loading indicator fade-out support */
+#loadingIndicator { transition: opacity 250ms ease; }
+#loadingIndicator.fade-out { opacity: 0; pointer-events: none; }
 
 /* Content Grid */
 .content-grid {
@@ -212,7 +238,7 @@ h6 { font-size: 16px; }
 .below-auction-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; margin: 8px 0 0 0; }
 .right-pane .below-auction-grid { max-width: 90%; margin: 8px auto 0 auto; }
 .bidpad-compact .bid-grid.compact { grid-template-columns: repeat(5, 1fr); gap: 6px; margin: 10px 0; }
-.bidpad-compact .bid-grid.compact .bid-button { padding: 10px 6px; font-size: 1rem; min-height: 44px; }
+.bidpad-compact .bid-grid.compact .bid-button { padding: 9px 6px; font-size: 1rem; min-height: 40px; }
 .bid-explanations-panel { background: #fff; border: 1px solid #e9ecef; border-radius: 8px; padding: 10px 12px; }
 .bid-explanations-panel h4 { margin: 0 0 8px 0; font-size: 1.05rem; }
 .bid-explanations-panel .explanation-item { display: flex; gap: 8px; align-items: baseline; padding: 6px 8px; border-bottom: 1px dashed #eceff3; }
@@ -672,10 +698,10 @@ h6 { font-size: 16px; }
      ============================= */
 .tab-container { padding: 20px; height: 100%; }
 /* Chevron-style tab nav to imply flow */
-.tab-nav { display: flex; gap: 0; margin-bottom: 4px; border-bottom: none; align-items: stretch; overflow-x: auto; position: relative; counter-reset: tabstep; }
+.tab-nav { display: flex; gap: 0; margin-bottom: 4px; border-bottom: none; align-items: stretch; overflow-x: auto; overflow-y: hidden; position: relative; counter-reset: tabstep; padding-bottom: 0; }
 .tab-button {
     position: relative;
-    padding: 8px 24px 8px 32px; /* slightly reduced height and width padding */
+    padding: 6px 24px 6px 32px; /* reduce vertical padding to lower tab height */
     border: none;
     background: linear-gradient(135deg, #eaf4ff 0%, #d7ebff 100%);
     color: #1e6bb8;
@@ -744,32 +770,13 @@ h6 { font-size: 16px; }
 }
 /* Compact on small screens to keep shape readable */
 @media (max-width: 600px) {
-    .tab-button { padding: 8px 22px 8px 12px; font-weight: 600; }
+    .tab-button { padding: 6px 20px 6px 12px; font-weight: 600; }
 }
 .tab-content { height: calc(100vh - 120px); overflow-y: auto; border: 1px solid #e9ecef; border-top: none; border-radius: 0; }
 
 /* Progress track and fill under tabs */
-.tab-nav::before {
-    content: "";
-    position: absolute;
-    left: 0;
-    right: 0;
-    bottom: -4px;
-    height: 4px;
-    background: #e9eef3;
-    border-radius: 2px;
-}
-.tab-nav::after {
-    content: "";
-    position: absolute;
-    left: 0;
-    bottom: -4px;
-    height: 4px;
-    width: calc((var(--progress, 1) / 5) * 100%);
-    background: #E84E4E;
-    border-radius: 2px;
-    transition: width 220ms ease;
-}
+.tab-nav::before { content: none; }
+.tab-nav::after { content: none; }
 .tab-panel { display: none; height: 100%; }
 .tab-panel.active { display: block; }
 

@@ -123,7 +123,13 @@ class BiddingSystem {
                 if (tokens.length === 2 && firstNonPassIdx === 0 && /^[1][CDHS]$/.test(tokens[0]) && /^[12][CDHS]$/.test(tokens[1]) && isSuit) {
                     const openerSuit = tokens[0].slice(-1);
                     const ourSuit = bidToken.slice(-1);
-                    if (ourSuit !== openerSuit) return `Natural new suit (${suitName(ourSuit)})`;
+                    if (ourSuit !== openerSuit) {
+                        // If we're forced to the 2-level (free bid) after interference, note the strength implication
+                        if (/^2[CDHS]$/.test(bidToken)) {
+                            return `New suit at 2-level over interference (free bid): natural ${suitName(ourSuit)}, about 10+ total points`;
+                        }
+                        return `Natural new suit (${suitName(ourSuit)})`;
+                    }
                 }
                 // Opener 1NT/2NT rebids after partner's new suit (allow leading passes)
                 if (tokens.length >= 3) {
@@ -133,6 +139,17 @@ class BiddingSystem {
                     if (/^1[CDHS]$/.test(openerTok || '') && partnerNewSuit) {
                         if (bidToken === '1NT') return '1NT rebid: balanced hand (shows stopper)';
                         if (bidToken === '2NT') return '2NT rebid: 18–19 HCP, balanced';
+                    }
+                }
+                // Opener rebids their own suit in competition (e.g., 1m (1S) Pass (2S); 3m)
+                if (tokens.length >= 3) {
+                    const openIdx = firstNonPassIdx;
+                    const openerTok = openIdx === -1 ? null : tokens[openIdx];
+                    const openerSuit = openerTok ? openerTok.slice(-1) : null;
+                    const theirBidAfterOpening = tokens.slice(openIdx + 1).find(t => t !== 'PASS' && t !== 'X' && t !== 'XX');
+                    if (openerSuit && isSuit && bidToken.slice(-1) === openerSuit && theirBidAfterOpening && /^[12-3][CDHS]$/.test(theirBidAfterOpening)) {
+                        const s = suitName(openerSuit);
+                        return `${bidToken}: Opener's rebid in ${s} — natural, competitive (shows extra length; typically minimum)`;
                     }
                 }
             } catch (_) {}
@@ -1076,6 +1093,22 @@ class SAYCBiddingSystem extends BiddingSystem {
 
         // New suit responses
         if (totalPoints >= 6) {
+            // Detect if there was opponent interference after opener's bid (simple pattern)
+            let overcallAfterOpening = false;
+            try {
+                const bids = this.currentAuction?.bids || [];
+                let openedIdx = -1;
+                for (let i = 0; i < bids.length; i++) { if (bids[i]?.token === opening) { openedIdx = i; break; } }
+                if (openedIdx >= 0) {
+                    for (let j = openedIdx + 1; j < bids.length; j++) {
+                        const t = bids[j]?.token;
+                        if (!t || t === 'PASS' || t === 'X' || t === 'XX') continue;
+                        // First non-pass action after the opening was a suit bid by opponents -> interference
+                        overcallAfterOpening = /^[12][CDHS]$/.test(t);
+                        break;
+                    }
+                }
+            } catch(_) { /* best-effort only */ }
             // Look for 5+ card suits first
             for (const suit of ['S', 'H', 'D', 'C']) {
                 if (suit !== openerSuit && hand.lengths[suit] >= 5) {
@@ -1086,6 +1119,17 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // 2-level new suit requires stronger values (keep at 13+ HCP per current style/tests)
                     if (hand.hcp >= 13) {
                         return new window.Bid(`2${suit}`);
+                    }
+                    // Free bid style over interference: allow with 10+ total points and a strong long suit
+                    // Example: 1C (1S) 2D with 6+ (often 6-7) diamonds and ~10 total points (HCP+DP)
+                    if (overcallAfterOpening) {
+                        const totalPts = (hand.hcp || 0) + (hand.distributionPoints || 0);
+                        const len = hand.lengths[suit] || 0;
+                        if (totalPts >= 10 && len >= 6) {
+                            const b = new window.Bid(`2${suit}`);
+                            b.conventionUsed = `New suit at 2-level over interference (free bid): natural ${len}+ ${suit === 'C' ? 'clubs' : suit === 'D' ? 'diamonds' : suit === 'H' ? 'hearts' : 'spades'}, about 10+ total points`;
+                            return b;
+                        }
                     }
                 }
             }
@@ -1813,6 +1857,87 @@ class SAYCBiddingSystem extends BiddingSystem {
         return null;
     }
 
+    /**
+     * Responder continuations after partner opens 1NT and accepts our Jacoby transfer.
+     * Covers sequences like: 1NT – 2D; 2H – (responder?) and 1NT – 2H; 2S – (responder?).
+     * Simple SAYC-style rules:
+     * - With 0–7 HCP: Pass 2M.
+     * - With 8–9 HCP: Invite via 2NT (balanced/5M) or 3M with 6+ card major/unbalanced.
+     * - With 10+ HCP: Bid game — 4M with 6+ cards or unbalanced; otherwise consider 3NT with a balanced hand and only a 5-card major.
+     */
+    _handle1NTResponderRebidAfterTransfer(hand) {
+        const bids = this.currentAuction?.bids || [];
+        if (bids.length < 3) return null;
+
+        // Require that partner opened 1NT on this auction
+        const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+        if (!ctx) return null;
+        const partnerSeat = ctx.partnerSeat;
+        const ourSeat = ctx.currentSeat;
+        if (!partnerSeat || !ourSeat) return null;
+
+        // Find partner's 1NT opening index
+        let idx1NT = -1;
+        for (let i = 0; i < bids.length; i++) {
+            const b = bids[i];
+            if (b && b.token === '1NT' && b.seat === partnerSeat) { idx1NT = i; break; }
+        }
+        if (idx1NT === -1) return null;
+
+        // Ensure we have made at least one bid after 1NT (i.e., this is our second turn as responder)
+        let ourFirstAfter1NT = null;
+        for (let i = idx1NT + 1; i < bids.length; i++) {
+            const b = bids[i];
+            if (b && b.seat === ourSeat && b.token) { ourFirstAfter1NT = b; break; }
+        }
+        if (!ourFirstAfter1NT) return null;
+
+        // Our first action must have been a Jacoby transfer ask to a major
+        const transferAsk = ourFirstAfter1NT.token;
+        if (!(transferAsk === '2D' || transferAsk === '2H')) return null;
+
+        // Partner must have accepted: 2D->2H or 2H->2S, and that acceptance should be their last bid
+        const last = bids[bids.length - 1];
+        if (!last || last.seat !== partnerSeat || !last.token) return null;
+        const expectedAcceptance = (transferAsk === '2D') ? '2H' : '2S';
+        if (last.token !== expectedAcceptance) return null;
+
+        // Now decide our continuation
+        const major = (transferAsk === '2D') ? 'H' : 'S';
+        const lenM = hand.lengths[major] || 0;
+        const hcp = hand.hcp || 0;
+        const balanced = this._isBalanced(hand);
+
+        if (hcp <= 7) {
+            return new window.Bid('PASS');
+        }
+
+        if (hcp >= 8 && hcp <= 9) {
+            if (lenM >= 6 || !balanced) {
+                const b = new window.Bid(`3${major}`);
+                b.conventionUsed = 'Invite after transfer (6+ trump or unbalanced)';
+                return b;
+            }
+            const b = new window.Bid('2NT');
+            b.conventionUsed = 'Invite after transfer (balanced)';
+            return b;
+        }
+
+        // 10+ HCP: commit to game. Prefer 4M with 6+ or any unbalanced shape; otherwise allow 3NT when balanced with a 5-card major
+        if (hcp >= 10) {
+            if (lenM >= 6 || !balanced) {
+                const b = new window.Bid(`4${major}`);
+                b.conventionUsed = 'Game after transfer (fit or distribution)';
+                return b;
+            }
+            const b = new window.Bid('3NT');
+            b.conventionUsed = 'Game after transfer (balanced)';
+            return b;
+        }
+
+        return null;
+    }
+
     /** Same side helper */
     _sameSideAs(seatA, seatB) {
         if (!seatA || !seatB) return false;
@@ -1914,36 +2039,53 @@ class SAYCBiddingSystem extends BiddingSystem {
             const partnerOpened1NT = tokens[0] === '1NT' && (bids[0].seat === ctx.partnerSeat || ctx.currentSeat === ctx.partnerSeat || !bids[0].seat);
             const partnerOpened2NT = tokens[0] === '2NT' && (bids[0].seat === ctx.partnerSeat || ctx.currentSeat === ctx.partnerSeat || !bids[0].seat);
             if (partnerOpened1NT) {
-                // If there is immediate interference over our 1NT, optionally handle systems-on or other interference logic first
-                const last = bids[bids.length - 1];
-                const interferencePresent = bids.length >= 2 && last && last.token && last.token[0] === '2';
-                if (interferencePresent) {
-                    // Prefer explicit systems-on handling here when enabled
-                    const cfg = (this.conventions?.config?.general?.systems_on_over_1nt_interference) || {};
-                    if (cfg && last && last.token && last.token[0] === '2') {
-                        const theirSuit = last.token[1];
-                        // Stolen-bid double over 2C = Stayman
-                        if (cfg.stolen_bid_double && theirSuit === 'C') {
-                            const staymanEnabled = this.conventions?.isEnabled('stayman', 'notrump_responses');
-                            const hasFourCardMajor = (hand.lengths['H'] >= 4 || hand.lengths['S'] >= 4);
-                            if (staymanEnabled && hand.hcp >= 8 && hasFourCardMajor) {
-                                const bid = new window.Bid(null, { isDouble: true });
-                                bid.conventionUsed = 'Stolen Bid (Double = Stayman over 2C)';
-                                return bid;
+                // Check whether this is our first action after the 1NT opening or a continuation round
+                let weHaveActedSince1NT = false;
+                let idx1NT = -1;
+                for (let i = 0; i < bids.length; i++) { const b = bids[i]; if (b && b.token === '1NT' && b.seat === ctx.partnerSeat) { idx1NT = i; break; } }
+                if (idx1NT >= 0) {
+                    for (let i = idx1NT + 1; i < bids.length; i++) {
+                        const b = bids[i];
+                        if (b && b.seat === ctx.currentSeat && b.token) { weHaveActedSince1NT = true; break; }
+                    }
+                }
+
+                if (!weHaveActedSince1NT) {
+                    // First round over 1NT: allow responder conventions, possibly with systems-on vs interference
+                    const last = bids[bids.length - 1];
+                    const interferencePresent = bids.length >= 2 && last && last.token && last.token[0] === '2';
+                    if (interferencePresent) {
+                        // Prefer explicit systems-on handling here when enabled
+                        const cfg = (this.conventions?.config?.general?.systems_on_over_1nt_interference) || {};
+                        if (cfg && last && last.token && last.token[0] === '2') {
+                            const theirSuit = last.token[1];
+                            // Stolen-bid double over 2C = Stayman
+                            if (cfg.stolen_bid_double && theirSuit === 'C') {
+                                const staymanEnabled = this.conventions?.isEnabled('stayman', 'notrump_responses');
+                                const hasFourCardMajor = (hand.lengths['H'] >= 4 || hand.lengths['S'] >= 4);
+                                if (staymanEnabled && hand.hcp >= 8 && hasFourCardMajor) {
+                                    const bid = new window.Bid(null, { isDouble: true });
+                                    bid.conventionUsed = 'Stolen Bid (Double = Stayman over 2C)';
+                                    return bid;
+                                }
+                            }
+                            // Transfers on over 2C interference to majors
+                            if (cfg.transfers && theirSuit === 'C' && this.conventions?.isEnabled('jacoby_transfers', 'notrump_responses')) {
+                                if (hand.lengths['H'] >= 5) { const bid = new window.Bid('2D'); bid.conventionUsed = 'Transfer to hearts (over interference)'; return bid; }
+                                if (hand.lengths['S'] >= 5) { const bid = new window.Bid('2H'); bid.conventionUsed = 'Transfer to spades (over interference)'; return bid; }
                             }
                         }
-                        // Transfers on over 2C interference to majors
-                        if (cfg.transfers && theirSuit === 'C' && this.conventions?.isEnabled('jacoby_transfers', 'notrump_responses')) {
-                            if (hand.lengths['H'] >= 5) { const bid = new window.Bid('2D'); bid.conventionUsed = 'Transfer to hearts (over interference)'; return bid; }
-                            if (hand.lengths['S'] >= 5) { const bid = new window.Bid('2H'); bid.conventionUsed = 'Transfer to spades (over interference)'; return bid; }
-                        }
-                    }
 
-                    const interFirst = this._handleInterference(this.currentAuction, hand);
-                    if (interFirst) return interFirst;
+                        const interFirst = this._handleInterference(this.currentAuction, hand);
+                        if (interFirst) return interFirst;
+                    }
+                    const r = this._handle1NTResponse(hand);
+                    if (r) { r.conventionUsed = r.conventionUsed || (r.token==='2C' ? 'Stayman' : (r.token==='2D'||r.token==='2H'?'Jacoby Transfer':'Texas Transfer')); return r; }
+                } else {
+                    // Second round (responder rebid) after transfer acceptance
+                    const cont = this._handle1NTResponderRebidAfterTransfer(hand);
+                    if (cont) return cont;
                 }
-                const r = this._handle1NTResponse(hand);
-                if (r) { r.conventionUsed = r.conventionUsed || (r.token==='2C' ? 'Stayman' : (r.token==='2D'||r.token==='2H'?'Jacoby Transfer':'Texas Transfer')); return r; }
             }
             if (partnerOpened2NT) {
                 const r2 = this._handle2NTResponse(hand);
@@ -2280,8 +2422,11 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
             const effOurSeat = (this.currentAuction && this.currentAuction.ourSeat) ? this.currentAuction.ourSeat : this.ourSeat;
             const openedSeat = firstContractIdx >= 0 ? bidsArr[firstContractIdx].seat : null;
-            // If seat on the opening is unknown, be conservative: treat it as our side for filtering purposes
-            const ourSideOpened = openedSeat ? this._sameSideAs(openedSeat, effOurSeat) : true;
+            // Seat-aware defaulting: if seat context is available (dealer known), and the opening bid lacks seat,
+            // prefer allowing interference (assume opponents opened). In seat-unknown tests (no dealer), keep the
+            // conservative suppression of pure overcalls to avoid spurious suggestions.
+            const ctxLocal = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+            const ourSideOpened = openedSeat ? this._sameSideAs(openedSeat, effOurSeat) : (!ctxLocal ? true : false);
 
             const inter = this._handleInterference(this.currentAuction, hand);
             if (inter) {

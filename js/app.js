@@ -58,9 +58,31 @@ function initializeSystem() {
         // Set default dealer/vulnerability controls and overlays
         try {
             const dealerSel = document.getElementById('dealer');
-            if (dealerSel) dealerSel.value = dealer;
+            if (dealerSel) {
+                // Default to South if unset and keep global in sync
+                dealerSel.value = dealer || 'S';
+                dealer = dealerSel.value || 'S';
+                // Reflect future changes back to app state and overlays
+                dealerSel.addEventListener('change', (e) => {
+                    dealer = e?.target?.value || 'S';
+                    try { updateTableOverlays(); } catch (_) {}
+                });
+            }
             const vulnSel = document.getElementById('vulnerability');
-            if (vulnSel) vulnSel.value = 'none';
+            if (vulnSel) {
+                // Default to None if unset and keep global vulnerability in sync immediately
+                vulnSel.value = vulnSel.value || 'none';
+                const vVal = vulnSel.value || 'none';
+                vulnerability.ns = (vVal === 'ns' || vVal === 'both');
+                vulnerability.ew = (vVal === 'ew' || vVal === 'both');
+                // Reflect future changes back to app state and overlays
+                vulnSel.addEventListener('change', (e) => {
+                    const vv = e?.target?.value || 'none';
+                    vulnerability.ns = (vv === 'ns' || vv === 'both');
+                    vulnerability.ew = (vv === 'ew' || vv === 'both');
+                    try { updateTableOverlays(); } catch (_) {}
+                });
+            }
             updateTableOverlays();
         } catch (_) {}
 
@@ -72,6 +94,14 @@ function initializeSystem() {
             showAuctionSetup();
             // Ensure generation toolbar reflects default mode
             try { setGenerationMode('random'); } catch (_) {}
+            // Hide loading indicator now that the UI is ready (fade-out then remove)
+            try {
+                const li = document.getElementById('loadingIndicator');
+                if (li) {
+                    li.classList.add('fade-out');
+                    setTimeout(() => { try { li.style.display = 'none'; } catch(_) {} }, 280);
+                }
+            } catch (_) {}
         } catch (e) {
             console.warn('Initial deal generation failed:', e?.message || e);
         }
@@ -729,8 +759,9 @@ function startAuction() {
     }
     
     // Immediately show bidding interface if dealer is South
-    const dealer = document.getElementById('dealer').value;
-    if (dealer === 'S') {
+    const dealerSelEl = document.getElementById('dealer');
+    const dealerVal = (dealerSelEl && dealerSelEl.value) ? dealerSelEl.value : 'S';
+    if (dealerVal === 'S') {
         console.log('Dealer is South - pre-showing bidding interface');
         const biddingInterface = document.getElementById('biddingInterface');
         if (biddingInterface) {
@@ -775,9 +806,20 @@ function startNewAuction() {
             if (auctionGrid) auctionGrid.querySelectorAll('.auction-result').forEach(el => el.remove());
         } catch (_) {}
 
-        // Get dealer and vulnerability settings
-        dealer = document.getElementById('dealer').value;
-        const vulSetting = document.getElementById('vulnerability').value;
+        // Get dealer and vulnerability settings (default to South/None if unset)
+        const dealerEl = document.getElementById('dealer');
+        dealer = (dealerEl && dealerEl.value) ? dealerEl.value : 'S';
+        // If UI had no value, reflect the default back to the dropdown and overlays
+        try {
+            if (dealerEl && !dealerEl.value) dealerEl.value = dealer;
+            updateTableOverlays();
+        } catch (_) {}
+        const vulnEl = document.getElementById('vulnerability');
+        const vulSetting = (vulnEl && vulnEl.value) ? vulnEl.value : 'none';
+        try {
+            if (vulnEl && !vulnEl.value) vulnEl.value = 'none';
+            updateTableOverlays();
+        } catch (_) {}
         
         // Set vulnerability
         vulnerability.ns = vulSetting === 'ns' || vulSetting === 'both';
@@ -802,7 +844,7 @@ function startNewAuction() {
                 }
             };
         }
-        system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
+    system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
         
         // Update auction table headers to show dealer first
         updateAuctionHeaders();
@@ -1140,9 +1182,11 @@ function makeSystemBid() {
         // Get system's bid for current position
         const hand = currentHands[currentTurn];
         const seatNumber = getSeatNumber(currentTurn);
+        // Ensure dealer is always defined when syncing to engine
+        const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
         
         // Initialize system auction if not already done or if we need fresh state
-        if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
+    if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
             console.log(`Initializing system auction with dealer: ${dealer}, current turn: ${currentTurn}`);
             // Human is South; keep ourSeat fixed as 'S' for partnership-relative logic
             if (typeof system.startAuctionWithDealer !== 'function') {
@@ -1155,17 +1199,24 @@ function makeSystemBid() {
                     }
                 };
             }
-            system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
+            system.startAuctionWithDealer('S', dealerSeat, vulnerability.ns, vulnerability.ew);
             
-            // Add current auction to system and assign seats based on dealer rotation
+            // Ensure dealer is set, then add bids via Auction.add to auto-assign seats
+            if (typeof system.currentAuction.reseat === 'function') {
+                system.currentAuction.reseat(dealerSeat);
+            } else {
+                system.currentAuction.dealer = dealerSeat;
+            }
             currentAuction.forEach(bid => {
-                system.currentAuction.bids.push(bid);
+                try {
+                    system.currentAuction.add(bid);
+                } catch (_) {
+                    // Fallback in extreme cases: push then reseat so seats get assigned
+                    system.currentAuction.bids.push(bid);
+                    try { system.currentAuction.reseat(dealerSeat); } catch { /* noop */ }
+                }
                 console.log(`Added bid to system: ${bid.token || 'PASS'}`);
             });
-            // Ensure all pushed bids have correct seat assigned for turn-order logic
-            if (typeof system.currentAuction.reseat === 'function') {
-                system.currentAuction.reseat(dealer);
-            }
         }
         
         // Check for forced responses (e.g., Strong 2C)
@@ -1176,7 +1227,7 @@ function makeSystemBid() {
         
     // Ensure the engine evaluates from the current actor's perspective
     try {
-        if (system.currentAuction) {
+    if (system.currentAuction) {
             system.currentAuction.ourSeat = currentTurn;
         }
     } catch (e) { /* ignore */ }
@@ -1271,15 +1322,6 @@ function makeSystemBid() {
                 }
             } catch (_) { /* non-fatal */ }
         }
-        console.log('Final recommended bid:', recommendedBid.token || 'PASS');
-        
-        console.log(`${currentTurn} making bid:`);
-        console.log(`  Hand: ${hand.toString()}`);
-        console.log(`  HCP: ${hand.hcp}`);
-        console.log(`  Current auction length: ${currentAuction.length}`);
-        console.log(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
-        console.log(`  Explanation: ${explanation}`);
-        
         // Validate the recommended bid - if invalid, pass instead (unless it's a forced bid)
         const bidToken = recommendedBid.token || 'PASS';
         if (forcedBid) {
@@ -1308,6 +1350,15 @@ function makeSystemBid() {
                 }
             } catch (_) {}
         }
+
+    // Log after finalizing legality and explanation so console reflects what will be recorded
+    console.log('Final recommended bid:', recommendedBid.token || 'PASS');
+    console.log(`${currentTurn} making bid:`);
+    console.log(`  Hand: ${hand.toString()}`);
+    console.log(`  HCP: ${hand.hcp}`);
+    console.log(`  Current auction length: ${currentAuction.length}`);
+    console.log(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
+    console.log(`  Explanation: ${explanation}`);
 
         // Responder upgrade: after opener's 2NT, push to game with adequate points
         try {
@@ -1485,6 +1536,8 @@ function getRecommendedBid() {
             alert('Not your turn or no hand available');
             return;
         }
+        // Ensure dealer is always defined when syncing to engine
+        const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
         
         // Get system recommendation - use current system auction state
         if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
@@ -1498,9 +1551,19 @@ function getRecommendedBid() {
                     }
                 };
             }
-            system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
+            system.startAuctionWithDealer('S', dealerSeat, vulnerability.ns, vulnerability.ew);
+            // Ensure dealer is set, then add via Auction.add for seat assignment
+            if (typeof system.currentAuction.reseat === 'function') {
+                system.currentAuction.reseat(dealerSeat);
+            } else {
+                system.currentAuction.dealer = dealerSeat;
+            }
             currentAuction.forEach(bid => {
-                system.currentAuction.bids.push(bid);
+                try { system.currentAuction.add(bid); }
+                catch (_) {
+                    system.currentAuction.bids.push(bid);
+                    try { system.currentAuction.reseat(dealerSeat); } catch { /* noop */ }
+                }
             });
         } else {
             // Keep vulnerability in sync even when reusing the auction object
@@ -1860,6 +1923,7 @@ function updateAuctionStatus() {
 // Compute hint for South using the same engine recommendation logic
 function computeSouthHint() {
     if (!currentHands.S) return { bid: '-', explanation: 'No hand available' };
+    const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
     // Align system auction state with current UI auction
     if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
         if (typeof system.startAuctionWithDealer !== 'function') {
@@ -1872,11 +1936,17 @@ function computeSouthHint() {
                 }
             };
         }
-        system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
-        currentAuction.forEach(b => system.currentAuction.bids.push(b));
+        system.startAuctionWithDealer('S', dealerSeat, vulnerability.ns, vulnerability.ew);
+        // Seat-assign immediately using Auction.add
         if (typeof system.currentAuction.reseat === 'function') {
-            system.currentAuction.reseat(dealer);
+            system.currentAuction.reseat(dealerSeat);
+        } else {
+            system.currentAuction.dealer = dealerSeat;
         }
+        currentAuction.forEach(b => {
+            try { system.currentAuction.add(b); }
+            catch (_) { system.currentAuction.bids.push(b); }
+        });
     } else {
         // Ensure vulnerability stays in sync even when we reuse the auction object
         try {
