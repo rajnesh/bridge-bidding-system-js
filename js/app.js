@@ -6,393 +6,92 @@
 let system = null;
 let systemReady = false;
 let generationMode = 'random';
-let handVisibility = 'south';
+// Global state used across the UI (restored to avoid ReferenceErrors at runtime)
 let currentHands = { N: null, E: null, S: null, W: null };
-let currentAuction = null;
-let currentTurn = null;
-let auctionActive = false;
+let currentAuction = [];
+let auctionHistory = [];
 let dealer = 'S';
 let vulnerability = { ns: false, ew: false };
-let auctionHistory = [];
-let availableConventions = {};
+let auctionActive = false;
+let currentTurn = null;
 let enabledConventions = {};
-let practiceConventions = [];
-let selectedPracticeConventions = {}; // Track one selected convention per category
+let availableConventions = {};
 let conventionCategories = {};
 let mutuallyExclusiveGroups = [];
+let practiceConventions = [];
+let selectedPracticeConventions = {};
+let handVisibility = 'all';
 
-// Initialize system when page loads
+// Initialize the engine and UI when the page is ready
 function initializeSystem() {
     try {
-        console.log('Starting initialization...');
-        
-        if (typeof SAYCBiddingSystem === 'undefined') {
-            throw new Error('SAYCBiddingSystem is not defined - scripts may not have loaded correctly');
+        // Ensure engine is loaded; if not yet available, retry shortly
+        if (!window || typeof window.SAYCBiddingSystem !== 'function') {
+            console.warn('Bidding system not ready yet; retrying init...');
+            setTimeout(initializeSystem, 300);
+            return;
         }
-        
-        system = new SAYCBiddingSystem();
-        
-        // Load conventions configuration (from inlined defaults or built-in)
-        system.conventions.loadConfig().then(async () => {
-            console.log('Conventions config loaded successfully');
-            // Apply any persisted General Settings before building UI
+
+        // Create engine instance once
+        if (!system) {
+            system = new window.SAYCBiddingSystem();
+            systemReady = true;
+        }
+
+        // Build conventions UI and apply any persisted settings
+        (async () => {
             try {
-                const saved = loadPersistedGeneralSettings();
-                if (saved) {
-                    applyGeneralSettingsToConfig(saved);
-                }
+                await initializeConventionUI();
+                // Apply persisted General Settings to engine config if present
+                try {
+                    const gs = loadPersistedGeneralSettings();
+                    if (gs) applyGeneralSettingsToConfig(gs);
+                } catch (_) {}
+                // Persist a snapshot after initialization to keep store current
+                try { saveGeneralSettings(); } catch (_) {}
+                try { saveEnabledConventions(); } catch (_) {}
             } catch (e) {
-                console.warn('Failed to apply persisted general settings:', e);
+                console.warn('Convention UI initialization failed (continuing):', e?.message || e);
             }
-            await initializeConventionUI();
-        }).catch(async (configError) => {
-            console.warn('Config loading failed, using default config:', configError.message);
-            await initializeConventionUI();
-        });
-        
-        systemReady = true;
-        console.log('Bridge bidding system initialized successfully');
-        
-        // Hide loading indicator and show interface
-        const loadingIndicator = document.getElementById('loadingIndicator');
-        if (loadingIndicator) {
-            loadingIndicator.style.display = 'none';
+        })();
+
+        // Set default dealer/vulnerability controls and overlays
+        try {
+            const dealerSel = document.getElementById('dealer');
+            if (dealerSel) dealerSel.value = dealer;
+            const vulnSel = document.getElementById('vulnerability');
+            if (vulnSel) vulnSel.value = 'none';
+            updateTableOverlays();
+        } catch (_) {}
+
+        // Generate an initial random deal and show auction setup
+        try {
+            resetAuctionForNewDeal();
+            generateBasicRandomHands();
+            displayHands();
+            showAuctionSetup();
+            // Ensure generation toolbar reflects default mode
+            try { setGenerationMode('random'); } catch (_) {}
+        } catch (e) {
+            console.warn('Initial deal generation failed:', e?.message || e);
         }
-        
-        // Enable buttons
-        enableUI();
-        
-    } catch (error) {
-        console.error('Initialization failed:', error);
-        showError('Error loading bidding system: ' + error.message);
+    } catch (err) {
+        console.error('initializeSystem failed:', err);
     }
 }
-
-function enableUI() {
-    // Enable all buttons
-    const buttons = document.querySelectorAll('button');
-    buttons.forEach(btn => btn.disabled = false);
-    
-    // Set initial generation mode (Random is checked by default)
-    setGenerationMode('random');
-
-    // Hook up dealer/vulnerability overlays
-    try {
-        const dealerSel = document.getElementById('dealer');
-        const vulnSel = document.getElementById('vulnerability');
-        if (dealerSel) dealerSel.addEventListener('change', updateTableOverlays);
-        if (vulnSel) vulnSel.addEventListener('change', updateTableOverlays);
-        // Initial paint
-        updateTableOverlays();
-    } catch (e) {
-        console.warn('Could not initialize table overlays:', e?.message || e);
-    }
-}
-
-function showError(message) {
-    const indicator = document.getElementById('loadingIndicator');
-    if (indicator) {
-        indicator.className = 'alert alert-danger text-center';
-        indicator.innerHTML = '<i class="bi bi-exclamation-triangle"></i> ' + message;
-    }
-}
-
-// Hand Generation Functions
-function setGenerationMode(mode) {
-    generationMode = mode;
-    
-    console.log('Setting generation mode to:', mode);
-    
-    // Show/hide appropriate mode panels - hide all first
-    document.querySelectorAll('.generation-mode').forEach(panel => {
-        panel.style.display = 'none';
-        console.log('Hiding panel:', panel.id);
-    });
-    
-    // Show/hide the generation buttons based on mode
-    const generateBtn = document.getElementById('generateBtn');
-    const generateAndViewBtn = document.getElementById('generateAndViewBtn');
-    if (generateBtn) {
-        // Hide the old standalone button by default; we prefer a single combined action
-        generateBtn.style.display = 'none';
-    }
-    if (generateAndViewBtn) {
-        generateAndViewBtn.style.display = (mode === 'random') ? 'inline-block' : 'none';
-    }
-    
-    // Show the selected mode panel (if it exists)
-    if (mode === 'manual') {
-        const targetPanel = document.getElementById('manualMode');
-        if (targetPanel) {
-            targetPanel.style.display = 'block';
-            console.log('Showing panel: manualMode');
-        }
-    } else if (mode === 'constraints') {
-        const targetPanel = document.getElementById('constraintMode');
-        if (targetPanel) {
-            targetPanel.style.display = 'block';
-            console.log('Showing panel: constraintMode');
-        }
-    }
-    // For 'random' mode, no special panel is needed - just the generate button
-}
-
-function generateRandomHands() {
-    console.log('generateRandomHands called');
-    
-    try {
-        // Cancel any in-progress auction before creating a new deal
-        resetAuctionForNewDeal();
-
-        // Check if system is ready
-        if (!systemReady || !system) {
-            console.error('System not ready yet');
-            showError('System not ready. Please wait for initialization to complete.');
-            return;
-        }
-        
-        console.log('Selected practice conventions:', selectedPracticeConventions);
-        
-        // Check if we're in practice mode
-        const hasSelectedPracticeConventions = Object.values(selectedPracticeConventions).some(conv => conv !== null);
-        if (hasSelectedPracticeConventions) {
-            console.log('Using practice mode generation');
-            return generateHandsForPractice();
-        }
-        
-        console.log('Generating random hands...');
-        
-        // Generate 4 random 13-card hands
-        const deck = createDeck();
-        shuffleDeck(deck);
-        
-        console.log('Deck created and shuffled');
-        
-        // Convert deck cards to suit-separated format for Hand constructor
-        currentHands.N = new window.Hand(convertCardsToHandString(deck.slice(0, 13)));
-        currentHands.E = new window.Hand(convertCardsToHandString(deck.slice(13, 26)));
-        currentHands.S = new window.Hand(convertCardsToHandString(deck.slice(26, 39)));
-        currentHands.W = new window.Hand(convertCardsToHandString(deck.slice(39, 52)));
-        
-        console.log('Hands created successfully');
-        
-    displayHands();
-    showAuctionSetup();
-    // Auto-switch to Auction tab for streamlined flow
-    try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-        
-        console.log('Random hands generation completed');
-        
-    } catch (error) {
-        console.error('Error generating random hands:', error);
-        showError('Error generating hands: ' + error.message);
-    }
-}
-
-function validateSuitInput() {
-    const spades = document.getElementById('spadesInput').value.trim().toUpperCase();
-    const hearts = document.getElementById('heartsInput').value.trim().toUpperCase();
-    const diamonds = document.getElementById('diamondsInput').value.trim().toUpperCase();
-    const clubs = document.getElementById('clubsInput').value.trim().toUpperCase();
-    
-    const errorDiv = document.getElementById('handValidationError');
-    const cardCountDiv = document.getElementById('cardCount');
-    
-    const suitInputs = [
-        { element: document.getElementById('spadesInput'), cards: spades, name: 'Spades' },
-        { element: document.getElementById('heartsInput'), cards: hearts, name: 'Hearts' },
-        { element: document.getElementById('diamondsInput'), cards: diamonds, name: 'Diamonds' },
-        { element: document.getElementById('clubsInput'), cards: clubs, name: 'Clubs' }
-    ];
-    
-    try {
-        const allCards = [];
-        let totalCards = 0;
-        
-        // Validate each suit
-        suitInputs.forEach((suit, suitIndex) => {
-            if (suit.cards === '') {
-                // Empty suit is ok (void)
-                suit.element.classList.remove('valid', 'invalid');
-                return;
-            }
-            
-            // Check for duplicate cards within the same suit first
-            const suitCards = suit.cards.split('');
-            const uniqueCards = [...new Set(suitCards)];
-            if (suitCards.length !== uniqueCards.length) {
-                throw new Error(`Duplicate cards in ${suit.name}`);
-            }
-            
-            // Validate each card in the suit
-            for (let card of suit.cards) {
-                if (!'AKQJT98765432'.includes(card)) {
-                    throw new Error(`Invalid card '${card}' in ${suit.name}. Use A,K,Q,J,T,9,8,7,6,5,4,3,2`);
-                }
-                
-                // Create a unique card identifier (card + suit)
-                const suitSymbols = ['♠', '♥', '♦', '♣'];
-                const fullCard = card + suitSymbols[suitIndex];
-                
-                if (allCards.includes(fullCard)) {
-                    throw new Error(`Card '${fullCard}' appears multiple times`);
-                }
-                
-                allCards.push(fullCard);
-                totalCards++;
-            }
-            
-            suit.element.classList.remove('invalid');
-            suit.element.classList.add('valid');
-        });
-        
-        // Calculate HCP (High Card Points)
-        let hcp = 0;
-        suitInputs.forEach(suit => {
-            for (let card of suit.cards) {
-                hcp += window.POINTS[card] || 0;
-            }
-        });
-        
-        // Calculate DP (Distribution Points) only if we have exactly 13 cards
-        let dp = 0;
-        let displayText = `Cards: ${totalCards}/13, HCP: ${hcp}`;
-        
-        if (totalCards === 13) {
-            // Calculate distribution points: void=3, singleton=2, doubleton=1
-            suitInputs.forEach(suit => {
-                const length = suit.cards.length;
-                if (length === 0) dp += 3;       // void
-                else if (length === 1) dp += 2;  // singleton
-                else if (length === 2) dp += 1;  // doubleton
-            });
-            displayText += `, DP: ${dp}`;
-        }
-        
-    // Update card count with HCP and DP (centered and blue)
-    cardCountDiv.textContent = displayText;
-    cardCountDiv.style.color = '#3498db';
-        
-        if (totalCards > 13) {
-            throw new Error(`Too many cards: ${totalCards}/13`);
-        }
-        
-        errorDiv.textContent = '';
-        return true; // Always return true for UI validation - just update display
-        
-    } catch (error) {
-        // Mark all inputs as invalid if there's an error
-        suitInputs.forEach(suit => {
-            if (suit.cards !== '') {
-                suit.element.classList.remove('valid');
-                suit.element.classList.add('invalid');
-            }
-        });
-        
-        errorDiv.textContent = error.message;
-        cardCountDiv.textContent = `Cards: ${totalCards}/13`;
-        cardCountDiv.style.color = '#dc3545';
-        return false;
-    }
-}
-
-// Keep the old function for backwards compatibility (if needed elsewhere)
-function validateHandInput(position) {
-    const input = document.getElementById(position + 'HandInput');
-    const errorDiv = document.getElementById(position + 'HandError');
-    const handString = input.value.trim();
-    
-    if (!handString) {
-        input.classList.remove('valid', 'invalid');
-        errorDiv.textContent = '';
-        return true;
-    }
-    
-    try {
-        const suits = handString.split(/\s+/);
-        
-        if (suits.length !== 4) {
-            throw new Error('Must have exactly 4 suits');
-        }
-        
-        const allCards = [];
-        let totalCards = 0;
-        
-        suits.forEach((suitCards, index) => {
-            const suitName = ['spades', 'hearts', 'diamonds', 'clubs'][index];
-            
-            if (suitCards === '') {
-                // Empty suit is ok (void)
-                return;
-            }
-            
-            // Validate each card in the suit
-            for (let card of suitCards) {
-                if (!'AKQJT98765432'.includes(card)) {
-                    throw new Error(`Invalid card '${card}' in ${suitName}. Use A,K,Q,J,T,9,8,7,6,5,4,3,2`);
-                }
-                
-                if (allCards.includes(card + index)) {
-                    throw new Error(`Duplicate card '${card}' in ${suitName}`);
-                }
-                
-                allCards.push(card + index);
-                totalCards++;
-            }
-        });
-        
-        if (totalCards !== 13) {
-            throw new Error(`Must have exactly 13 cards, found ${totalCards}`);
-        }
-        
-        // Check for duplicate cards across all suits
-        const cardCounts = {};
-        suits.forEach(suitCards => {
-            for (let card of suitCards) {
-                cardCounts[card] = (cardCounts[card] || 0) + 1;
-                if (cardCounts[card] > 1) {
-                    throw new Error(`Card '${card}' appears more than once`);
-                }
-            }
-        });
-        
-        input.classList.remove('invalid');
-        input.classList.add('valid');
-        errorDiv.textContent = '';
-        return true;
-        
-    } catch (error) {
-        input.classList.remove('valid');
-        input.classList.add('invalid');
-        errorDiv.textContent = error.message;
-        return false;
-    }
-}
-
+// getConventionExplanation is defined later; keep only one definition.
 function generateFromManualHands() {
-    console.log('generateFromManualHands called');
-    
     try {
-        // Cancel any in-progress auction before creating a new deal
-        resetAuctionForNewDeal();
-
-        if (!systemReady || !system) {
-            console.error('System not ready yet');
-            showError('System not ready. Please wait for initialization to complete.');
-            return;
-        }
-        
-        // Get the suit inputs
-        const spades = document.getElementById('spadesInput').value.trim().toUpperCase();
-        const hearts = document.getElementById('heartsInput').value.trim().toUpperCase();
-        const diamonds = document.getElementById('diamondsInput').value.trim().toUpperCase();
-        const clubs = document.getElementById('clubsInput').value.trim().toUpperCase();
-        
-        console.log('Input values:', { spades, hearts, diamonds, clubs });
-        
-        // Check that we have exactly 13 cards
-        const totalCards = spades.length + hearts.length + diamonds.length + clubs.length;
-        console.log('Total cards:', totalCards);
+        // Read manual suit inputs for South and compute total cards entered
+        const spades = document.getElementById('spadesInput')?.value?.trim() || '';
+        const hearts = document.getElementById('heartsInput')?.value?.trim() || '';
+        const diamonds = document.getElementById('diamondsInput')?.value?.trim() || '';
+        const clubs = document.getElementById('clubsInput')?.value?.trim() || '';
+        const totalCards = (spades + hearts + diamonds + clubs).replace(/\s+/g, '').length;
+        try {
+            const cc = document.getElementById('cardCount');
+            if (cc) cc.textContent = `Cards: ${totalCards}/13`;
+        } catch (_) {}
         if (totalCards !== 13) {
             showError(`Hand must have exactly 13 cards. Current: ${totalCards}`);
             return;
@@ -537,6 +236,44 @@ function generateConstrainedHands() {
     generateWithConstraints();
 }
 
+// Switch between Random / Manual / Constraints modes in the Hand Generation tab
+function setGenerationMode(mode) {
+    try {
+        generationMode = mode;
+        const manual = document.getElementById('manualMode');
+        const constraint = document.getElementById('constraintMode');
+    const genBtn = document.getElementById('generateBtn'); // Generate Random Hands
+
+        if (manual) manual.style.display = (mode === 'manual') ? 'block' : 'none';
+        if (constraint) constraint.style.display = (mode === 'constraints') ? 'block' : 'none';
+
+        // Toolbar buttons behavior:
+        // - Random: show "Generate Random Hands"
+        // - Manual/Constraints: hide toolbar button; each mode has its own generate action
+        if (mode === 'random') {
+            if (genBtn) genBtn.style.display = 'inline-block';
+        } else {
+            if (genBtn) genBtn.style.display = 'none';
+        }
+
+        // Clear manual errors when leaving manual mode
+        if (mode !== 'manual') {
+            try {
+                const err = document.getElementById('handValidationError');
+                const cc = document.getElementById('cardCount');
+                if (err) err.textContent = '';
+                if (cc) cc.textContent = 'Cards: 0/13';
+                ['spadesInput','heartsInput','diamondsInput','clubsInput'].forEach(id => {
+                    const el = document.getElementById(id);
+                    if (el && el.classList) el.classList.remove('is-invalid');
+                });
+            } catch (_) {}
+        }
+    } catch (e) {
+        console.warn('setGenerationMode failed:', e?.message || e);
+    }
+}
+
 function getConstraints() {
     // Read constraint values from the UI inputs
     const positions = ['north', 'east', 'south', 'west'];
@@ -561,6 +298,86 @@ function getInputValue(inputId) {
         return parseInt(input.value);
     }
     return null;
+}
+
+// Basic UI error helper (fallbacks to alert if no target container)
+function showError(message) {
+    try {
+        const el = document.getElementById('globalError') || document.getElementById('auctionStatus');
+        if (el) {
+            el.textContent = String(message || 'An error occurred');
+            el.className = 'alert alert-danger';
+            return;
+        }
+    } catch (_) {}
+    // Fallback
+    try { alert(message); } catch (_) {}
+}
+
+// Validate manual hand entry for South (inputs: southSpades/Hearts/Diamonds/Clubs)
+function validateSuitInput() {
+    const errEl = document.getElementById('handValidationError');
+    const spEl = document.getElementById('spadesInput');
+    const heEl = document.getElementById('heartsInput');
+    const diEl = document.getElementById('diamondsInput');
+    const clEl = document.getElementById('clubsInput');
+    const inputs = [spEl, heEl, diEl, clEl].filter(Boolean);
+    const values = {
+        S: (spEl?.value || '').toUpperCase().replace(/\s+/g, ''),
+        H: (heEl?.value || '').toUpperCase().replace(/\s+/g, ''),
+        D: (diEl?.value || '').toUpperCase().replace(/\s+/g, ''),
+        C: (clEl?.value || '').toUpperCase().replace(/\s+/g, '')
+    };
+    // Allow '-' to denote voids; remove them for validation length counting
+    Object.keys(values).forEach(k => { values[k] = values[k].replace(/-/g, ''); });
+
+    const validRanks = new Set(['A','K','Q','J','T','9','8','7','6','5','4','3','2']);
+    const errors = [];
+
+    // Clear previous input error styling
+    inputs.forEach(el => el.classList && el.classList.remove('is-invalid'));
+
+    // Per-suit validation: only valid ranks, no duplicates within a suit
+    const suitOrder = ['S','H','D','C'];
+    suitOrder.forEach(suit => {
+        const txt = values[suit] || '';
+        const seen = new Set();
+        for (const ch of txt) {
+            if (!validRanks.has(ch)) {
+                errors.push(`Invalid character "${ch}" in ${suitName(suit)}.`);
+                markInvalid(suit);
+            } else if (seen.has(ch)) {
+                errors.push(`Duplicate rank "${ch}" in ${suitName(suit)}.`);
+                markInvalid(suit);
+            } else {
+                seen.add(ch);
+            }
+        }
+    });
+
+    // Total card count across all suits must be exactly 13
+    const total = (values.S.length + values.H.length + values.D.length + values.C.length);
+    try {
+        const cc = document.getElementById('cardCount');
+        if (cc) cc.textContent = `Cards: ${total}/13`;
+    } catch (_) {}
+    if (total !== 13) {
+        errors.push(`Hand must have exactly 13 cards. Current: ${total}.`);
+        // Mark all inputs softly since count spans suits
+        inputs.forEach(el => el.classList && el.classList.add('is-invalid'));
+    }
+
+    if (errEl) errEl.textContent = errors.join(' ');
+    return errors.length === 0;
+
+    function suitName(c) {
+        return c === 'S' ? 'spades' : c === 'H' ? 'hearts' : c === 'D' ? 'diamonds' : 'clubs';
+    }
+    function markInvalid(suit) {
+        const map = { S: spEl, H: heEl, D: diEl, C: clEl };
+        const el = map[suit];
+        if (el && el.classList) el.classList.add('is-invalid');
+    }
 }
 
 function checkConstraints(constraints) {
@@ -755,8 +572,19 @@ function displaySingleHand(position, hand) {
         `;
     });
     
-    // Calculate distribution points
-    const distPoints = calculateDistributionPoints(hand);
+    // Calculate distribution points according to General Settings preference
+    let distPoints = 0;
+    try {
+        const gs = loadPersistedGeneralSettings();
+        const dpType = (gs && gs.dp_display_type) ? gs.dp_display_type : 'shortness';
+        if (dpType === 'length') {
+            distPoints = calculateLengthPoints(hand);
+        } else {
+            distPoints = calculateShortnessPoints(hand);
+        }
+    } catch (_) {
+        distPoints = calculateShortnessPoints(hand);
+    }
     
     // Add HCP and DP display
     handHTML += `<div style="margin-top: 10px; font-size: 0.9em; color: #3498db;">HCP: ${hand.hcp} | DP: ${distPoints}</div>`;
@@ -765,8 +593,8 @@ function displaySingleHand(position, hand) {
     console.log(`Displayed hand for ${position} with ${hand.hcp} HCP and ${distPoints} DP`);
 }
 
-function calculateDistributionPoints(hand) {
-    // Calculate distribution points using standard method
+function calculateLengthPoints(hand) {
+    // Calculate length points: 1 point for 5th card, 2 for 6th, etc.
     let distPoints = 0;
     const lengths = [hand.lengths.S, hand.lengths.H, hand.lengths.D, hand.lengths.C];
     
@@ -1082,340 +910,12 @@ function isPartnerResponse(auctionLength) {
 }
 
 function getConventionExplanation(bid, auction) {
-    const bidToken = bid.token;
-    const tokens = auction.map(b => b.token).filter(Boolean);
-    const suitName = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
-    const isSuit = /^[1-7][CDHS]$/.test(bidToken || '');
-    const isNT = /^[1-7]NT$/.test(bidToken || '');
-    
-    // 1-level suit openings (basic SAYC summaries)
-    // Show for true openings even after passes (first non-pass in auction)
-    if (/^[1][CDHS]$/.test(bidToken)) {
-        const prior = auction.slice(0, auction.length);
-        const hadAnyNonPass = prior.some(b => (b.token || 'PASS') !== 'PASS');
-        const isFirstNonPass = !hadAnyNonPass || (hadAnyNonPass && (function(){
-            for (let i = 0; i < prior.length; i++) { if ((prior[i].token || 'PASS') !== 'PASS') return false; }
-            return true;
-        })());
-        if (auction.length === 0 || isFirstNonPass) {
-        const s = bidToken.slice(-1);
-        if (s === 'H' || s === 'S') {
-            return `1${s}: 5+ ${suitName(s)}, about 12+ HCP or Rule of 20`;
-        } else {
-            // Better minor style
-            if (s === 'C') {
-                return '1C: Best minor (often 3+), about 12+ HCP or Rule of 20';
-            }
-            return '1D: Better minor, about 12+ HCP or Rule of 20';
-        }
-        }
-    }
-
-    // 1NT opening
-    if (bidToken === '1NT' && auction.length === 0) {
-        return '1NT opening: 15–17 HCP, balanced';
-    }
-
-    // Strong 2C opening
-    if (bidToken === '2C' && auction.length === 0) {
-        // Enable Strong 2C by default if convention system fails to load
-        const strongTwoClubsEnabled = (system.conventions && system.conventions.isEnabled('strong_2_clubs', 'opening_bids')) || true;
-        if (strongTwoClubsEnabled) {
-            return 'Strong 2 Clubs (22+ HCP, artificial and game forcing)';
-        }
-    }
-
-    // Simple, high-signal competitive explanations to avoid generic "Your bid"
     try {
-        // Direct overcall (second call of the auction over a 1-level suit opening — no intervening passes by that side)
-        if (auction.length === 1 && /^[1][CDHS]$/.test(tokens[0])) {
-            if (isSuit) {
-                const s = bidToken.slice(-1);
-                return `Overcall: natural 5+ ${suitName(s)}`;
-            }
-            if (bidToken === '1NT') {
-                return '1NT overcall: 15–18 HCP, balanced with a stopper';
-            }
+        if (system && typeof system.getExplanationFor === 'function') {
+            // Delegate to engine central explanation to avoid UI/engine drift
+            return system.getExplanationFor(bid, { bids: auction });
         }
-        // Responder new suit after opponent overcalls (third call when tokens[1] is a suit)
-        if (auction.length === 2 && /^[1][CDHS]$/.test(tokens[0]) && /^[12][CDHS]$/.test(tokens[1]) && isSuit) {
-            const openerSuit = tokens[0].slice(-1);
-            const ourSuit = bidToken.slice(-1);
-            if (ourSuit !== openerSuit) {
-                return `Natural new suit (${suitName(ourSuit)})`;
-            }
-        }
-        // New suit response at 1-level over partner's 1m (no interference): natural with 6+ points
-        if (isSuit && bidToken[0] === '1' && (tokens[0] === '1C' || tokens[0] === '1D')) {
-            const between = tokens.slice(1, tokens.length - 1);
-            const noOppInterference = between.every(t => t === 'PASS');
-            const ourSuit = bidToken.slice(-1);
-            const openerSuit = tokens[0].slice(-1);
-            if (noOppInterference && ourSuit !== openerSuit) {
-                if (ourSuit === 'H' || ourSuit === 'S') {
-                    return `New major response: natural 4+ ${suitName(ourSuit)}, 6+ HCP`;
-                }
-                return `New suit response: natural ${suitName(ourSuit)}, 6+ HCP`;
-            }
-        }
-        // Opener 1NT rebid after responder's suit (fifth call: after 1m/1M - (overcall) - new suit - Pass)
-        if (bidToken === '1NT' && auction.length >= 3 && /^[1][CDHS]$/.test(tokens[0])) {
-            const partnerNewSuit = tokens[2] && /^[1-2][CDHS]$/.test(tokens[2]);
-            if (partnerNewSuit) {
-                return '1NT rebid: balanced hand (shows stopper)';
-            }
-        }
-        // Opener 2NT rebid after responder's suit (strong rebid: 18–19 HCP, balanced)
-        if (bidToken === '2NT' && auction.length >= 3 && /^[1][CDHS]$/.test(tokens[0])) {
-            const partnerNewSuit = tokens[2] && /^[1-2][CDHS]$/.test(tokens[2]);
-            if (partnerNewSuit) {
-                return '2NT rebid: 18–19 HCP, balanced';
-            }
-        }
-    } catch (_) { /* best-effort competitive mapping */ }
-
-    // Weak Two openings (2D/2H/2S) — simple UI explanation for user's own opening
-    if (auction.length === 0 && ['2D','2H','2S'].includes(bidToken)) {
-        return 'Weak Two opening (6+ card suit, about 6-10 HCP; stricter when vulnerable)';
-    }
-    
-    // Strong 2C responses only apply to partner (North-South or East-West partnerships)
-    const strongTwoClubsEnabled = (system.conventions && system.conventions.isEnabled('strong_2_clubs', 'opening_bids')) || true;
-    
-    if (auction.length === 1 && auction[0].token === '2C' && strongTwoClubsEnabled) {
-        
-        // Check if this is partner responding (not opponent overcalling)
-        // If South opened 2C, only North can give Strong 2C responses
-        // We need to determine the position relationship
-        const bidderIsPartner = isPartnerResponse(auction.length);
-        
-        if (bidderIsPartner) {
-            // 2D response to Strong 2C
-            if (bidToken === '2D') {
-                return 'Waiting response to Strong 2C (negative or no clear positive)';
-            }
-            
-            // Other responses to Strong 2C
-            if (['2H', '2S'].includes(bidToken)) {
-                return 'Positive response to Strong 2C (8+ HCP, 5+ card suit)';
-            }
-            if (bidToken === '2NT') {
-                return 'Positive response to Strong 2C (8-10 HCP, balanced)';
-            }
-            if (['3C', '3D', '3H', '3S'].includes(bidToken)) {
-                return 'Positive response to Strong 2C (8+ HCP, 5+ card suit)';
-            }
-            if (bidToken === '3NT') {
-                return 'Positive response to Strong 2C (11-13 HCP, balanced)';
-            }
-        } else {
-            // This is an opponent overcalling, not a partner responding
-            if (['1C', '1D', '1H', '1S', '1NT', '2C', '2D', '2H', '2S', '2NT', '3C', '3D', '3H', '3S'].includes(bidToken)) {
-                return 'Overcall (natural)';
-            }
-        }
-    }
-    
-    // NT conventions: Stayman, Jacoby, Texas
-    try {
-        // tokens already computed above
-        const lastByUs = (window.system?.currentAuction?.lastSide && window.system.currentAuction.lastSide()) === 'we';
-        const lastContract = tokens.slice().reverse().find(t => /(NT|[CDHS])$/.test(t));
-
-        // Stayman: 2C after partner's 1NT
-        if (bidToken === '2C') {
-            const has1NT = tokens.includes('1NT');
-            if (has1NT) {
-                return 'Stayman: asking for a 4-card major';
-            }
-        }
-
-        // Jacoby transfers over 1NT: 2D->H, 2H->S; over 2NT: 3D->H, 3H->S
-        if (['2D','2H','3D','3H'].includes(bidToken)) {
-            if (tokens.includes('1NT') && (bidToken === '2D' || bidToken === '2H')) {
-                const to = bidToken === '2D' ? 'hearts' : 'spades';
-                return `Jacoby transfer to ${to}`;
-            }
-            if (tokens.includes('2NT') && (bidToken === '3D' || bidToken === '3H')) {
-                const to = bidToken === '3D' ? 'hearts' : 'spades';
-                return `Jacoby transfer to ${to}`;
-            }
-        }
-
-        // Texas transfers: 4D->4H, 4H->4S over 1NT/2NT
-        if (bidToken === '4D' || bidToken === '4H') {
-            if (tokens.includes('1NT') || tokens.includes('2NT')) {
-                const to = bidToken === '4D' ? 'hearts' : 'spades';
-                return `Texas transfer to ${to}`;
-            }
-        }
-    } catch (e) { /* ignore */ }
-
-    // Natural responder 1NT over partner's 1M (no interference): balanced 6–11 HCP, no 4-card support
-    try {
-        const openedOneLevelMajor = tokens[0] === '1H' || tokens[0] === '1S';
-        if (openedOneLevelMajor && bidToken === '1NT') {
-            const between = tokens.slice(1, tokens.length - 1);
-            const noOppInterference = between.every(t => t === 'PASS');
-            if (noOppInterference) {
-                const m = tokens[0].slice(-1);
-                return `1NT response: balanced 6–11 HCP, no 4-card ${suitName(m)} support`;
-            }
-        }
-    } catch (e) { /* ignore */ }
-
-    // Weak Two responder and continuations (UI-only heuristics)
-    try {
-        // Feature ask after a Weak Two opening
-        if (auction.length >= 1 && ['2D','2H','2S'].includes(tokens[0])) {
-            const openerSuit = tokens[0].slice(-1); // C/D/H/S
-            // 2NT by partner: feature ask
-            if (auction.length === 1 && bidToken === '2NT') {
-                return 'Feature ask over Weak Two (asks opener to show A/K in a side suit)';
-            }
-            // Natural 3NT over Weak Two Major
-            if (auction.length === 1 && bidToken === '3NT' && (openerSuit === 'H' || openerSuit === 'S')) {
-                return 'Natural 3NT over Weak Two Major';
-            }
-            // Simple raise to the 3-level
-            if (auction.length === 1 && bidToken.length === 2 && bidToken.startsWith('3') && bidToken.slice(-1) === openerSuit) {
-                return 'Raise over Weak Two';
-            }
-            // Raise to game over Weak Two (4M over 2M; 5D over 2D)
-            if (auction.length === 1) {
-                if ((tokens[0] === '2H' && bidToken === '4H') || (tokens[0] === '2S' && bidToken === '4S') || (tokens[0] === '2D' && bidToken === '5D')) {
-                    return 'Raise to game over Weak Two';
-                }
-            }
-            // New suit forcing at the 3-level (3 of a new suit)
-            if (auction.length === 1 && /^3[CDHS]$/.test(bidToken) && bidToken.slice(-1) !== openerSuit) {
-                return 'New suit forcing over Weak Two';
-            }
-            // Opener responses to feature ask: 2M - 2NT - 3X
-            if (auction.length === 2 && tokens[1] === '2NT' && /^3[CDHS]$/.test(bidToken)) {
-                const respSuit = bidToken.slice(-1);
-                if (respSuit === openerSuit) {
-                    return `No feature over 2NT ask (rebid ${suitName(respSuit)} at 3-level)`;
-                }
-                return `Feature shown over 2NT ask: ${suitName(respSuit)}`;
-            }
-        }
-    } catch (e) { /* ignore Weak Two UI heuristics */ }
-
-    // Natural raise to game after partner's invitational/limit raise (not a cue-bid)
-    try {
-        if (tokens.length >= 3) {
-            const opener = tokens[0];
-            const resp3 = tokens[2];
-            const isSuitOpening = /^1[CDHS]$/.test(opener);
-            const sameSuitAt3 = /^3[CDHS]$/.test(resp3) && opener.slice(-1) === resp3.slice(-1);
-            if (isSuitOpening && sameSuitAt3) {
-                const s = opener.slice(-1);
-                // Game raise in majors: 4H/4S; in minors: 5C/5D
-                if ((s === 'H' || s === 'S') && bidToken === `4${s}`) {
-                    return `Raise to game in ${suitName(s)}`;
-                }
-                if ((s === 'C' || s === 'D') && bidToken === `5${s}`) {
-                    return `Raise to game in ${suitName(s)}`;
-                }
-            }
-        }
-    } catch (e) { /* ignore */ }
-
-    // Natural minor raises over 1m (no interference)
-    try {
-        if (tokens.length >= 1 && (tokens[0] === '1C' || tokens[0] === '1D')) {
-            const openerSuit = tokens[0].slice(-1);
-            const between = tokens.slice(1, tokens.length - 1);
-            const noOppInterference = between.every(t => t === 'PASS');
-            if (noOppInterference && (bidToken === `2${openerSuit}` || bidToken === `3${openerSuit}`)) {
-                if (bidToken[0] === '2') {
-                    return `Simple raise of ${suitName(openerSuit)} (6–9 total points, 4+ trumps)`;
-                }
-                if (bidToken[0] === '3') {
-                    return `Invitational raise of ${suitName(openerSuit)} (10–12 total points, 4+ trumps)`;
-                }
-            }
-        }
-    } catch (e) { /* ignore */ }
-
-    // Natural responder NT over 1m (balanced, no 4-card major, no interference)
-    try {
-        if (tokens.length >= 1 && (tokens[0] === '1C' || tokens[0] === '1D')) {
-            const between = tokens.slice(1, tokens.length - 1);
-            const noOppInterference = between.every(t => t === 'PASS');
-            if (noOppInterference && (bidToken === '1NT' || bidToken === '2NT' || bidToken === '3NT')) {
-                const rng = (system?.conventions?.config?.general?.nt_over_minors_range) || 'classic';
-                const floor = rng === 'wide' ? 6 : 10;
-                if (bidToken === '1NT') return `1NT response over a minor: balanced ${floor}–11 HCP, no 4-card major`;
-                if (bidToken === '2NT') return '2NT response over a minor: balanced 12–14 HCP, no 4-card major';
-                if (bidToken === '3NT') return '3NT response over a minor: balanced 15+ HCP, no 4-card major';
-            }
-        }
-    } catch (e) { /* ignore */ }
-
-    // Cue-bid raise (limit+ raise of partner's suit) — UI-only heuristic for user's bid
-    try {
-        if (auction.length >= 2) {
-            const opener = tokens[0];
-            const partnerOvercall = tokens[1];
-            const isSuitOpening = /^[1-3][CDHS]$/.test(opener);
-            const isPartnerSuitOvercall = /[CDHS]$/.test(partnerOvercall) && !/NT$/.test(partnerOvercall);
-            if (isSuitOpening && isPartnerSuitOvercall) {
-                const oppSuit = opener.slice(-1);
-                const partnerSuit = partnerOvercall.slice(-1);
-                if (oppSuit !== partnerSuit && /^[2-5][CDHS]$/.test(bidToken) && bidToken.slice(-1) === oppSuit) {
-                    return "Cue Bid Raise (limit+ raise of partner's suit)";
-                }
-            }
-        }
-    } catch (e) { /* ignore cue-bid UI */ }
-
-    // Reopening Double (balancing) — UI mapping for user's bid
-    try {
-        if (bidToken === 'X' && tokens.length >= 3) {
-            const last3 = tokens.slice(-3);
-            const openingLike = /^[1-3][CDHS]$/.test(last3[0]);
-            if (openingLike && last3[1] === 'PASS' && last3[2] === 'PASS') {
-                return 'Reopening Double (balancing position)';
-            }
-        }
-    } catch (e) { /* ignore reopening double UI */ }
-
-    // Gerber ask (4C) over NT
-    try {
-        // tokens already computed above
-        const lastContract = [...tokens].reverse().find(t => /NT$/.test(t));
-        if (bidToken === '4C' && lastContract) {
-            return 'Gerber: asking for aces';
-        }
-        // Gerber continuation king ask (5C) after a Gerber response
-        if (bidToken === '5C') {
-            const recent = tokens.slice(-3);
-            const validGerberResponses = ['4D','4H','4S','4NT'];
-            if (recent.includes('4C') && validGerberResponses.some(r => recent.includes(r))) {
-                return 'Gerber continuation: asking for kings';
-            }
-        }
-
-        // Blackwood/RKCB ask (4NT) over a suit contract (not over NT)
-        if (bidToken === '4NT') {
-            const lastSuitContract = [...tokens].reverse().find(t => /[CDHS]$/.test(t));
-            const lastNtContract = [...tokens].reverse().find(t => /NT$/.test(t));
-            if (lastSuitContract && (!lastNtContract || tokens.lastIndexOf(lastSuitContract) > tokens.lastIndexOf(lastNtContract))) {
-                const variant = (system?.conventions?.getConventionSetting('blackwood', 'variant', 'ace_asking')) || 'rkcb';
-                const rkcb = variant === 'rkcb';
-                const resp = (system?.conventions?.getConventionSetting('blackwood', 'responses', 'ace_asking')) || '1430';
-                if (rkcb) {
-                    return `RKCB ${resp}: asking for keycards`;
-                }
-                return 'Blackwood: asking for aces';
-            }
-        }
-    } catch (e) {
-        // Fall through to default
-    }
-
+    } catch (_) {}
     return 'Your bid';
 }
 
@@ -2090,8 +1590,8 @@ function getSouthCards() {
     return cards;
 }
 
-function calculateDistributionPoints(hand) {
-    // Standard distribution points: 3-2-1 for voids, singletons, doubletons
+function calculateShortnessPoints(hand) {
+    // Shortness points: 3-2-1 for voids, singletons, doubletons
     let points = 0;
     Object.values(hand.lengths).forEach(length => {
         if (length === 0) points += 3;      // void
@@ -2894,6 +2394,19 @@ function saveGeneralSettings() {
                     }
                 } catch(_) {}
                 return true; // default
+            })(),
+            dp_display_type: (function(){
+                try {
+                    const sel = document.getElementById('select_dp_display');
+                    if (sel && (sel.value === 'shortness' || sel.value === 'length')) {
+                        return sel.value;
+                    }
+                    const persisted = loadPersistedGeneralSettings();
+                    if (persisted && (persisted.dp_display_type === 'shortness' || persisted.dp_display_type === 'length')) {
+                        return persisted.dp_display_type;
+                    }
+                } catch(_) {}
+                return 'shortness';
             })()
         };
         if (typeof window !== 'undefined' && window.localStorage) {
@@ -3000,7 +2513,8 @@ function createGeneralSettingsSection() {
         const vulAdj = !!(cfg?.general?.vulnerability_adjustments);
         const relaxedTO = !!(cfg?.general?.relaxed_takeout_doubles);
         const persistedGS = loadPersistedGeneralSettings() || {};
-        const showAllHandsDefault = (typeof persistedGS.show_all_hands_by_default === 'boolean') ? persistedGS.show_all_hands_by_default : true;
+    const showAllHandsDefault = (typeof persistedGS.show_all_hands_by_default === 'boolean') ? persistedGS.show_all_hands_by_default : true;
+    const dpDisplayType = (persistedGS && (persistedGS.dp_display_type === 'length' || persistedGS.dp_display_type === 'shortness')) ? persistedGS.dp_display_type : 'shortness';
         // RKCB response structure (1430/3014) - ensure we read from ace_asking.blackwood if present, else slam_bidding.blackwood_rkcb
         const rkcbResp = (cfg?.ace_asking?.blackwood?.responses) || (cfg?.slam_bidding?.blackwood_rkcb?.responses) || '1430';
         const supportThru = (cfg?.competitive?.support_doubles?.thru) || '2S';
@@ -3018,6 +2532,16 @@ function createGeneralSettingsSection() {
                         <input type="checkbox" id="toggle_show_all_hands" ${showAllHandsDefault ? 'checked' : ''} />
                         <span>Show all hands by default</span>
                         <span class="general-help-inline">When generating a new deal, start with North/East/West visible.</span>
+                    </label>
+                </div>
+                <div class="general-settings-row" style="margin-top:8px;">
+                    <label for="select_dp_display" class="toggle" style="gap:6px;">
+                        <span>Distribution points display</span>
+                        <select id="select_dp_display">
+                            <option value="shortness" ${dpDisplayType === 'shortness' ? 'selected' : ''}>Shortness (void=3, singleton=2, doubleton=1)</option>
+                            <option value="length" ${dpDisplayType === 'length' ? 'selected' : ''}>Length (1 for 5th card, etc.)</option>
+                        </select>
+                        <span class="general-help-inline">Controls the DP shown next to HCP in the hand panels.</span>
                     </label>
                 </div>
                 <div class="general-settings-row" style="margin-top:8px;">
@@ -3117,6 +2641,22 @@ function createGeneralSettingsSection() {
             </div>
         `;
 
+
+        const dpSel = document.getElementById('select_dp_display');
+        if (dpSel) {
+            dpSel.addEventListener('change', (e) => {
+                try {
+                    // UI-only preference; persist and re-render the hands immediately
+                    container.classList.add('flash-updated');
+                    setTimeout(() => container.classList.remove('flash-updated'), 600);
+                    console.log('Updated dp_display_type to', e.target.value);
+                    saveGeneralSettings();
+                    try { displayHands(); } catch (_) {}
+                } catch (err) {
+                    console.warn('Failed to update dp_display_type:', err);
+                }
+            });
+        }
 
         const chk = document.getElementById('toggle_include_5422');
         if (chk) {
@@ -4028,30 +3568,19 @@ function generateHandsForPractice() {
         } else {
             // Fall back to random generation if targeted generation fails
             console.log('Targeted generation failed, falling back to random');
-            generateBasicRandomHands();
-            displayHands();
-            showAuctionSetup();
+            generateRandomHands();
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         }
         
     } catch (error) {
         console.error('Error generating practice hands:', error);
-        generateBasicRandomHands();
-        displayHands();
-        showAuctionSetup();
+        generateRandomHands();
         try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
     }
 }
 
-// Convenience: one-click generate then view Auction tab
-function generateAndViewAuction() {
-    try {
-        generateRandomHands();
-    } catch (e) {
-        console.error('generateAndViewAuction failed:', e);
-        try { switchTab('auction'); } catch (_) {}
-    }
-}
+// Note: Previously there was a one-click 'Generate and Start Auction' helper.
+// This flow has been removed to avoid duplication with generateRandomHands + auto-switch.
 
 function generateBasicRandomHands() {
     const deck = createDeck();
@@ -4061,6 +3590,25 @@ function generateBasicRandomHands() {
     currentHands.E = new window.Hand(convertCardsToHandString(deck.slice(13, 26)));
     currentHands.S = new window.Hand(convertCardsToHandString(deck.slice(26, 39)));
     currentHands.W = new window.Hand(convertCardsToHandString(deck.slice(39, 52)));
+}
+
+// Public helper to generate a fresh random deal and refresh UI
+function generateRandomHands() {
+    try {
+        resetAuctionForNewDeal();
+        generationMode = 'random';
+        generateBasicRandomHands();
+        displayHands();
+        showAuctionSetup();
+        // Auto-switch to Auction tab after generating a random deal
+        try { switchTab('auction'); } catch (_) {}
+    } catch (e) {
+        console.error('generateRandomHands failed:', e);
+        try {
+            displayHands();
+            showAuctionSetup();
+        } catch (_) {}
+    }
 }
 
 function selectTargetConvention(selectedConventions) {
