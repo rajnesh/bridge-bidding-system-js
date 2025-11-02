@@ -1085,7 +1085,37 @@ function getConventionExplanation(bid, auction) {
     const bidToken = bid.token;
     const tokens = auction.map(b => b.token).filter(Boolean);
     const suitName = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
+    const isSuit = /^[1-7][CDHS]$/.test(bidToken || '');
+    const isNT = /^[1-7]NT$/.test(bidToken || '');
     
+    // 1-level suit openings (basic SAYC summaries)
+    // Show for true openings even after passes (first non-pass in auction)
+    if (/^[1][CDHS]$/.test(bidToken)) {
+        const prior = auction.slice(0, auction.length);
+        const hadAnyNonPass = prior.some(b => (b.token || 'PASS') !== 'PASS');
+        const isFirstNonPass = !hadAnyNonPass || (hadAnyNonPass && (function(){
+            for (let i = 0; i < prior.length; i++) { if ((prior[i].token || 'PASS') !== 'PASS') return false; }
+            return true;
+        })());
+        if (auction.length === 0 || isFirstNonPass) {
+        const s = bidToken.slice(-1);
+        if (s === 'H' || s === 'S') {
+            return `1${s}: 5+ ${suitName(s)}, about 12+ HCP or Rule of 20`;
+        } else {
+            // Better minor style
+            if (s === 'C') {
+                return '1C: Best minor (often 3+), about 12+ HCP or Rule of 20';
+            }
+            return '1D: Better minor, about 12+ HCP or Rule of 20';
+        }
+        }
+    }
+
+    // 1NT opening
+    if (bidToken === '1NT' && auction.length === 0) {
+        return '1NT opening: 15–17 HCP, balanced';
+    }
+
     // Strong 2C opening
     if (bidToken === '2C' && auction.length === 0) {
         // Enable Strong 2C by default if convention system fails to load
@@ -1094,6 +1124,55 @@ function getConventionExplanation(bid, auction) {
             return 'Strong 2 Clubs (22+ HCP, artificial and game forcing)';
         }
     }
+
+    // Simple, high-signal competitive explanations to avoid generic "Your bid"
+    try {
+        // Direct overcall (second call of the auction over a 1-level suit opening — no intervening passes by that side)
+        if (auction.length === 1 && /^[1][CDHS]$/.test(tokens[0])) {
+            if (isSuit) {
+                const s = bidToken.slice(-1);
+                return `Overcall: natural 5+ ${suitName(s)}`;
+            }
+            if (bidToken === '1NT') {
+                return '1NT overcall: 15–18 HCP, balanced with a stopper';
+            }
+        }
+        // Responder new suit after opponent overcalls (third call when tokens[1] is a suit)
+        if (auction.length === 2 && /^[1][CDHS]$/.test(tokens[0]) && /^[12][CDHS]$/.test(tokens[1]) && isSuit) {
+            const openerSuit = tokens[0].slice(-1);
+            const ourSuit = bidToken.slice(-1);
+            if (ourSuit !== openerSuit) {
+                return `Natural new suit (${suitName(ourSuit)})`;
+            }
+        }
+        // New suit response at 1-level over partner's 1m (no interference): natural with 6+ points
+        if (isSuit && bidToken[0] === '1' && (tokens[0] === '1C' || tokens[0] === '1D')) {
+            const between = tokens.slice(1, tokens.length - 1);
+            const noOppInterference = between.every(t => t === 'PASS');
+            const ourSuit = bidToken.slice(-1);
+            const openerSuit = tokens[0].slice(-1);
+            if (noOppInterference && ourSuit !== openerSuit) {
+                if (ourSuit === 'H' || ourSuit === 'S') {
+                    return `New major response: natural 4+ ${suitName(ourSuit)}, 6+ HCP`;
+                }
+                return `New suit response: natural ${suitName(ourSuit)}, 6+ HCP`;
+            }
+        }
+        // Opener 1NT rebid after responder's suit (fifth call: after 1m/1M - (overcall) - new suit - Pass)
+        if (bidToken === '1NT' && auction.length >= 3 && /^[1][CDHS]$/.test(tokens[0])) {
+            const partnerNewSuit = tokens[2] && /^[1-2][CDHS]$/.test(tokens[2]);
+            if (partnerNewSuit) {
+                return '1NT rebid: balanced hand (shows stopper)';
+            }
+        }
+        // Opener 2NT rebid after responder's suit (strong rebid: 18–19 HCP, balanced)
+        if (bidToken === '2NT' && auction.length >= 3 && /^[1][CDHS]$/.test(tokens[0])) {
+            const partnerNewSuit = tokens[2] && /^[1-2][CDHS]$/.test(tokens[2]);
+            if (partnerNewSuit) {
+                return '2NT rebid: 18–19 HCP, balanced';
+            }
+        }
+    } catch (_) { /* best-effort competitive mapping */ }
 
     // Weak Two openings (2D/2H/2S) — simple UI explanation for user's own opening
     if (auction.length === 0 && ['2D','2H','2S'].includes(bidToken)) {
@@ -1172,6 +1251,19 @@ function getConventionExplanation(bid, auction) {
         }
     } catch (e) { /* ignore */ }
 
+    // Natural responder 1NT over partner's 1M (no interference): balanced 6–11 HCP, no 4-card support
+    try {
+        const openedOneLevelMajor = tokens[0] === '1H' || tokens[0] === '1S';
+        if (openedOneLevelMajor && bidToken === '1NT') {
+            const between = tokens.slice(1, tokens.length - 1);
+            const noOppInterference = between.every(t => t === 'PASS');
+            if (noOppInterference) {
+                const m = tokens[0].slice(-1);
+                return `1NT response: balanced 6–11 HCP, no 4-card ${suitName(m)} support`;
+            }
+        }
+    } catch (e) { /* ignore */ }
+
     // Weak Two responder and continuations (UI-only heuristics)
     try {
         // Feature ask after a Weak Two opening
@@ -1226,6 +1318,38 @@ function getConventionExplanation(bid, auction) {
                 if ((s === 'C' || s === 'D') && bidToken === `5${s}`) {
                     return `Raise to game in ${suitName(s)}`;
                 }
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    // Natural minor raises over 1m (no interference)
+    try {
+        if (tokens.length >= 1 && (tokens[0] === '1C' || tokens[0] === '1D')) {
+            const openerSuit = tokens[0].slice(-1);
+            const between = tokens.slice(1, tokens.length - 1);
+            const noOppInterference = between.every(t => t === 'PASS');
+            if (noOppInterference && (bidToken === `2${openerSuit}` || bidToken === `3${openerSuit}`)) {
+                if (bidToken[0] === '2') {
+                    return `Simple raise of ${suitName(openerSuit)} (6–9 total points, 4+ trumps)`;
+                }
+                if (bidToken[0] === '3') {
+                    return `Invitational raise of ${suitName(openerSuit)} (10–12 total points, 4+ trumps)`;
+                }
+            }
+        }
+    } catch (e) { /* ignore */ }
+
+    // Natural responder NT over 1m (balanced, no 4-card major, no interference)
+    try {
+        if (tokens.length >= 1 && (tokens[0] === '1C' || tokens[0] === '1D')) {
+            const between = tokens.slice(1, tokens.length - 1);
+            const noOppInterference = between.every(t => t === 'PASS');
+            if (noOppInterference && (bidToken === '1NT' || bidToken === '2NT' || bidToken === '3NT')) {
+                const rng = (system?.conventions?.config?.general?.nt_over_minors_range) || 'classic';
+                const floor = rng === 'wide' ? 6 : 10;
+                if (bidToken === '1NT') return `1NT response over a minor: balanced ${floor}–11 HCP, no 4-card major`;
+                if (bidToken === '2NT') return '2NT response over a minor: balanced 12–14 HCP, no 4-card major';
+                if (bidToken === '3NT') return '3NT response over a minor: balanced 15+ HCP, no 4-card major';
             }
         }
     } catch (e) { /* ignore */ }
@@ -1559,7 +1683,36 @@ function makeSystemBid() {
 
     // Get bid recommendation
     let recommendedBid = forcedBid || system.getBid(hand);
-    let explanation = recommendedBid.conventionUsed || 'Standard bid';
+    let explanation = recommendedBid.conventionUsed || getConventionExplanation(recommendedBid, currentAuction) || 'Standard bid';
+
+        // Normalize obviously inconsistent explanations
+        try {
+            const tok = recommendedBid.token || 'PASS';
+            // Always normalize PASS explanation
+            if (tok === 'PASS') {
+                explanation = 'Pass';
+            }
+            // If explanation claims a Strong 2C response but partner did not open 2C, replace with contextual mapping
+            if (typeof explanation === 'string' && /Strong 2C/i.test(explanation)) {
+                const firstNonPass = (currentAuction || []).find(b => (b.token || 'PASS') !== 'PASS');
+                // Determine partner seat relative to current turn
+                const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
+                let firstByPartnerIs2C = false;
+                if (auctionHistory && auctionHistory.length > 0) {
+                    for (const e of auctionHistory) {
+                        const t = e?.bid?.token || 'PASS';
+                        if (t !== 'PASS') {
+                            firstByPartnerIs2C = (e.position === partnerSeat && t === '2C');
+                            break;
+                        }
+                    }
+                }
+                if (!firstByPartnerIs2C) {
+                    // Not a partner 2C opening sequence; recompute a neutral explanation
+                    explanation = getConventionExplanation(recommendedBid, currentAuction) || 'Standard bid';
+                }
+            }
+        } catch (_) { /* best-effort */ }
 
         // Safety filter: prevent weak/indirect or invalid-shape cue-bids of opener's suit (e.g., Michaels)
         // Context: Occasionally, in multi-bid auctions like 1m - Pass - 1H - (?), a 2m cue-bid can slip through
@@ -2162,13 +2315,12 @@ function updateAuctionTable() {
                             html += ' <span class="bid-tag natural" title="Natural 2NT — 19–21 balanced with stopper">N</span>';
                         }
                     }
-                    // Tooltip with explanation for any bid
-                    if (entry.explanation) {
+                    // Tooltip with explanation (suppress tooltips for PASS bids)
+                    if (entry.explanation && bidToken !== 'PASS') {
                         bidDiv.title = entry.explanation;
                     }
                 } catch (_) { /* ignore tooltip/hint issues */ }
                 bidDiv.innerHTML = html;
-                if (pos === 'S') bidDiv.classList.add('player-bid');
             } else {
                 bidDiv.innerHTML = '-';
             }
@@ -2274,6 +2426,42 @@ function computeSouthHint() {
         }
     } catch (_) { /* best-effort */ }
 
+    // Enhance/simplify hint explanation for readability
+    try {
+        const h = currentHands.S;
+        const hcp = h?.hcp ?? 0;
+        const len = h?.lengths || {};
+        const suitOrder = ['S','H','D','C'];
+        const suitNames = { S: 'spades', H: 'hearts', D: 'diamonds', C: 'clubs' };
+        // Determine longest suit (prefer majors on ties)
+        let longest = 'S';
+        let longestLen = len['S'] || 0;
+        for (const s of ['H','D','C']) {
+            const l = len[s] || 0;
+            if (l > longestLen || (l === longestLen && suitOrder.indexOf(s) < suitOrder.indexOf(longest))) {
+                longest = s; longestLen = l;
+            }
+        }
+        // Basic balanced check: no void/singleton and no 6+ card suit
+        const lengths = ['S','H','D','C'].map(s => len[s] || 0);
+        const hasVoidOrSingleton = lengths.some(x => x <= 1);
+        const hasSixPlus = lengths.some(x => x >= 6);
+        const isBalanced = !hasVoidOrSingleton && !hasSixPlus;
+
+        const core = `With ${hcp} HCP` + (longestLen >= 5 ? ` and ${longestLen}-card ${suitNames[longest]}` : (isBalanced ? ' and a balanced hand' : ''));
+
+        // If the original explanation is generic, replace with concise rationale; otherwise keep the specific one
+        const generic = !explanation || explanation === 'Your bid' || explanation === 'Standard bid' || /^Pass$/i.test(explanation);
+        if (generic) {
+            // For PASS hints where we couldn’t infer a reason earlier, keep it succinct
+            if (display === 'PASS') {
+                explanation = `${core}.`;
+            } else {
+                explanation = `${core}.`;
+            }
+        }
+    } catch (_) { /* best-effort enhancement */ }
+
     return { bid: display, explanation };
 }
 
@@ -2302,10 +2490,12 @@ function isAlertableExplanation(explanation) {
 // Render a suit symbol for the auction grid (neutral, no color)
 function renderSuitSpan(suitLetter) {
     const map = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
+    const classMap = { 'S': 'suit-spades', 'H': 'suit-hearts', 'D': 'suit-diamonds', 'C': 'suit-clubs' };
     const symbol = map[suitLetter];
     if (!symbol) return '';
-    // Neutral rendering: no suit color class in the auction grid
-    return `<span class="card-suit">${symbol}</span>`;
+    // Apply suit-specific color classes so icons render in standard colors
+    const cls = `card-suit ${classMap[suitLetter] || ''}`;
+    return `<span class="${cls}">${symbol}</span>`;
 }
 
 // Format a bid token into HTML with suit symbols/colors and optional alert marker
@@ -2544,16 +2734,78 @@ function addBidExplanation(position, bid, explanation) {
     const bidDisplay = bid.token || 'PASS';
     // Determine side for styling: we (South), partner (North), opponents (East/West)
     const sideClass = (position === 'S') ? 'we' : (position === 'N' ? 'partner' : 'opponent');
-    // Build: Who: <BID>. Explanation
+
+    // Normalize explanation for direct 1-level suit overcalls to keep consistency
+    try {
+        const isOneLevelSuit = /^[1][CDHS]$/.test(bidDisplay);
+        if (isOneLevelSuit) {
+            // Inspect history prior to this bid
+            const tokens = (auctionHistory || []).map(e => {
+                const t = e?.bid?.token;
+                if (t) return t;
+                if (e?.bid?.isDouble) return 'X';
+                if (e?.bid?.isRedouble) return 'XX';
+                return 'PASS';
+            });
+            const currentIdx = tokens.length - 1; // this row's bid
+            const prior = tokens.slice(0, currentIdx);
+            // Count prior non-pass/non-double bids
+            let nonPassCount = 0;
+            let openerIdx = -1;
+            for (let i = 0; i < prior.length; i++) {
+                const t = prior[i];
+                if (t !== 'PASS' && t !== 'X' && t !== 'XX') {
+                    nonPassCount++;
+                    if (openerIdx === -1) openerIdx = i;
+                }
+            }
+            // Direct overcall context: exactly one prior non-pass bid and it was a 1-level suit opening
+            if (nonPassCount === 1 && openerIdx >= 0 && /^1[CDHS]$/.test(prior[openerIdx])) {
+                // Ensure this bid is by the opponents of the opener's side
+                const openerPos = (auctionHistory && auctionHistory[openerIdx] && auctionHistory[openerIdx].position) || null;
+                const openerSideNS = openerPos && (openerPos === 'N' || openerPos === 'S');
+                const thisSideNS = (position === 'N' || position === 'S');
+                const isOpponents = openerPos ? (openerSideNS !== thisSideNS) : true;
+                if (isOpponents) {
+                    const s = bidDisplay.slice(-1);
+                    const suitNameMap = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' };
+                    const suitText = suitNameMap[s] || s;
+                    explanation = `Overcall: natural 5+ ${suitText}`;
+                }
+            }
+        }
+    } catch (_) { /* best-effort normalization */ }
+    
+    // If explanation is generic and this is a jump to game in a major after partner previously bid that major, label it clearly
+    try {
+        const isGeneric = !explanation || explanation === 'Your bid' || explanation === 'Standard bid';
+        if (isGeneric && /^4[HS]$/.test(bidDisplay)) {
+            const suit = bidDisplay.slice(-1);
+            const partnerSeat = (position === 'N') ? 'S' : (position === 'S' ? 'N' : (position === 'E' ? 'W' : 'E'));
+            const priorSameSuitByPartner = (auctionHistory || []).some(e => {
+                const tok = e?.bid?.token || 'PASS';
+                if (e.position !== partnerSeat) return false;
+                return new RegExp(`^[1-3]${suit}$`).test(tok);
+            });
+            if (priorSameSuitByPartner) {
+                const nameMap = { H: 'hearts', S: 'spades' };
+                explanation = `Raise to game in ${nameMap[suit]}`;
+            }
+        }
+    } catch (_) { /* best-effort enhancement */ }
+    // For PASS bids, suppress the trailing explanation text to reduce noise
+    const explText = (bidDisplay === 'PASS') ? '' : (explanation || '');
+    // Build: Who: <BID>. [Explanation]
     row.innerHTML = `
         <strong class="who">${getTurnName(position)}:</strong>
         <span class="bid-token ${sideClass}">${bidDisplay}.</span>
-        <span class="explanation-text text-muted">${explanation}</span>
+        ${explText ? `<span class="explanation-text text-muted">${explText}</span>` : ''}
     `;
     explanationsList.appendChild(row);
     
-    // Keep only last 6 explanations
-    while (explanationsList.children.length > 6) {
+    // Keep a generous history so the panel matches the grid; allow up to 50 before trimming
+    const MAX_EXPL = 50;
+    while (explanationsList.children.length > MAX_EXPL) {
         explanationsList.removeChild(explanationsList.firstChild);
     }
 }
@@ -2630,6 +2882,7 @@ function saveGeneralSettings() {
                 transfers: !!(cfg?.general?.systems_on_over_1nt_interference?.transfers),
                 stolen_bid_double: !!(cfg?.general?.systems_on_over_1nt_interference?.stolen_bid_double)
             },
+            nt_over_minors_range: (cfg?.general?.nt_over_minors_range) || 'classic',
             // UI preferences not part of engine config
             show_all_hands_by_default: (function(){
                 try {
@@ -2689,6 +2942,9 @@ function applyGeneralSettingsToConfig(settings) {
         if (typeof settings.include_5422 === 'boolean') cfg.general.balanced_shapes.include_5422 = settings.include_5422;
         if (typeof settings.vulnerability_adjustments === 'boolean') cfg.general.vulnerability_adjustments = settings.vulnerability_adjustments;
         if (typeof settings.relaxed_takeout === 'boolean') cfg.general.relaxed_takeout_doubles = settings.relaxed_takeout;
+        if (settings.nt_over_minors_range === 'classic' || settings.nt_over_minors_range === 'wide') {
+            cfg.general.nt_over_minors_range = settings.nt_over_minors_range;
+        }
 
         // RKCB responses
         const rkcb = settings.rkcb_responses;
@@ -2752,6 +3008,7 @@ function createGeneralSettingsSection() {
     const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
     const unusualOverMinors = !!(cfg?.notrump_defenses?.unusual_nt?.over_minors);
     const sysOn = (cfg?.general?.systems_on_over_1nt_interference) || { transfers:false, stolen_bid_double:false };
+    const ntOverMinorsRange = (cfg?.general?.nt_over_minors_range) || 'classic';
 
         container.innerHTML = `
             <div class="general-settings-card">
@@ -2829,6 +3086,16 @@ function createGeneralSettingsSection() {
                         <input type="checkbox" id="toggle_unusual_nt_over_minors" ${unusualOverMinors ? 'checked' : ''} />
                         <span>Unusual 2NT over minors</span>
                         <span class="general-help-inline">2NT over 1♣/1♦ shows the two lowest unbid suits (5-5). When off, 2NT over minors is natural 19–21 with a stopper.</span>
+                    </label>
+                </div>
+                <div class="general-settings-row" style="margin-top:8px;">
+                    <label for="select_nt_over_minors_range" class="toggle" style="gap:6px;">
+                        <span>1NT over 1m (balanced, no 4-card major)</span>
+                        <select id="select_nt_over_minors_range">
+                            <option value="classic" ${ntOverMinorsRange === 'classic' ? 'selected' : ''}>Classic: 10–11 HCP</option>
+                            <option value="wide" ${ntOverMinorsRange === 'wide' ? 'selected' : ''}>Wide: 6–11 HCP</option>
+                        </select>
+                        <span class="general-help-inline">Choose the invitational floor for 1NT responses over minor openings.</span>
                     </label>
                 </div>
                 <div class="general-settings-divider" style="margin:10px 0; border-top:1px solid #ddd;"></div>
@@ -2997,6 +3264,23 @@ function createGeneralSettingsSection() {
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update unusual_nt.over_minors:', err);
+                }
+            });
+        }
+
+        const ntRangeSel = document.getElementById('select_nt_over_minors_range');
+        if (ntRangeSel) {
+            ntRangeSel.addEventListener('change', (e) => {
+                try {
+                    const val = (e.target.value === 'wide') ? 'wide' : 'classic';
+                    if (!system?.conventions?.config?.general) return;
+                    system.conventions.config.general.nt_over_minors_range = val;
+                    container.classList.add('flash-updated');
+                    setTimeout(() => container.classList.remove('flash-updated'), 600);
+                    console.log('Updated general.nt_over_minors_range to', val);
+                    saveGeneralSettings();
+                } catch (err) {
+                    console.warn('Failed to update nt_over_minors_range:', err);
                 }
             });
         }

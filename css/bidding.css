@@ -169,11 +169,11 @@ h6 { font-size: 16px; }
 }
 
 .bid-button:hover:not(:disabled) {
-    background-color: #E84E4E;
-    color: #fff;
-    border-color: #E84E4E;
+    background-color: #dff0ff; /* light blue */
+    color: #144a7d;
+    border-color: #1e6bb8;
     transform: translateY(-2px);
-    box-shadow: 0 5px 15px rgba(232, 78, 78, 0.3);
+    box-shadow: 0 5px 15px rgba(30, 107, 184, 0.25);
 }
 
 .bid-button:disabled {
@@ -959,7 +959,7 @@ h6 { font-size: 16px; }
 .auction-display { background: #fff; border-radius: 0; padding: 12px; margin: 10px 0; border: 1px solid #e9ecef; box-shadow: 0 10px 30px rgba(0,0,0,0.05); }
 .auction-round { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 10px 0; padding: 8px; background: #ffffff; border-radius: 6px; border: 1px solid #dee2e6; }
 .auction-bid { text-align: center; padding: 8px; border-radius: 4px; font-size: 14px; background: #f8f9fa; color: #495057; }
-.auction-bid.player-bid { background: #E84E4E; color: #fff; font-weight: 600; }
+/* removed: .auction-bid.player-bid no longer used */
 .hint-text { margin-left: 8px; font-weight: 600; color: #495057; }
 
 /* Links aligned with theme */

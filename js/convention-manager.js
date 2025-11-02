@@ -67,6 +67,10 @@ class ConventionCard {
                 passed_hand_variations: true,
                 balance_of_power: true,
                 relaxed_takeout_doubles: true,
+                // Notrump responder ranges over minor openings (balanced, no 4-card major)
+                // classic: 1NT=10–11, 2NT=12–14, 3NT=15+
+                // wide:    1NT=6–11,  2NT=12–14, 3NT=15+
+                nt_over_minors_range: 'classic',
                 balanced_shapes: {
                     include_5422: false
                 },

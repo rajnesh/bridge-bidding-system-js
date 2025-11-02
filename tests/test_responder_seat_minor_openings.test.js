@@ -14,6 +14,18 @@ describe('Seat-aware responder over minor openings', () => {
     system = new SAYCBiddingSystem();
   });
 
+  test('South PASS, West 1D, North PASS; East with 9 HCP and 5 spades -> 1S', () => {
+    system.startAuction('E');
+    system.currentAuction.reseat('S');
+    system.currentAuction.add(new Bid(null));   // S PASS
+    system.currentAuction.add(new Bid('1D'));   // W opens 1D
+    system.currentAuction.add(new Bid(null));   // N PASS
+
+    const eastHand = makeTestHand(5, 3, 3, 2, 9); // 9 HCP, 5 spades
+    const bid = system.getBid(eastHand);
+    expect(bid && bid.token).toBe('1S');
+  });
+
   test('South PASS, West 1D, North PASS; East with 7 HCP and 4 spades -> 1S', () => {
     system.startAuction('E');
     system.currentAuction.reseat('S');
