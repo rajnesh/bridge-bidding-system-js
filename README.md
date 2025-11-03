@@ -167,7 +167,7 @@ const system = new window.SAYCBiddingSystem();
 const hand = new window.Hand("AKJ3 Q54 K82 974");
 
 // Start an auction (our seat 'N')
-system.startAuction('N');
+system.startAuction("N");
 
 // Get a bid for the hand
 const bid = system.getBid(hand);
@@ -179,10 +179,10 @@ Advanced (with dealer tracking):
 
 ```javascript
 // Start auction with dealer tracking
-system.startAuctionWithDealer('E', 'N'); // our seat = East, dealer = North
+system.startAuctionWithDealer("E", "N"); // our seat = East, dealer = North
 
 // Add opponent's opening bid
-system.currentAuction.add(new window.Bid("1NT", { seat: 'N' }));
+system.currentAuction.add(new window.Bid("1NT", { seat: "N" }));
 
 // Get our response
 const hand2 = new window.Hand("KQ65 J9843 72 85");
@@ -192,12 +192,12 @@ const bid2 = system.getBid(hand2);
 Node (tests use jsdom):
 
 ```javascript
-const { SAYCBiddingSystem } = require('./js/combined-bidding-system');
-const { Hand, Bid, Auction } = require('./js/bridge-types');
+const { SAYCBiddingSystem } = require("./js/combined-bidding-system");
+const { Hand, Bid, Auction } = require("./js/bridge-types");
 
 const system = new SAYCBiddingSystem();
-system.startAuction('N');
-const bid = system.getBid(new Hand('AKQ2 J432 32 32'));
+system.startAuction("N");
+const bid = system.getBid(new Hand("AKQ2 J432 32 32"));
 ```
 
 ## Configuring Conventions
@@ -209,7 +209,11 @@ Key toggles under `config`:
 ```js
 window.DEFAULT_CONVENTIONS_CONFIG = {
   ace_asking: {
-    gerber: { enabled: true, continuations: true, responses_map: ["4D", "4H", "4S", "4NT"] },
+    gerber: {
+      enabled: true,
+      continuations: true,
+      responses_map: ["4D", "4H", "4S", "4NT"],
+    },
     blackwood: { enabled: true, variant: "rkcb", responses: "1430" },
   },
   notrump_responses: {
@@ -329,6 +333,7 @@ Simply open `index.html` in your browser to start bidding.
 ## Acknowledgments
 
 Built with comprehensive test coverage to ensure accurate SAYC bidding behavior across a wide range of scenarios. This JavaScript implementation provides an interactive web-based interface for learning and practicing bridge bidding conventions.
+
 # Bridge Bidding System (SAYC)
 
 A comprehensive, test-backed implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring a modern browser UI and a Node/Jest test suite.
@@ -425,51 +430,56 @@ php -S localhost:8000
 
 Then visit: `http://localhost:8000`
 
- ```bash
- # Using Node.js (package script)
- npm run start
- 
- # Or directly
- npx http-server -p 8000 -o
- 
- # Alternatively (Python)
- python -m http.server 8000
- ```
+```bash
+# Using Node.js (package script)
+npm run start
+
+# Or directly
+npx http-server -p 8000 -o
+
+# Alternatively (Python)
+python -m http.server 8000
+```
+
 - Select **Our Seat** and **Dealer**
 - Set vulnerability checkboxes if needed
 - Click **Start New Auction**
- ### Debugging in the Browser
- 
- Open browser DevTools (F12) for debugging. The console will show:
+
+### Debugging in the Browser
+
+Open browser DevTools (F12) for debugging. The console will show:
 
 ### Convention Explanations in the UI
 
- ```bash
- # Clone the repository
- git clone https://github.com/rajnesh/bridge-bidding-system-js.git
- cd bridge-bidding-system-js
- 
- # Install dependencies (for testing)
- npm install
- ```
-  - 3NT over a Weak Two major: “Natural 3NT over Weak Two Major”
+```bash
+# Clone the repository
+git clone https://github.com/rajnesh/bridge-bidding-system-js.git
+cd bridge-bidding-system-js
+
+# Install dependencies (for testing)
+npm install
+```
+
+- 3NT over a Weak Two major: “Natural 3NT over Weak Two Major”
 - Cue Bid Raises (limit+ raise of partner’s suit) after partner overcalls and you bid the opponents’ suit
 - Reopening Doubles (balancing position) after opener’s suit is followed by two passes
 
 Examples (seat letters omitted for brevity):
 const system = new window.SAYCBiddingSystem();
+
 - Weak Two feature ask and reply
   - 2♠ — 2NT — 3♣ → “Feature shown over 2NT ask: clubs”
   - 2♥ — 2NT — 3♥ → “No feature over 2NT ask (rebid hearts at 3-level)”
 - Weak Two other continuations
   - 2♥ — 3NT → “Natural 3NT over Weak Two Major”
   - 2♦ — 3♦ → “Raise over Weak Two”
-system.startAuctionWithDealer('E', 'N'); // our seat = East, dealer = North
+    system.startAuctionWithDealer('E', 'N'); // our seat = East, dealer = North
 - Cue Bid Raise (after partner’s suit overcall)
   - 1♥ — 1♠ — 2♥ → “Cue Bid Raise (limit+ raise of partner’s suit)”
 - Reopening Double (balancing)
   - 1♦ — PASS — PASS — X → “Reopening Double (balancing position)”
- This app uses an inline, browser-safe configuration. You can override defaults from the page by defining `window.DEFAULT_CONVENTIONS_CONFIG` before scripts load, or by modifying `js/convention-manager.js` defaults.
+    This app uses an inline, browser-safe configuration. You can override defaults from the page by defining `window.DEFAULT_CONVENTIONS_CONFIG` before scripts load, or by modifying `js/convention-manager.js` defaults.
+
 ### 4. Build the Auction
 
 - Type bids: **1S, 2NT, PASS, X, XX**
@@ -499,7 +509,6 @@ npm install
 
 ## JavaScript API Usage
 
-
 // Create a hand (format: "Spades Hearts Diamonds Clubs")
 const hand = new Hand("AKJ3 Q54 K82 974");
 
@@ -510,9 +519,10 @@ system.startAuction(0); // our_seat = 0 (North)
 const bid = system.getBid(hand);
 console.log(`Bid: ${bid.token}`); // e.g., "1S"
 if (bid.conventionUsed) {
-  console.log(`Convention: ${bid.conventionUsed}`);
+console.log(`Convention: ${bid.conventionUsed}`);
 }
-```
+
+````
 
 ### Advanced: Auction with Dealer
 
@@ -526,7 +536,7 @@ system.currentAuction.addBid(new Bid("1NT"));
 // Get our response
 const hand = new Hand("KQ65 J9843 72 85");
 const bid = system.getBid(hand);
-```
+````
 
 ### Configuring Conventions
 

@@ -218,6 +218,21 @@ class BiddingSystem {
                 }
             } catch (_) {}
 
+            // Natural responder new suit at 1-level over 1-level opening (no interference)
+            try {
+                const openIdx = firstNonPassIdx;
+                const openerTok = openIdx === -1 ? null : tokens[openIdx];
+                const between = tokens.slice(openIdx + 1, tokens.length - 1);
+                const noOppInterference = between.every(t => t === 'PASS');
+                if (noOppInterference && /^[1][CDHS]$/.test(openerTok || '') && /^[1][CDHS]$/.test(bidToken || '')) {
+                    const openerSuit = openerTok.slice(-1);
+                    const ourSuit = bidToken.slice(-1);
+                    if (ourSuit !== openerSuit) {
+                        return `1-level response in ${suitName(ourSuit)}: natural, 4+ ${suitName(ourSuit)}, about 6+ points`;
+                    }
+                }
+            } catch (_) {}
+
             // Natural responder 2NT over partner's 1NT (no interference): invitational
             try {
                 const openIdx = firstNonPassIdx;
@@ -2240,7 +2255,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             } catch (_) { /* opener 2NT rebid best-effort */ }
 
-            // Responder after opener's 2NT rebid (e.g., 1m - 1M - 2NT): usually raise to 3NT with 6+ HCP; with a firm 5-card major, consider 4M
+            // Responder after opener's 2NT rebid (e.g., 1m - 1M - 2NT): usually raise to 3NT with 6+ HCP; with 6+ trumps or unbalanced, commit to 4M
             try {
                 if (lastByPartner === '2NT') {
                     // Guard: only apply when our side's opening was a 1-level suit (not a Weak Two)
@@ -2263,11 +2278,25 @@ class SAYCBiddingSystem extends BiddingSystem {
                         }
                     }
                     const hcp = hand.hcp || 0;
-                    if (ourPrevMajor && hand.lengths[ourPrevMajor] >= 5 && hcp >= 6) {
-                        return new window.Bid(`4${ourPrevMajor}`);
+                    if (ourPrevMajor && hcp >= 6) {
+                        const len = hand.lengths[ourPrevMajor] || 0;
+                        const balanced = this._isBalanced(hand);
+                        if (len >= 6 || !balanced) {
+                            const game = new window.Bid(`4${ourPrevMajor}`);
+                            const suitName = ourPrevMajor === 'H' ? 'hearts' : 'spades';
+                            game.conventionUsed = `Commit to game in ${suitName}: 6+ trumps or unbalanced hand after partner's 2NT (18–19 balanced)`;
+                            return game;
+                        }
+                        // Balanced with only a 5-card major: prefer 3NT and let opener correct with 3-card support
+                        const notrump = new window.Bid('3NT');
+                        const suitWord = ourPrevMajor === 'H' ? 'heart' : 'spade';
+                        notrump.conventionUsed = `Prefer 3NT with a balanced hand and only a 5-card ${suitWord} after partner's 2NT; opener can correct to 4${ourPrevMajor} with 3-card support`;
+                        return notrump;
                     }
                     if (hcp >= 6) {
-                        return new window.Bid('3NT');
+                        const notrump = new window.Bid('3NT');
+                        notrump.conventionUsed = 'Raise to game in notrump over partner\'s 2NT rebid (game values)';
+                        return notrump;
                     }
                     // Otherwise, pass with very weak hands
                 }
