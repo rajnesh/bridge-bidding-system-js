@@ -176,17 +176,12 @@ class Auction {
     lastSide() {
         const seat = this.lastBidderSeat();
         if (!seat || !this.ourSeat) return null;
-        
-        // Our side seats are the same polarity (N/S) or (E/W)
-        const us = ['N', 'S'].includes(this.ourSeat);
-        const them = !us;
+
+        // Our side is NS if ourSeat is N/S, otherwise EW. Compare polarity with last bidder.
+        const ourIsNS = ['N', 'S'].includes(this.ourSeat);
         const lastIsNS = ['N', 'S'].includes(seat);
-        
-        if (us && lastIsNS) return 'we';
-        if (them && !lastIsNS) return 'they';
-        
-        // Opposite cases
-        return us ? 'they' : 'we';
+        const samePolarity = (ourIsNS && lastIsNS) || (!ourIsNS && !lastIsNS);
+        return samePolarity ? 'we' : 'they';
     }
 
     /**

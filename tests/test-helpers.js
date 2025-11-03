@@ -119,6 +119,40 @@ if (typeof module !== 'undefined' && module.exports) {
     module.exports = {
         makeHandFromRanks,
         makeHandFromPattern,
-        makeTestHand
+            makeTestHand,
+            buildAuction,
+            seatOfLastToken,
+            makeCurrentBidAligned
     };
 }
+
+    /**
+     * Build an Auction with dealer/ourSeat and a sequence of tokens (strings).
+     * Seats are auto-assigned in rotation from the dealer.
+     */
+    function buildAuction(dealer, ourSeat, tokens) {
+        const a = new Auction([], { dealer, ourSeat });
+        for (const t of tokens) a.add(new Bid(t));
+        return a;
+    }
+
+    /**
+     * Find the seat of the last occurrence of a given token in the auction.
+     */
+    function seatOfLastToken(auction, token) {
+        for (let i = auction.bids.length - 1; i >= 0; i--) {
+            const b = auction.bids[i];
+            if (b && b.token === token) return b.seat;
+        }
+        return null;
+    }
+
+    /**
+     * Create a Bid for the current turn, but align its seat to match the seat
+     * of a previous token (e.g., 5C should match the earlier 4C asker for Gerber).
+     */
+    function makeCurrentBidAligned(auction, token, alignToToken) {
+        const b = new Bid(token);
+        b.seat = seatOfLastToken(auction, alignToToken);
+        return b;
+    }

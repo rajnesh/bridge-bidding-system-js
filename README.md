@@ -63,6 +63,15 @@ A comprehensive, test-backed implementation of the Standard American Yellow Card
 - RKCB clarity: The app uses RKCB 1430 and displays it consistently (no responses selector in General Settings)
 - Practice Focus generation: Hand generator tries all-selected conventions, then pairs, then single selections
 
+#### Play Tab (Card Play and Scoring)
+
+- Play out the hand after an auction is completed (new Play tab)
+- SVG card renderer with follow-suit enforcement and trick winner calculation
+- Dummy is revealed after the opening lead; E/W can auto-play for quick simulations
+- Undo/Clear Trick controls, Claim, Replay, and New Deal actions
+- Duplicate scoring at end of hand: part-score/game/slam bonuses, over/undertricks, doubled/redoubled insult, vulnerability-aware
+- Final contract banner with a separate score breakdown list (replaces inline bracketed breakdown)
+
 ### Auction Management
 
 - Seat Tracking (dealer, positions)
@@ -238,6 +247,16 @@ window.DEFAULT_CONVENTIONS_CONFIG = {
     responsive_doubles: { enabled: true, thru_level: 3 },
     support_doubles: { enabled: true, thru: "2S" },
     reopening_doubles: { enabled: true },
+    // Advancer raises after partner's overcall (configurable thresholds)
+    advancer_raises: {
+      enabled: true,
+      simple_min_support: 3, // simple raise to 2M with 3+ trumps
+      simple_range: { min: 6, max: 10 },
+      jump_min_support: 4, // jump raise to 3M requires 4+ trumps (default)
+      jump_range: { min: 11, max: 12 },
+      cuebid_min_support: 3, // cue-bid opener's suit as strong raise with 3+ trumps
+      cuebid_min_hcp: 13, // 13+ HCP → cue-bid raise
+    },
   },
   opening_bids: {
     strong_2_clubs: { enabled: true },

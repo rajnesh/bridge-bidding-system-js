@@ -1763,6 +1763,27 @@ function endAuction() {
             resultRow.style.marginTop = '10px';
             resultRow.textContent = 'AUCTION ENDED';
             auctionGrid.appendChild(resultRow);
+
+            // Add final contract banner with x/xx if applicable
+            const details = computePlayDetailsFromAuction();
+            const banner = document.createElement('div');
+            banner.className = 'auction-result';
+            banner.style.gridColumn = '1 / -1';
+            banner.style.textAlign = 'center';
+            banner.style.fontWeight = '700';
+            banner.style.padding = '8px';
+            banner.style.backgroundColor = '#fff';
+            banner.style.border = '1px solid #ced4da';
+            banner.style.marginTop = '6px';
+            if (!details.contract) {
+                banner.textContent = 'Final Contract: All Pass';
+            } else {
+                const den = details.contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[details.contract.strain] || details.contract.strain);
+                const dblTxt = details.contract.dbl === 1 ? ' x' : (details.contract.dbl === 2 ? ' xx' : '');
+                const sideTxt = details.contractSide === 'NS' ? 'N-S' : 'E-W';
+                banner.textContent = `Final Contract: ${details.contract.level}${den}${dblTxt} by ${getTurnName(details.declarer)} (${sideTxt})`;
+            }
+            auctionGrid.appendChild(banner);
         }
     } catch (error) {
         console.log('Could not add auction ended message:', error.message);
@@ -1962,8 +1983,26 @@ function computeSouthHint() {
         }
     } catch (_) { /* noop */ }
     const rec = system.getBid(currentHands.S);
-    const display = rec.token || 'PASS';
+    let display = rec.token || 'PASS';
     let explanation = rec.conventionUsed || getConventionExplanation(rec, currentAuction) || 'Standard bid';
+
+    // Ensure the hinted bid is legal in the current auction context.
+    try {
+        const lastBid = getLastNonPassBid();
+        // Guard doubles/redoubles using the same UI rules
+        if (display === 'X' && !canDouble()) {
+            display = 'PASS';
+            explanation = 'Pass';
+        } else if (display === 'XX' && !canRedouble()) {
+            display = 'PASS';
+            explanation = 'Pass';
+        } else if (display !== 'PASS' && !isValidUserBid(display, lastBid)) {
+            // If engine suggests an underbid or otherwise illegal bid, fall back to Pass for hint
+            console.warn(`Hint produced illegal bid ${display} after ${lastBid ? lastBid.token : 'none'}; hinting PASS instead.`);
+            display = 'PASS';
+            explanation = 'Pass';
+        }
+    } catch (_) { /* best-effort safety */ }
 
     // If PASS is recommended on the opening bid, add a helpful reason when a weak two was close
     try {
@@ -4057,6 +4096,15 @@ function switchTab(tabName) {
         // non-fatal
         console.warn('Failed to update tab progress:', e);
     }
+
+    // If activating Play tab, render the play UI now
+    try {
+        if (tabName === 'play') {
+            renderPlayTab();
+        }
+    } catch (e) {
+        console.warn('Failed to render Play tab:', e?.message || e);
+    }
 }
 
 // Helper function for startAuction compatibility
@@ -4135,4 +4183,642 @@ function enhanceBidButtonsSuitIcons() {
             btn.innerHTML = transformed;
         }
     });
+}
+
+// =============================
+// Play Tab: basic play-out UI
+// =============================
+let playState = {
+    contract: null,         // e.g., { level: 4, strain: 'H'|'S'|'D'|'C'|'NT' }
+    declarer: null,         // 'N'|'E'|'S'|'W'
+    dummy: null,            // partner of declarer
+    trump: null,            // same as contract.strain unless 'NT'
+    leader: null,           // seat to lead the current trick
+    nextSeat: null,         // who plays next
+    trick: [],              // [{ seat, code }]
+    played: new Set(),      // 'AS','TD', etc., across the whole hand
+    dummyRevealed: false,
+    contractSide: null,     // 'NS' or 'EW'
+    tricksNS: 0,
+    tricksEW: 0
+};
+
+function renderPlayTab() {
+    // Compute final contract from auction history
+    const details = computePlayDetailsFromAuction();
+    playState.contract = details.contract;
+    playState.declarer = details.declarer;
+    playState.dummy = details.dummy;
+    playState.trump = details.trump;
+    playState.leader = details.leader;
+    playState.nextSeat = details.leader;
+    playState.trick = [];
+    playState.played = new Set();
+    playState.dummyRevealed = false;
+    playState.contractSide = details.contractSide;
+    playState.tricksNS = 0;
+    playState.tricksEW = 0;
+    // Snapshot original hands for replay
+    playState.originalHands = cloneHands(currentHands);
+
+    // Update contract info
+    const info = document.getElementById('playContractInfo');
+    if (info) {
+        if (!details.contract) {
+            info.textContent = 'Contract: — (All Pass)';
+        } else {
+            const side = (details.contractSide === 'NS' ? 'N-S' : 'E-W');
+            const denom = details.contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[details.contract.strain] || details.contract.strain);
+            const dblTxt = details.contract.dbl === 1 ? 'x' : (details.contract.dbl === 2 ? 'xx' : '');
+            info.textContent = `Contract: ${details.contract.level}${denom}${dblTxt ? ' ' + dblTxt : ''} by ${seatName(details.declarer)} (${side}) — Leader: ${seatName(details.leader)}`;
+        }
+    }
+
+    // Render hands (South and Dummy if dummy is North)
+    try {
+        const southRow = document.getElementById('playSouthHand');
+        const northRow = document.getElementById('playNorthHand');
+        if (southRow) southRow.innerHTML = '';
+        if (northRow) northRow.innerHTML = '';
+
+        // Reveal dummy only after the opening lead
+        // If South is dummy, hide South's cards initially; if North is dummy, hide North's cards initially
+        const dummySeat = playState.dummy;
+        if (currentHands && currentHands.S && dummySeat !== 'S') {
+            renderHandCards('playSouthHand', 'S');
+        }
+        if (currentHands && currentHands.N && dummySeat !== 'N') {
+            renderHandCards('playNorthHand', 'N');
+        }
+    } catch (_) {}
+
+    // Reset trick area
+    const trickArea = document.getElementById('trickArea');
+    if (trickArea) {
+        trickArea.innerHTML = '<div class="trick-hint">Click a card to play</div>';
+    }
+
+    // Reset counts and status/result
+    try { document.getElementById('trickCountNS').textContent = '0'; } catch(_) {}
+    try { document.getElementById('trickCountEW').textContent = '0'; } catch(_) {}
+    try { const rs = document.getElementById('playResultSummary'); if (rs) rs.textContent = ''; } catch(_) {}
+    try { const ul = document.getElementById('playScoreBreakdown'); if (ul) ul.innerHTML = ''; } catch(_) {}
+    showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
+
+    // If next to play is E/W, auto-play to keep the trick moving
+    setTimeout(() => autoPlayIfNeeded(), 200);
+}
+
+function computePlayDetailsFromAuction() {
+    // Find last contract and who declared
+    let finalIdx = -1;
+    let finalToken = null;
+    let finalSeat = null;
+    for (let i = auctionHistory.length - 1; i >= 0; i--) {
+        const tok = auctionHistory[i]?.bid?.token || null;
+        if (tok && /^[1-7](C|D|H|S|NT)$/.test(tok)) {
+            finalIdx = i; finalToken = tok; finalSeat = auctionHistory[i].position; break;
+        }
+    }
+    if (finalIdx === -1) {
+        return { contract: null, declarer: null, dummy: null, trump: null, leader: null, contractSide: null };
+    }
+    const level = parseInt(finalToken[0], 10);
+    const strain = finalToken.slice(1);
+    const sideSeats = (['N','S'].includes(finalSeat)) ? ['N','S'] : ['E','W'];
+    let declarer = null;
+    for (let i = 0; i < auctionHistory.length; i++) {
+        const e = auctionHistory[i];
+        if (!e || !sideSeats.includes(e.position)) continue;
+        const tok = e.bid?.token || null;
+        if (!tok) continue;
+        if (strain === 'NT') {
+            if (/^[1-7]NT$/.test(tok)) { declarer = e.position; break; }
+        } else {
+            if (new RegExp(`^[1-7]${strain}$`).test(tok)) { declarer = e.position; break; }
+        }
+    }
+    // Fallback if not found (shouldn’t happen often): use last bidder’s seat
+    if (!declarer) declarer = finalSeat;
+    const dummy = partnerOf(declarer);
+    // Detect double/redouble on the final contract
+    let dbl = 0; // 0=undoubled,1=doubled,2=redoubled
+    for (let i = finalIdx + 1; i < auctionHistory.length; i++) {
+        const tok = auctionHistory[i]?.bid?.token || 'PASS';
+        if (tok === 'X') { dbl = 1; }
+        else if (tok === 'XX') { dbl = 2; }
+        else if (tok !== 'PASS') { dbl = 0; } // any further contract bid resets notion
+    }
+    const trump = (strain === 'NT') ? null : strain;
+    const leader = leftOf(declarer);
+    const side = sideSeats.includes('N') ? 'NS' : 'EW';
+    return { contract: { level, strain, dbl }, declarer, dummy, trump, leader, contractSide: side };
+}
+
+function renderHandCards(containerId, seat) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const hand = currentHands?.[seat];
+    if (!hand || !hand.suitBuckets) return;
+    const suits = ['S','H','D','C'];
+    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    suits.forEach(s => {
+        const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+        cards.forEach(c => {
+            const code = `${c.rank}${s}`;
+            const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
+            if (el) {
+                el.dataset.code = code;
+                el.dataset.seat = seat;
+                el.addEventListener('click', onCardClick);
+                container.appendChild(wrapCardWithSeat(el));
+            }
+        });
+    });
+}
+
+function wrapCardWithSeat(svgEl) {
+    // For hand rows, we don’t need seat labels; just return svg
+    return svgEl;
+}
+
+function onCardClick(ev) {
+    try {
+        const el = ev.currentTarget;
+        const code = el?.dataset?.code;
+        const seat = el?.dataset?.seat;
+        if (!code || !seat) return;
+        // Only allow clicks for South or North, and only when it’s their turn
+        if (!['S','N'].includes(seat)) return;
+        if (seat !== playState.nextSeat) return;
+        if (playState.played.has(code)) return;
+
+        // Enforce follow-suit if required
+        if (!canPlayCode(seat, code)) {
+            showPlayStatus('You must follow suit if able.', 'danger');
+            return;
+        }
+
+        // Remove from hand UI
+        try { el.removeEventListener('click', onCardClick); } catch(_) {}
+        try { el.parentElement?.removeChild(el); } catch(_) {}
+
+    // Remove from underlying hand state
+    try { removeCodeFromHand(currentHands?.[seat], code); } catch(_) {}
+
+        playCardToTrick(seat, code);
+        // Proceed to next seat
+        playState.nextSeat = leftOf(playState.nextSeat);
+        // Auto-play for opponents if they’re up
+        setTimeout(() => autoPlayIfNeeded(), 250);
+    } catch (e) {
+        console.warn('onCardClick failed:', e?.message || e);
+    }
+}
+
+function autoPlayIfNeeded() {
+    try {
+        // Play until it's South or North again, or trick is complete
+        while (playState.nextSeat && !['S','N'].includes(playState.nextSeat) && playState.trick.length < 4) {
+            const seat = playState.nextSeat;
+            const code = pickAutoCardFor(seat);
+            if (!code) break;
+            playCardToTrick(seat, code);
+            playState.nextSeat = leftOf(playState.nextSeat);
+        }
+    } catch (e) {
+        console.warn('autoPlayIfNeeded failed:', e?.message || e);
+    }
+}
+
+function pickAutoCardFor(seat) {
+    const hand = currentHands?.[seat];
+    if (!hand) return null;
+    // Build list of codes by suit
+    const suits = ['S','H','D','C'];
+    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    const suitMap = {};
+    suits.forEach(s => {
+        suitMap[s] = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank)).map(c => `${c.rank}${s}`);
+    });
+    // Determine lead suit for current trick
+    const leadSuit = playState.trick.length ? playState.trick[0].code.slice(-1) : null;
+    let pick = null;
+    if (leadSuit && suitMap[leadSuit] && suitMap[leadSuit].length) {
+        pick = suitMap[leadSuit].pop();
+    } else {
+        // Otherwise any card; prefer small
+        for (const s of suits) {
+            if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].pop(); break; }
+        }
+    }
+    if (!pick) return null;
+    // Remove from underlying hand bucket
+    removeCodeFromHand(hand, pick);
+    return pick;
+}
+
+function playCardToTrick(seat, code) {
+    // Record
+    playState.trick.push({ seat, code });
+    playState.played.add(code);
+    // Show in trick area
+    const area = document.getElementById('trickArea');
+    if (area) {
+        // Remove hint on first card
+        const hint = area.querySelector('.trick-hint');
+        if (hint) hint.remove();
+        const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
+        if (el) {
+            const wrap = document.createElement('div');
+            wrap.className = 'trick-card';
+            const label = document.createElement('div');
+            label.className = 'trick-seat';
+            label.textContent = seatName(seat);
+            wrap.appendChild(el);
+            wrap.appendChild(label);
+            area.appendChild(wrap);
+        }
+    }
+    // If this is the first card of the hand (or of the trick), reveal dummy if not revealed yet
+    if (!playState.dummyRevealed && playState.trick.length === 1 && playState.dummy) {
+        revealDummy();
+    }
+    // If trick complete, evaluate winner and set up next trick
+    if (playState.trick.length === 4) {
+        setTimeout(() => finishTrick(), 350);
+    }
+}
+
+function finishTrick() {
+    try {
+        const winner = computeTrickWinner(playState.trick, playState.trump);
+        // Next leader is winner
+        playState.leader = winner;
+        playState.nextSeat = winner;
+        // Increment trick counts
+        if (['N','S'].includes(winner)) playState.tricksNS += 1; else playState.tricksEW += 1;
+        updateTrickCountsUI();
+        playState.trick = [];
+        // Clear trick area but keep a subtle note of who leads
+        const area = document.getElementById('trickArea');
+        if (area) {
+            area.innerHTML = `<div class="trick-hint">${seatName(winner)} to lead</div>`;
+        }
+        // If all tricks completed, compute result; else continue
+        if (playState.tricksNS + playState.tricksEW >= 13) {
+            summarizeResult();
+        } else {
+            setTimeout(() => autoPlayIfNeeded(), 250);
+        }
+    } catch (e) {
+        console.warn('finishTrick failed:', e?.message || e);
+    }
+}
+
+function computeTrickWinner(trick, trump) {
+    // trick: [{ seat, code }]; trump: 'S'|'H'|'D'|'C'|null
+    if (!trick || trick.length === 0) return null;
+    const rankOrder = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+    const leadSuit = trick[0].code.slice(-1);
+    // Gather trump cards
+    const trumps = trump ? trick.filter(c => c.code.slice(-1) === trump) : [];
+    let pool = trumps.length ? trumps : trick.filter(c => c.code.slice(-1) === leadSuit);
+    // Highest rank wins in the pool
+    let best = pool[0];
+    for (const c of pool) {
+        const r1 = rankOrder.indexOf(best.code[0]);
+        const r2 = rankOrder.indexOf(c.code[0]);
+        if (r2 > r1) best = c;
+    }
+    return best.seat;
+}
+
+function removeCodeFromHand(hand, code) {
+    const suit = code.slice(-1);
+    const rank = code.slice(0, -1);
+    const arr = hand?.suitBuckets?.[suit];
+    if (!arr) return;
+    const idx = arr.findIndex(c => c.rank === rank);
+    if (idx >= 0) arr.splice(idx, 1);
+}
+
+function partnerOf(seat) { return seat === 'N' ? 'S' : seat === 'S' ? 'N' : seat === 'E' ? 'W' : 'E'; }
+function leftOf(seat) { return seat === 'N' ? 'E' : seat === 'E' ? 'S' : seat === 'S' ? 'W' : 'N'; }
+function seatName(seat) { return ({N:'North',E:'East',S:'South',W:'West'}[seat] || seat); }
+
+function revealDummy() {
+    if (playState.dummyRevealed) return;
+    const dummy = playState.dummy;
+    if (!dummy) return;
+    try {
+        if (dummy === 'N' && currentHands?.N) {
+            const row = document.getElementById('playNorthHand');
+            if (row && row.childElementCount === 0) renderHandCards('playNorthHand', 'N');
+        } else if (dummy === 'S' && currentHands?.S) {
+            const row = document.getElementById('playSouthHand');
+            if (row && row.childElementCount === 0) renderHandCards('playSouthHand', 'S');
+        }
+        playState.dummyRevealed = true;
+        showPlayStatus('Dummy is now revealed.', 'light');
+    } catch (_) {}
+}
+
+function canPlayCode(seat, code) {
+    const hand = currentHands?.[seat];
+    if (!hand) return false;
+    const leadSuit = playState.trick.length ? playState.trick[0].code.slice(-1) : null;
+    if (!leadSuit) return true; // leading the trick
+    const suit = code.slice(-1);
+    if (suit === leadSuit) return true;
+    // Check if player holds any of lead suit
+    const hasLead = (hand.suitBuckets?.[leadSuit] || []).length > 0;
+    return !hasLead;
+}
+
+function updateTrickCountsUI() {
+    try { document.getElementById('trickCountNS').textContent = String(playState.tricksNS); } catch(_) {}
+    try { document.getElementById('trickCountEW').textContent = String(playState.tricksEW); } catch(_) {}
+}
+
+function showPlayStatus(message, kind='light') {
+    const el = document.getElementById('playStatus');
+    if (!el) return;
+    el.textContent = message;
+    el.className = `alert alert-${kind}`;
+    el.style.display = 'block';
+    // Auto-fade non-error messages
+    if (kind !== 'danger') {
+        setTimeout(() => { try { el.style.display = 'none'; } catch(_) {} }, 1800);
+    }
+}
+
+function summarizeResult() {
+    const contract = playState.contract;
+    const declarer = playState.declarer;
+    const side = playState.contractSide; // 'NS' or 'EW'
+    if (!contract || !declarer || !side) return;
+    const tricksDecl = (side === 'NS') ? playState.tricksNS : playState.tricksEW;
+    const required = 6 + (contract.level || 0);
+    const diff = tricksDecl - required;
+    const outcome = diff >= 0 ? (diff === 0 ? 'just made' : `made ${diff}`) : `${-diff} down`;
+    const result = computeDuplicateScore(contract, side, tricksDecl, vulnerabilityForSide(side));
+    const denom = contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[contract.strain] || contract.strain);
+    const dblTxt = contract.dbl === 1 ? ' x' : (contract.dbl === 2 ? ' xx' : '');
+    const total = result.total;
+    const txt = `Result: ${contract.level}${denom}${dblTxt} by ${seatName(declarer)} (${side}). Tricks: ${tricksDecl}. ${outcome}. Score: ${total >= 0 ? '+'+total : total}`;
+    try { const rs = document.getElementById('playResultSummary'); if (rs) rs.textContent = txt; } catch(_) {}
+    // Render bulleted breakdown
+    try {
+        const ul = document.getElementById('playScoreBreakdown');
+        if (ul) {
+            ul.innerHTML = '';
+            const add = (label, val, sign='+') => {
+                if (!val) return;
+                const li = document.createElement('li');
+                li.textContent = `${label}: ${sign}${val}`;
+                ul.appendChild(li);
+            };
+            if (result.breakdown.trickPoints) {
+                const li = document.createElement('li');
+                li.textContent = `Trick points: +${result.breakdown.trickPoints}`;
+                ul.appendChild(li);
+            }
+            if (result.breakdown.insult) add('Insult', result.breakdown.insult);
+            if (result.breakdown.gameBonus) add('Game bonus', result.breakdown.gameBonus);
+            if (result.breakdown.partScoreBonus) add('Part-score bonus', result.breakdown.partScoreBonus);
+            if (result.breakdown.slamBonus) add('Slam bonus', result.breakdown.slamBonus);
+            if (result.breakdown.overtricks) add('Overtricks', result.breakdown.overtricks);
+            if (result.breakdown.penalties) {
+                const li = document.createElement('li');
+                li.textContent = `Penalty: -${result.breakdown.penalties}`;
+                ul.appendChild(li);
+            }
+        }
+    } catch (_) {}
+    showPlayStatus('Hand complete.', 'success');
+}
+
+function vulnerabilityForSide(side) {
+    // vulnerability.ns/ew reflect NS/EW vulnerability
+    return side === 'NS' ? !!vulnerability.ns : !!vulnerability.ew;
+}
+
+function computeDuplicateScore(contract, side, tricksWon, vul) {
+    // Return score for declarer side (positive if made, negative if down)
+    const level = contract.level;
+    const strain = contract.strain; // 'C','D','H','S','NT'
+    const required = 6 + level;
+    const over = tricksWon - required;
+    const isMajor = (strain === 'H' || strain === 'S');
+    const isMinor = (strain === 'C' || strain === 'D');
+    const dbl = contract.dbl || 0; // 0/1/2
+    const multiplier = dbl === 0 ? 1 : (dbl === 1 ? 2 : 4);
+
+    const trickValue = strain === 'NT' ? 30 : isMajor ? 30 : 20;
+    const firstNTBonus = strain === 'NT' ? 10 : 0;
+
+    const breakdown = { trickPoints: 0, insult: 0, gameBonus: 0, partScoreBonus: 0, slamBonus: 0, overtricks: 0, penalties: 0 };
+
+    if (over < 0) {
+        // Undertricks penalties (non-vs-vul simple version; doubles not modeled here)
+        const u = -over;
+        if (dbl === 0) {
+            breakdown.penalties = (vul ? 100 : 50) * u;
+            return { total: -breakdown.penalties, breakdown };
+        }
+        // Doubled/redoubled undertricks
+        const first = vul ? 200 : 100;
+        const secondThird = vul ? 300 : 200;
+        const subsequent = 300; // both vul and non-vul
+        let pen = 0;
+        if (u >= 1) pen += first;
+        if (u >= 2) pen += secondThird;
+        if (u >= 3) pen += secondThird;
+        if (u >= 4) pen += subsequent * (u - 3);
+        if (dbl === 2) pen *= 2; // redoubled
+        breakdown.penalties = pen;
+        return { total: -pen, breakdown };
+    }
+
+    // Contract made: compute trick points
+    let baseTrickPoints = (strain === 'NT' ? (firstNTBonus + trickValue * level) : (trickValue * level));
+    let trickPoints = baseTrickPoints * multiplier;
+    let score = trickPoints;
+    breakdown.trickPoints = trickPoints;
+    // Insult bonus for doubled/redoubled
+    if (dbl === 1) { score += 50; breakdown.insult = 50; }
+    if (dbl === 2) { score += 100; breakdown.insult = 100; }
+    // Game or part-score bonus (based on trick points after doubling)
+    if (trickPoints >= 100) {
+        const gb = vul ? 500 : 300;
+        score += gb; breakdown.gameBonus = gb;
+    } else {
+        score += 50; breakdown.partScoreBonus = 50;
+    }
+    // Overtricks
+    if (over > 0) {
+        if (dbl === 0) {
+            const val = over * (strain === 'NT' ? 30 : isMajor ? 30 : 20);
+            score += val; breakdown.overtricks = val;
+        } else if (dbl === 1) {
+            const val = over * (vul ? 200 : 100);
+            score += val; breakdown.overtricks = val;
+        } else {
+            const val = over * (vul ? 400 : 200);
+            score += val; breakdown.overtricks = val;
+        }
+    }
+    // Slam bonuses
+    if (level === 6) { const b = vul ? 750 : 500; score += b; breakdown.slamBonus = b; }
+    if (level === 7) { const b = vul ? 1500 : 1000; score += b; breakdown.slamBonus = b; }
+    return { total: score, breakdown };
+}
+
+// Controls: Undo and Clear Trick
+document.addEventListener('click', (e) => {
+    if (e.target && e.target.id === 'playUndoBtn') {
+        undoLastPlay();
+    } else if (e.target && e.target.id === 'playClearTrickBtn') {
+        clearCurrentTrick();
+    } else if (e.target && e.target.id === 'playClaimBtn') {
+        promptClaim();
+    } else if (e.target && e.target.id === 'playReplayBtn') {
+        replayHand();
+    } else if (e.target && e.target.id === 'playNewDealBtn') {
+        newDealFromPlay();
+    }
+});
+
+function undoLastPlay() {
+    try {
+        if (!playState.trick.length) return;
+        const last = playState.trick.pop();
+        playState.played.delete(last.code);
+        // Remove last trick card UI
+        try {
+            const area = document.getElementById('trickArea');
+            if (area && area.lastElementChild) area.removeChild(area.lastElementChild);
+            if (!area.querySelector('.trick-card')) {
+                const hint = document.createElement('div');
+                hint.className = 'trick-hint';
+                hint.textContent = 'Click a card to play';
+                area.appendChild(hint);
+            }
+        } catch(_) {}
+        // Return the card to hand state and UI
+        const seat = last.seat;
+        returnCodeToHand(seat, last.code);
+        // Turn moves back to that seat
+        playState.nextSeat = seat;
+        showPlayStatus('Undid last play.', 'light');
+    } catch (e) { console.warn('undoLastPlay failed:', e?.message || e); }
+}
+
+function clearCurrentTrick() {
+    try {
+        if (!playState.trick.length) return;
+        const items = playState.trick.slice();
+        // Clear trick UI
+        try {
+            const area = document.getElementById('trickArea');
+            if (area) area.innerHTML = '<div class="trick-hint">Click a card to play</div>';
+        } catch(_) {}
+        // Return cards to hands (reverse to approximate order)
+        for (let i = items.length - 1; i >= 0; i--) {
+            const t = items[i];
+            playState.played.delete(t.code);
+            returnCodeToHand(t.seat, t.code);
+        }
+        playState.trick = [];
+        playState.nextSeat = playState.leader; // reset to trick leader
+        showPlayStatus('Cleared current trick.', 'light');
+    } catch (e) { console.warn('clearCurrentTrick failed:', e?.message || e); }
+}
+
+function returnCodeToHand(seat, code) {
+    try {
+        // Add back to data model
+        const suit = code.slice(-1);
+        const rank = code.slice(0, -1);
+        if (currentHands?.[seat]?.suitBuckets?.[suit]) {
+            currentHands[seat].suitBuckets[suit].push(new window.Card(rank, suit));
+        }
+        // Add back to UI hand row
+        const containerId = (seat === 'N') ? 'playNorthHand' : (seat === 'S' ? 'playSouthHand' : null);
+        if (containerId) {
+            const container = document.getElementById(containerId);
+            if (container) {
+                const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
+                if (el) {
+                    el.dataset.code = code;
+                    el.dataset.seat = seat;
+                    el.addEventListener('click', onCardClick);
+                    container.appendChild(el);
+                }
+            }
+        }
+    } catch (_) {}
+}
+
+// Claim, Replay, New Deal
+function promptClaim() {
+    try {
+        if (!playState.contract) return;
+        const side = playState.contractSide; // NS or EW
+        const remaining = 13 - (playState.tricksNS + playState.tricksEW);
+        const declarerSide = side;
+        const msg = `Claim for ${declarerSide} side. Remaining tricks: ${remaining}. Enter tricks to claim:`;
+        const input = window.prompt(msg, String(remaining));
+        if (input == null) return;
+        const toClaim = Math.max(0, Math.min(remaining, parseInt(input, 10) || 0));
+        if (declarerSide === 'NS') playState.tricksNS += toClaim; else playState.tricksEW += toClaim;
+        // The rest go to defenders
+        const toDef = remaining - toClaim;
+        if (declarerSide === 'NS') playState.tricksEW += toDef; else playState.tricksNS += toDef;
+        updateTrickCountsUI();
+        summarizeResult();
+        // Lock further play by clearing nextSeat
+        playState.nextSeat = null;
+    } catch (e) { console.warn('promptClaim failed:', e?.message || e); }
+}
+
+function replayHand() {
+    try {
+        if (!playState.originalHands) return;
+        // Deep clone original hands back into currentHands
+        currentHands = cloneHands(playState.originalHands);
+        // Reset play state and re-render Play tab
+        renderPlayTab();
+        showPlayStatus('Replaying hand from the start.', 'light');
+    } catch (e) { console.warn('replayHand failed:', e?.message || e); }
+}
+
+function newDealFromPlay() {
+    try {
+        const proceed = window.confirm('Start a new deal? Current play will be discarded.');
+        if (!proceed) return;
+        // Generate a new random deal and move to Auction tab to bid anew
+        generateRandomHands();
+        switchTab('auction');
+    } catch (e) { console.warn('newDealFromPlay failed:', e?.message || e); }
+}
+
+function cloneHands(source) {
+    const out = { N: null, E: null, S: null, W: null };
+    ['N','E','S','W'].forEach(seat => {
+        const h = source[seat];
+        if (!h) return;
+        out[seat] = cloneHand(h);
+    });
+    return out;
+}
+
+function cloneHand(hand) {
+    const suits = ['S','H','D','C'];
+    const buckets = {};
+    suits.forEach(s => {
+        buckets[s] = (hand.suitBuckets?.[s] || []).map(c => new window.Card(c.rank, s));
+    });
+    return new window.Hand(buckets);
 }

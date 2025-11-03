@@ -62,7 +62,17 @@ class ConventionCard {
 
                 support_doubles: { enabled: true, thru: '2S' },
                 cue_bid_raises: { enabled: true },
-                reopening_doubles: { enabled: true }
+                reopening_doubles: { enabled: true },
+                // Advancer raise configuration after partner's overcall
+                advancer_raises: {
+                    enabled: true,
+                    simple_min_support: 3,         // 2M with 3+ trumps and simple range
+                    simple_range: { min: 6, max: 10 },
+                    jump_min_support: 4,           // default classic: require 4+ trumps for 3M jump raise
+                    jump_range: { min: 11, max: 12 },
+                    cuebid_min_support: 3,         // cue-bid raise with 3+ trumps
+                    cuebid_min_hcp: 13             // 13+ HCP → cue-bid opener's suit as strong raise
+                }
             },
             strong_club_defenses: {
                 meckwell: { enabled: true, style: 'standard' }

@@ -1088,3 +1088,33 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 }
 .bid-tag.unusual { background: #fdecea; color: #b23b32; border-color: #f3b1ab; }
 .bid-tag.natural { background: #eaf7ee; color: #267a42; border-color: #bde5c7; }
+
+/* =============================
+   Play Tab Layout and Cards
+   ============================= */
+.play-layout { display: flex; flex-direction: column; align-items: center; gap: 12px; }
+.play-hand { width: 100%; max-width: 1000px; }
+.play-hand .hand-title { text-align: center; font-weight: 700; color: #2c3e50; margin: 6px 0; }
+.cards-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
+.card-svg { width: 76px; height: 112px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; }
+.card-svg:hover { transform: translateY(-3px); box-shadow: 0 8px 16px rgba(0,0,0,0.12); }
+.card-svg.selected { outline: 3px solid #E84E4E; outline-offset: -3px; }
+.play-table { width: 100%; display: flex; justify-content: center; }
+.trick-area { min-height: 140px; min-width: 60%; border: 2px dashed #dee2e6; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px; background: #f8f9fa; color: #6c757d; position: relative; flex-wrap: wrap; }
+.trick-area .trick-hint { position: absolute; top: 8px; left: 12px; font-size: 0.9rem; color: #6c757d; }
+.trick-card { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
+.trick-seat { font-size: 0.8rem; color: #495057; font-weight: 600; }
+
+@media (max-width: 600px) {
+    .card-svg { width: 64px; height: 96px; }
+    .trick-area { min-width: 90%; }
+}
+
+/* Play tab status message variants */
+#playStatus.alert-light { border: 1px solid #e9ecef; color: #495057; }
+#playStatus.alert-danger { border: 1px solid #f5c2c7; background: #f8d7da; color: #842029; }
+#playStatus.alert-success { border: 1px solid #badbcc; background: #d1e7dd; color: #0f5132; }
+
+/* Score breakdown list */
+.score-breakdown { list-style: disc; margin: 6px auto 0; padding-left: 22px; max-width: 640px; color: #495057; }
+.score-breakdown li { margin: 2px 0; }

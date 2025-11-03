@@ -42,6 +42,7 @@
                     <button class="tab-button" onclick="switchTab('practice')" id="practiceTab">Practice Focus</button>
                     <button class="tab-button" onclick="switchTab('generation')" id="generationTab">Hand Generation</button>
                     <button class="tab-button" onclick="switchTab('auction')" id="auctionTab">Auction</button>
+                    <button class="tab-button" onclick="switchTab('play')" id="playTab">Play</button>
                 </div>
                 
                 <!-- Tab Content -->
@@ -446,6 +447,42 @@
                             </div>
                         </div>
                     </div>
+                    
+                    <!-- Play Tab -->
+                    <div class="tab-panel" id="playPanel">
+                        <div class="content-section">
+                            <h3>Play</h3>
+                            <div id="playContractInfo" class="alert alert-secondary" aria-live="polite">Contract: —</div>
+                            <div id="playStatus" class="alert alert-light" style="display:none;"></div>
+                            <div class="play-controls" style="display:flex; gap:8px; align-items:center; margin:8px 0;">
+                                <button id="playUndoBtn" class="main-btn secondary compact">Undo</button>
+                                <button id="playClearTrickBtn" class="main-btn warning compact">Clear Trick</button>
+                                <button id="playClaimBtn" class="main-btn success compact">Claim</button>
+                                <button id="playReplayBtn" class="main-btn compact">Replay Hand</button>
+                                <button id="playNewDealBtn" class="main-btn danger compact">New Deal</button>
+                                <div style="margin-left:auto; font-weight:700; color:#2c3e50;">
+                                    Tricks — N/S: <span id="trickCountNS">0</span> | E/W: <span id="trickCountEW">0</span>
+                                </div>
+                            </div>
+                            <div class="play-layout">
+                                <div class="play-hand" id="playNorthArea">
+                                    <div class="hand-title">North (Dummy)</div>
+                                    <div id="playNorthHand" class="cards-row"></div>
+                                </div>
+                                <div class="play-table" id="playTableArea">
+                                    <div class="trick-area" id="trickArea">
+                                        <div class="trick-hint">Click a card to play</div>
+                                    </div>
+                                    <div id="playResultSummary" style="text-align:center; margin-top:8px; font-weight:700; color:#2c3e50;"></div>
+                                    <ul id="playScoreBreakdown" class="score-breakdown"></ul>
+                                </div>
+                                <div class="play-hand" id="playSouthArea">
+                                    <div class="hand-title">South (You)</div>
+                                    <div id="playSouthHand" class="cards-row"></div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
             </div>
         </div>
     </div>
@@ -612,6 +649,7 @@
     <script src="js/bridge-types.js"></script>
     <script src="js/convention-manager.js"></script>
     <script src="js/combined-bidding-system.js"></script>
+    <script src="js/cards-svg.js"></script>
     <script src="js/app.js?v=31"></script>
 </body>
 </html>
