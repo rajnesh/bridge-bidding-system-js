@@ -6,6 +6,337 @@ A comprehensive, test-backed implementation of the Standard American Yellow Card
 
 ### Core Bidding Logic
 
+- Opening Bids: 1NT (15–17 HCP), suit openings, weak twos
+- Balanced Hand Detection: 4-3-3-3, 4-4-3-2, 5-3-3-2
+  - Optional: treat 5-4-2-2 as semi-balanced (configurable)
+- Rule of 20: Smart opening decisions based on HCP + two longest suits
+- Better Minor: Intelligent choice between clubs and diamonds
+
+### Major Conventions Supported
+
+#### Slam Conventions
+
+- Blackwood (4NT): Classic ace-asking with proper responses (0–4 aces)
+- Roman Key Card Blackwood (RKCB 1430): Fixed to 1430 responses in this app
+- Gerber (4♣): Ace-asking after notrump bids
+
+#### Notrump Defenses
+
+- DONT: Single-suited, two-suited, and three-suited patterns
+- Meckwell: Single-suited and two-suited combinations
+- Unusual Notrump (2NT overcall): Supported; “over minors” behavior is controlled via General Settings
+
+#### Major Suit Responses
+
+- Jacoby 2NT: Game-forcing raise showing 4+ support and 13+ HCP
+- Splinter Bids: Game-forcing jump in a new suit with 4+ support and singleton/void
+- Texas Transfers and Jacoby Transfers over NT
+- Lebensohl over 1NT interference: fast/slow shows, stopper asking, cue-bid sequences
+  - Optional “systems on” over interference (configurable): stolen-bid double and transfers over 2♣
+
+#### Competitive Bidding
+
+- Support Doubles: Exactly 3-card support in competitive auctions
+- Negative Doubles: Takeout doubles after partner opens
+- Responsive Doubles: Takeout after partner’s takeout double
+- Reopening Doubles: When opponents stop at a low level
+- Cue-Bid Raises: Limit+ raises showing 10+ HCP and 4+ support
+- Michaels Cuebid: Two-suited overcalls
+- Relaxed Takeout Doubles: Shape-based with 11+ HCP when short in opponent’s suit
+
+#### Other Conventions
+
+- Drury (passed hand)
+- Passed Hand Variations
+
+### Web Interface Features
+
+- Interactive Hand Input with standard text format
+- Visual Hand Display: Color-coded suits (♠ ♥ ♦ ♣)
+- Live HCP Calculation
+- Auction Tracker: Real-time history with seat tracking
+- Bid Recommendations with convention attribution
+- Explicit explanations for key conventions (e.g., Weak Twos feature-ask, Cue-Bid Raises, Reopening Doubles)
+- Vulnerability Control for both sides
+- Active Conventions drive the engine: Only selected conventions are used by logic and explanations
+  - If Strong 2♣ is off, a 2♣ opening is natural (long clubs) and explained as such
+- RKCB clarity: The app uses RKCB 1430 and displays it consistently (no responses selector in General Settings)
+- Practice Focus generation: Hand generator tries all-selected conventions, then pairs, then single selections
+
+### Auction Management
+
+- Seat Tracking (dealer, positions)
+- Vulnerability Awareness (ranges adjust with vulnerability)
+- Convention Attribution on each bid
+
+## Quick Start
+
+### Option 1: Open Directly in Browser
+
+Simply open `index.html` in a modern web browser (Chrome, Firefox, Edge, Safari).
+
+### Option 2: Local Web Server (Recommended)
+
+For full functionality and cleaner file access:
+
+```bash
+# Using Node.js (package script)
+npm run start
+
+# Or directly
+npx http-server -p 8000 -o
+
+# Alternatively (Python)
+python -m http.server 8000
+```
+
+Then visit: http://localhost:8000
+
+## Usage Guide
+
+### 1) Enter Your Hand
+
+- Format: Spades Hearts Diamonds Clubs (space-separated)
+- Example: `AKQ2 J432 32 32`
+- Click “Parse Hand”
+
+### 2) Start an Auction
+
+- Pick Our Seat and Dealer
+- Set vulnerability (NS/EW) if needed
+- Click “Start New Auction”
+
+### 3) Get Bidding Suggestion
+
+- Click “Get My Bid” to see the recommended bid and explanation
+- The UI shows which convention was used when applicable
+
+### Convention Explanations in the UI (examples)
+
+- Weak Two feature-ask and replies
+  - `2♠ — 2NT — 3♣` → “Feature shown over 2NT ask: clubs”
+  - `2♥ — 2NT — 3♥` → “No feature over 2NT ask (rebid hearts at 3-level)”
+- Other Weak Two continuations
+  - `2♥ — 3NT` → “Natural 3NT over Weak Two Major”
+  - `2♦ — 3♦` → “Raise over Weak Two”
+  - `2♠ — 4♠` → “Raise to game over Weak Two”
+- Cue-Bid Raise (after partner’s suit overcall)
+  - `1♥ — 1♠ — 2♥` → “Cue Bid Raise (limit+ raise of partner’s suit)”
+- Reopening Double (balancing)
+  - `1♦ — PASS — PASS — X` → “Reopening Double (balancing position)”
+
+### 4) Build the Auction
+
+- Type bids: `1S`, `2NT`, `PASS`, `X`, `XX`
+- Click “Add” to append them to the auction history
+
+## Project Structure
+
+```
+├── index.html
+├── js/
+│   ├── app.js                     # Main application logic & UI
+│   ├── bridge-types.js            # Card, Hand, Bid, Auction, VulnerabilityState
+│   ├── combined-bidding-system.js # BiddingSystem + SAYCBiddingSystem implementation
+│   └── convention-manager.js      # Convention configuration and management
+├── css/
+├── .github/workflows/
+└── tests/
+```
+
+## Installation
+
+```bash
+# Clone the repository
+git clone https://github.com/rajnesh/bridge-bidding-system-js.git
+cd bridge-bidding-system-js
+
+# Install dependencies (for testing)
+npm install
+```
+
+## JavaScript API Usage
+
+Browser (globals):
+
+```javascript
+// Initialize the system
+const system = new window.SAYCBiddingSystem();
+
+// Create a hand (format: "Spades Hearts Diamonds Clubs")
+const hand = new window.Hand("AKJ3 Q54 K82 974");
+
+// Start an auction (our seat 'N')
+system.startAuction('N');
+
+// Get a bid for the hand
+const bid = system.getBid(hand);
+console.log(`Bid: ${bid.token}`);
+if (bid.conventionUsed) console.log(`Convention: ${bid.conventionUsed}`);
+```
+
+Advanced (with dealer tracking):
+
+```javascript
+// Start auction with dealer tracking
+system.startAuctionWithDealer('E', 'N'); // our seat = East, dealer = North
+
+// Add opponent's opening bid
+system.currentAuction.add(new window.Bid("1NT", { seat: 'N' }));
+
+// Get our response
+const hand2 = new window.Hand("KQ65 J9843 72 85");
+const bid2 = system.getBid(hand2);
+```
+
+Node (tests use jsdom):
+
+```javascript
+const { SAYCBiddingSystem } = require('./js/combined-bidding-system');
+const { Hand, Bid, Auction } = require('./js/bridge-types');
+
+const system = new SAYCBiddingSystem();
+system.startAuction('N');
+const bid = system.getBid(new Hand('AKQ2 J432 32 32'));
+```
+
+## Configuring Conventions
+
+The app uses an inline, browser-safe configuration. You can override defaults by defining `window.DEFAULT_CONVENTIONS_CONFIG` before scripts load, or by editing `js/convention-manager.js` defaults.
+
+Key toggles under `config`:
+
+```js
+window.DEFAULT_CONVENTIONS_CONFIG = {
+  ace_asking: {
+    gerber: { enabled: true, continuations: true, responses_map: ["4D", "4H", "4S", "4NT"] },
+    blackwood: { enabled: true, variant: "rkcb", responses: "1430" },
+  },
+  notrump_responses: {
+    stayman: { enabled: true },
+    jacoby_transfers: { enabled: true },
+    texas_transfers: { enabled: true },
+    minor_suit_transfers: { enabled: false },
+  },
+  responses: {
+    jacoby_2nt: { enabled: true },
+    splinter_bids: { enabled: true },
+    drury: { enabled: true },
+  },
+  notrump_defenses: {
+    unusual_nt: { enabled: true, over_minors: true },
+    dont: { enabled: true },
+    meckwell: { enabled: true },
+  },
+  competitive: {
+    michaels: { enabled: true },
+    negative_doubles: { enabled: true, thru_level: 3 },
+    responsive_doubles: { enabled: true, thru_level: 3 },
+    support_doubles: { enabled: true, thru: "2S" },
+    reopening_doubles: { enabled: true },
+  },
+  opening_bids: {
+    strong_2_clubs: { enabled: true },
+  },
+  general: {
+    vulnerability_adjustments: true,
+    passed_hand_variations: true,
+    balanced_shapes: { include_5422: false },
+    systems_on_over_1nt_interference: {
+      stayman: false,
+      transfers: false,
+      stolen_bid_double: false,
+    },
+  },
+};
+```
+
+Notes:
+
+- Vulnerability adjustments tighten/loosen preempts
+- Support/Negative/Responsive doubles honor their configured levels
+- Minor Suit Transfers (MST) opener acceptance:
+  - `1NT – 2S` → `3C`
+  - `1NT – 2NT` → `3D`
+- “Systems on” over 1NT interference (when enabled):
+  - Stolen-bid double: after (2♣) over our 1NT, X = Stayman with 8+ HCP and a 4-card major
+  - Transfers after (2♣): 2♦/2♥ act as transfers to ♥/♠
+  - Negative doubles apply after our 1-level suit openings (not after 1NT)
+- RKCB is 1430 and the label is fixed in the UI
+- Active Conventions selections directly control which conventions the engine uses
+
+### Pass token standardization
+
+- Internally, passes use the token `"PASS"`
+- For backward compatibility, auction utilities also accept `null` as a pass input
+
+## Testing
+
+Run the Node/Jest suite locally:
+
+```bash
+npm install
+npm test
+```
+
+## Debugging in the Browser
+
+Open browser DevTools (F12). The console shows:
+
+- Parsed hand information
+- Bidding logic decisions
+- Convention matches
+- Errors (if any)
+
+## Key Implementation Details
+
+### HCP Calculation
+
+- J = 1, Q = 2, K = 3, A = 4
+
+### Rule of 20
+
+Open if: HCP + length of two longest suits >= 19
+
+### Stopper Detection (Lebensohl)
+
+- Ace = stopper
+- King with 1+ others (Kx, Kxx, …) = stopper
+- Queen with 2+ others (Qxx, Qxxx, …) = stopper
+
+### Seat Notation
+
+- N, E, S, W (UI uses letters). Some helper APIs historically used 0/1/2/3.
+
+## Contributing
+
+Contributions are welcome! Areas for enhancement:
+
+- Additional conventions (e.g., Fourth Suit Forcing)
+- More sophisticated competitive bidding
+- Logging and diagnostics
+- Hand evaluation refinements
+- Opening lead suggestions
+
+## Author
+
+Rajnesh Kathuria
+
+## Live Demo
+
+Simply open `index.html` in your browser to start bidding.
+
+## Acknowledgments
+
+Built with comprehensive test coverage to ensure accurate SAYC bidding behavior across a wide range of scenarios. This JavaScript implementation provides an interactive web-based interface for learning and practicing bridge bidding conventions.
+# Bridge Bidding System (SAYC)
+
+A comprehensive, test-backed implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring a modern browser UI and a Node/Jest test suite.
+
+## Features
+
+### Core Bidding Logic
+
 - **Opening Bids**: 1NT (15-17 HCP), suit openings, weak twos
 - **Balanced Hand Detection**: 4-3-3-3, 4-4-3-2, 5-3-3-2 distributions
   - Optional: treat 5-4-2-2 as “semi-balanced” (configurable)
@@ -80,11 +411,13 @@ Simply open `index.html` in a modern web browser (Chrome, Firefox, Safari, Edge)
 For full functionality:
 
 ```bash
-# Using Node.js
+ - **Roman Key Card Blackwood (RKCB 1430)**: Fixed to 1430 responses in this app
 npx http-server
 
 # Using Python
-python -m http.server 8000
+ - **Active Conventions drive the engine**: Only conventions selected under Active Conventions are used by the bidding engine and explanations. If Strong 2♣ is off, a 2♣ opening is natural (long clubs) both in logic and in the explanation.
+ - **RKCB label clarity**: The app uses Roman Key Card Blackwood 1430 and displays it consistently (no selector in General Settings).
+ - **Practice Focus generation**: Hand generator tries to satisfy all selected conventions; if none are found it falls back to pairs of selections, then to single selections.
 
 # Using PHP
 php -S localhost:8000
@@ -92,59 +425,54 @@ php -S localhost:8000
 
 Then visit: `http://localhost:8000`
 
-## Usage Guide
-
-### 1. Enter Your Hand
-
-- Format: **Spades Hearts Diamonds Clubs** (space-separated)
-- Example: `AKQ2 J432 32 32`
-- Click **Parse Hand** to analyze
-
-### 2. Start an Auction
-
+ ```bash
+ # Using Node.js (package script)
+ npm run start
+ 
+ # Or directly
+ npx http-server -p 8000 -o
+ 
+ # Alternatively (Python)
+ python -m http.server 8000
+ ```
 - Select **Our Seat** and **Dealer**
 - Set vulnerability checkboxes if needed
 - Click **Start New Auction**
-
-### 3. Get Bidding Suggestion
-
-- Click **Get My Bid** to see the recommended bid
-- Shows bid and convention used
+ ### Debugging in the Browser
+ 
+ Open browser DevTools (F12) for debugging. The console will show:
 
 ### Convention Explanations in the UI
 
-The auction panel shows a short, human-friendly explanation beside each bid when a convention is detected. Newly enhanced explanations include:
-
-- Weak Two openings and continuations:
-  - Opening 2♦/2♥/2♠ as “Weak Two opening (6+ card suit, about 6–10 HCP; stricter when vulnerable)”
-  - 2NT over a Weak Two as “Feature ask over Weak Two (asks opener to show A/K in a side suit)”
-  - Opener’s 3-level reply showing a side-suit ace/king: “Feature shown over 2NT ask: clubs/diamonds/hearts/spades”
-  - Opener’s 3-of-the-opened-suit after 2NT: “No feature over 2NT ask (rebid … at 3-level)”
-  - Simple raise: “Raise over Weak Two”; Game raise: “Raise to game over Weak Two”
+ ```bash
+ # Clone the repository
+ git clone https://github.com/rajnesh/bridge-bidding-system-js.git
+ cd bridge-bidding-system-js
+ 
+ # Install dependencies (for testing)
+ npm install
+ ```
   - 3NT over a Weak Two major: “Natural 3NT over Weak Two Major”
 - Cue Bid Raises (limit+ raise of partner’s suit) after partner overcalls and you bid the opponents’ suit
 - Reopening Doubles (balancing position) after opener’s suit is followed by two passes
 
 Examples (seat letters omitted for brevity):
-
+const system = new window.SAYCBiddingSystem();
 - Weak Two feature ask and reply
   - 2♠ — 2NT — 3♣ → “Feature shown over 2NT ask: clubs”
   - 2♥ — 2NT — 3♥ → “No feature over 2NT ask (rebid hearts at 3-level)”
 - Weak Two other continuations
   - 2♥ — 3NT → “Natural 3NT over Weak Two Major”
   - 2♦ — 3♦ → “Raise over Weak Two”
-  - 2♠ — 4♠ → “Raise to game over Weak Two”
+system.startAuctionWithDealer('E', 'N'); // our seat = East, dealer = North
 - Cue Bid Raise (after partner’s suit overcall)
   - 1♥ — 1♠ — 2♥ → “Cue Bid Raise (limit+ raise of partner’s suit)”
 - Reopening Double (balancing)
   - 1♦ — PASS — PASS — X → “Reopening Double (balancing position)”
-
+ This app uses an inline, browser-safe configuration. You can override defaults from the page by defining `window.DEFAULT_CONVENTIONS_CONFIG` before scripts load, or by modifying `js/convention-manager.js` defaults.
 ### 4. Build the Auction
 
 - Type bids: **1S, 2NT, PASS, X, XX**
-- Click **Add** to add them to the auction history
-
-## Development
 
 ## Project Structure
 
@@ -159,10 +487,6 @@ Examples (seat letters omitted for brevity):
 ├── .github/workflows/           # CI workflows (GitHub Actions)
 └── tests/                       # Test files
     ├── test-helpers.js          # Testing utilities
-    ├── test_sayc.test.js    # Core SAYC bidding tests
-    ├── test_advanced.test.js # Advanced convention tests
-    ├── test_competitive.test.js # Competitive bidding tests
-    ├── test_comprehensive.test.js # Integration tests
     └── test_lebensohl.test.js # Lebensohl-specific tests
 ```
 
@@ -170,20 +494,11 @@ Examples (seat letters omitted for brevity):
 
 ```bash
 # Clone the repository
-git clone https://github.com/rajnesh/bridge-bidding-system.git
-cd bridge-bidding-system
-
-# Install dependencies (for testing)
 npm install
 ```
 
 ## JavaScript API Usage
 
-### Basic Example
-
-```javascript
-// Initialize the system
-const system = new SAYCSystem();
 
 // Create a hand (format: "Spades Hearts Diamonds Clubs")
 const hand = new Hand("AKJ3 Q54 K82 974");
