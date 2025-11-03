@@ -1889,16 +1889,18 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (interferenceBid) return interferenceBid;
             }
 
-            // Handle responses to partner when partner was the last from our side
-            if (this.currentAuction.bids.length >= 2 && this.currentAuction.bids.length % 2 === 0) {
-                const partnerBid = this.currentAuction.bids[this.currentAuction.bids.length - 2].token;
-                if (partnerBid && /^\d/.test(partnerBid)) {
-                    const bid = this._getResponseToSuit(partnerBid, hand);
+            // Handle responses to partner using seat context (robust to passes/interference)
+            try {
+                const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                const lastPartner = ctx?.lastPartner || null;
+                const partnerToken = lastPartner?.token || null;
+                if (partnerToken && /^\d/.test(partnerToken)) {
+                    const bid = this._getResponseToSuit(partnerToken, hand);
                     if (bid && (bid.token || bid.isDouble || bid.isRedouble)) {
                         return bid;
                     }
                 }
-            }
+            } catch (_) { /* ignore and continue */ }
 
             // Competitive actions as a fallback in other multi-bid contexts
             const interferenceBid = this._handleInterference(this.currentAuction, hand);
