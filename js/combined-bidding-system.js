@@ -2268,13 +2268,22 @@ class SAYCBiddingSystem extends BiddingSystem {
                         // Not our target sequence (e.g., Weak Two 2M - 2NT feature ask); let dedicated logic handle it
                         throw new Error('skip-opener-2NT-responder-raise');
                     }
-                    // Check our previously bid suit at 1-level
+                    // Check our previously bid suit at 1-level (by our side)
                     let ourPrevMajor = null;
-                    for (let i = bids.length - 1; i >= 0; i--) {
-                        const b = bids[i];
-                        if (!b || !b.token) continue;
-                        if (this._sameSideAs(b.seat, ctx.currentSeat)) {
-                            if (/^1[HS]$/.test(b.token)) { ourPrevMajor = b.token[1]; break; }
+                    try {
+                        const order = window.Auction.TURN_ORDER || ['N','E','S','W'];
+                        const ourAnchor = (this.currentAuction && this.currentAuction.ourSeat) ? this.currentAuction.ourSeat : (this.ourSeat || ctx.currentSeat);
+                        const ourSideSeats = ['N','S'].includes(ourAnchor) ? ['N','S'] : ['E','W'];
+                        for (let i = bids.length - 1; i >= 0; i--) {
+                            const b = bids[i];
+                            if (!b || !b.token) continue;
+                            if (ourSideSeats.includes(b.seat) && /^1[HS]$/.test(b.token)) { ourPrevMajor = b.token[1]; break; }
+                        }
+                    } catch (_) {
+                        // Fallback: any earlier 1H/1S in auction (safer than missing the preference entirely)
+                        for (let i = bids.length - 1; i >= 0; i--) {
+                            const b = bids[i];
+                            if (b && b.token && /^1[HS]$/.test(b.token)) { ourPrevMajor = b.token[1]; break; }
                         }
                     }
                     const hcp = hand.hcp || 0;
