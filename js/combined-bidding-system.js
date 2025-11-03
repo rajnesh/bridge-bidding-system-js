@@ -103,10 +103,14 @@ class BiddingSystem {
                 return '1NT opening: 15–17 HCP, balanced';
             }
 
-            // Strong 2C opening after passes
+            // 2C opening after passes
             if (bidToken === '2C' && firstNonPassIdx === -1) {
-                const strongTwoClubsEnabled = (this.conventions && this.conventions.isEnabled('strong_2_clubs', 'opening_bids')) || true;
-                if (strongTwoClubsEnabled) return 'Strong 2 Clubs (22+ HCP, artificial and game forcing)';
+                const strongTwoClubsEnabled = !!(this.conventions && this.conventions.isEnabled('strong_2_clubs', 'opening_bids'));
+                if (strongTwoClubsEnabled) {
+                    return 'Strong 2 Clubs (22+ HCP, artificial and game forcing)';
+                }
+                // When Strong 2C is disabled in Active Conventions, treat 2C as natural
+                return '2C opening: natural, long clubs';
             }
 
             // Competitive simple mappings
@@ -129,6 +133,39 @@ class BiddingSystem {
                             return `New suit at 2-level over interference (free bid): natural ${suitName(ourSuit)}, about 10+ total points`;
                         }
                         return `Natural new suit (${suitName(ourSuit)})`;
+                    }
+                }
+                // Negative Double (UI mapping): opener made a 1-level suit bid, RHO overcalled a suit at 1–2 level, and we doubled
+                {
+                    const openIdx = firstNonPassIdx;
+                    const openerTok = openIdx === -1 ? null : tokens[openIdx];
+                    // Find the next non-pass token after the opener (typically opponent overcall)
+                    let oppTok = null;
+                    if (openIdx !== -1) {
+                        for (let i = openIdx + 1; i < tokens.length; i++) {
+                            const t = tokens[i];
+                            if (t !== 'PASS') { oppTok = t; break; }
+                        }
+                    }
+                    const openerIsOneLevelSuit = /^[1][CDHS]$/.test(openerTok || '');
+                    const oppIsSuitAt12 = /^[12][CDHS]$/.test(oppTok || '');
+                    if (bidToken === 'X' && openerIsOneLevelSuit && oppIsSuitAt12) {
+                        // Honor thru_level configuration (default 3)
+                        let lvl = 1;
+                        try { lvl = parseInt(oppTok[0], 10) || 1; } catch (_) { lvl = 1; }
+                        const thruLevel = (this.conventions?.getConventionSetting('negative_doubles', 'thru_level', 'competitive')) || 3;
+                        if (lvl <= thruLevel) {
+                            // Determine unbid majors from prior tokens
+                            const seenSuits = new Set();
+                            for (const t of tokens) {
+                                if (t && /^[1-7][CDHS]$/.test(t)) seenSuits.add(t[1]);
+                            }
+                            const majors = ['H','S'].filter(s => !seenSuits.has(s));
+                            let detail = '';
+                            if (majors.length === 2) detail = ' (shows hearts and spades)';
+                            else if (majors.length === 1) detail = ` (shows ${majors[0] === 'H' ? 'hearts' : 'spades'})`;
+                            return `Negative Double${detail}`;
+                        }
                     }
                 }
                 // Opener 1NT/2NT rebids after partner's new suit (allow leading passes)
@@ -837,8 +874,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             return bid;
         }
 
-        // Opener continuations after Jacoby 2NT: control-showing cue bids at 3-level
-        if (opening === '2NT' && this.conventions?.isEnabled('jacoby_2nt', 'responses')) {
+    // Opener continuations after Jacoby 2NT: control-showing cue bids at 3-level
+    if (opening === '2NT' && this.conventions?.isEnabled('jacoby_2nt', 'responses') && this.conventions?.isEnabled('control_showing_cue_bids', 'slam_bidding')) {
             // Determine agreed trump from our opening (assume first bid in auction)
             const openingBid = this.currentAuction?.bids?.[0]?.token;
             const trump = (openingBid && ['H','S'].includes(openingBid[1])) ? openingBid[1] : null;
@@ -871,7 +908,8 @@ class SAYCBiddingSystem extends BiddingSystem {
                 opening && opening[0] === '1' &&
                 supportLength >= 3 &&
                 hand.hcp >= 10 &&
-                this.conventions.config.general?.passed_hand_variations) {
+                this.conventions.config.general?.passed_hand_variations &&
+                this.conventions?.isEnabled('drury', 'responses')) {
                 const bid = new window.Bid('2C');
                 bid.conventionUsed = 'Drury';
                 return bid;
@@ -960,7 +998,12 @@ class SAYCBiddingSystem extends BiddingSystem {
                     
                     if (theirLevel <= maxLvl) {
                         const bid = new window.Bid(null, { isDouble: true });
-                        bid.conventionUsed = 'Support Double';
+                        try {
+                            const suitText = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[partnerResponse.token[1]] || partnerResponse.token[1];
+                            bid.conventionUsed = `Support Double (shows exactly 3 ${suitText})`;
+                        } catch (_) {
+                            bid.conventionUsed = 'Support Double';
+                        }
                         return bid;
                     }
                 }
@@ -1177,7 +1220,12 @@ class SAYCBiddingSystem extends BiddingSystem {
                 
                 if (theirLevel <= maxLvl) {
                     const bid = new window.Bid(null, { isDouble: true });
-                    bid.conventionUsed = 'Support Double';
+                    try {
+                        const suitText = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[partnerSuit] || partnerSuit;
+                        bid.conventionUsed = `Support Double (shows exactly 3 ${suitText})`;
+                    } catch (_) {
+                        bid.conventionUsed = 'Support Double';
+                    }
                     return bid;
                 }
             }
@@ -1273,7 +1321,25 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (unbidSuits >= 2) {
                 const maxLevel = this.conventions.getConventionSetting('responsive_doubles', 'thru_level', 'competitive');
                 if (parseInt(lastBid.token[0]) <= maxLevel) {
-                    return new window.Bid(null, { isDouble: true });
+                    const b = new window.Bid(null, { isDouble: true });
+                    try {
+                        // List the unbid suits for clarity
+                        const seen = new Set();
+                        for (const x of auction.bids) {
+                            const t = x?.token || (x?.isDouble ? 'X' : x?.isRedouble ? 'XX' : 'PASS');
+                            if (t && /^[1-7][CDHS]$/.test(t)) seen.add(t[1]);
+                        }
+                        const unbid = ['C','D','H','S'].filter(s => !seen.has(s));
+                        const name = (s)=>({C:'clubs',D:'diamonds',H:'hearts',S:'spades'}[s] || s);
+                        let detail = '';
+                        if (unbid.length === 2) detail = ` (shows ${name(unbid[0])} and ${name(unbid[1])})`;
+                        else if (unbid.length === 3) detail = ' (shows the unbid suits)';
+                        else detail = ' (values; takeout-oriented)';
+                        b.conventionUsed = `Responsive Double${detail}`;
+                    } catch (_) {
+                        b.conventionUsed = 'Responsive Double';
+                    }
+                    return b;
                 }
             }
         }
@@ -1505,7 +1571,19 @@ class SAYCBiddingSystem extends BiddingSystem {
             const threeCardSuits = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
             
             if (hand.hcp >= 12 && shortOpp && threeCardSuits >= 2) {
-                return new window.Bid(null, { isDouble: true });
+                const b = new window.Bid(null, { isDouble: true });
+                try {
+                    const name = (s)=>({C:'clubs',D:'diamonds',H:'hearts',S:'spades'}[s]||s);
+                    // Describe shortness and coverage
+                    const cover = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).map(name);
+                    const shortTxt = name(oppSuit);
+                    if (cover.length >= 2) {
+                        b.conventionUsed = `Takeout Double (short ${shortTxt}; support for ${cover.slice(0,2).join(' and ')})`;
+                    } else {
+                        b.conventionUsed = 'Takeout Double';
+                    }
+                } catch(_) { b.conventionUsed = 'Takeout Double'; }
+                return b;
             }
             
             // Relaxed takeout double (configurable)
@@ -1514,7 +1592,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (relaxedOn && hand.hcp >= 11 && shortOpp) {
                     const otherSuitsWith2 = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 2).length;
                     if (otherSuitsWith2 >= 2) {
-                        return new window.Bid(null, { isDouble: true });
+                        const b = new window.Bid(null, { isDouble: true });
+                        b.conventionUsed = 'Takeout Double (relaxed thresholds)';
+                        return b;
                     }
                 }
             } catch (_) {
@@ -1654,7 +1734,23 @@ class SAYCBiddingSystem extends BiddingSystem {
 
             if (unbidMajors.length > 0 && level <= thruLevel) {
                 const bid = new window.Bid(null, { isDouble: true });
-                bid.conventionUsed = 'Negative Double';
+                // Attach suit-specific explanation to help learners
+                try {
+                    const seenSuits = new Set();
+                    for (const b of auction.bids) {
+                        const t = b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS');
+                        if (t && /^[1-7][CDHS]$/.test(t)) {
+                            seenSuits.add(t[1]);
+                        }
+                    }
+                    const majorsToShow = ['H','S'].filter(s => !seenSuits.has(s));
+                    let detail = '';
+                    if (majorsToShow.length === 2) detail = ' (shows hearts and spades)';
+                    else if (majorsToShow.length === 1) detail = ` (shows ${majorsToShow[0] === 'H' ? 'hearts' : 'spades'})`;
+                    bid.conventionUsed = `Negative Double${detail}`;
+                } catch (_) {
+                    bid.conventionUsed = 'Negative Double';
+                }
                 return bid;
             }
             }
@@ -1784,7 +1880,16 @@ class SAYCBiddingSystem extends BiddingSystem {
                 return new window.Bid('PASS');
             }
         } else {
-            // Multi-bid auctions - handle responses to partner
+            // Multi-bid auctions - if last bid was by opponents, prefer interference handling first (e.g., negative doubles)
+            let lastSide = null;
+            try { lastSide = this.currentAuction.lastSide(); } catch (_) { lastSide = null; }
+
+            if (lastSide === 'they') {
+                const interferenceBid = this._handleInterference(this.currentAuction, hand);
+                if (interferenceBid) return interferenceBid;
+            }
+
+            // Handle responses to partner when partner was the last from our side
             if (this.currentAuction.bids.length >= 2 && this.currentAuction.bids.length % 2 === 0) {
                 const partnerBid = this.currentAuction.bids[this.currentAuction.bids.length - 2].token;
                 if (partnerBid && /^\d/.test(partnerBid)) {
@@ -1795,7 +1900,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             }
 
-            // Competitive actions
+            // Competitive actions as a fallback in other multi-bid contexts
             const interferenceBid = this._handleInterference(this.currentAuction, hand);
             if (interferenceBid) return interferenceBid;
         }

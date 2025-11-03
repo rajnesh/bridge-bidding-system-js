@@ -53,6 +53,15 @@ describe('Negative Doubles after overcall', () => {
     expect(bid.isDouble).toBe(true);
   });
 
+  test('16 HCP with 4 hearts over 1C - 1S -> Negative Double (responder should not pass)', () => {
+    system.currentAuction = new (require('../js/bridge-types').Auction)();
+    system.currentAuction.add(new Bid('1C'));
+    system.currentAuction.add(new Bid('1S'));
+    const hand = makeTestHand(2, 4, 4, 3, 16);
+    const bid = system.getBid(hand);
+    expect(bid && bid.isDouble).toBe(true);
+  });
+
   test('Both 4-card majors over 1C - 1D -> Double (shows both majors)', () => {
     system.currentAuction = new (require('../js/bridge-types').Auction)();
     system.currentAuction.add(new Bid('1C'));

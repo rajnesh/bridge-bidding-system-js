@@ -1027,7 +1027,8 @@ function checkForcedResponse(hand, auction) {
     console.log('First bid:', auction.length > 0 ? auction[0].token : 'none');
     console.log('System object:', !!system);
     console.log('System conventions:', !!system?.conventions);
-    console.log('Strong 2C enabled:', system?.conventions?.isEnabled('strong_2_clubs', 'opening_bids'));
+    const strong2cOn = !!(system?.conventions?.isEnabled('strong_2_clubs', 'opening_bids'));
+    console.log('Strong 2C enabled:', strong2cOn);
     
     // Strong 2C forcing response - only for PARTNER, not opponents
     const firstBidIs2C = auction.length >= 1 && auction[0].token === '2C';
@@ -1051,9 +1052,9 @@ function checkForcedResponse(hand, auction) {
     
     const hasReachedGame = auction.some(bid => isGameLevel(bid));
     
-    // Always enable Strong 2C (fallback for convention loading issues)
-    const strongTwoClubsEnabled = true; // Always enabled as fallback
-    console.log('Strong 2C enabled (with fallback):', strongTwoClubsEnabled);
+    // Respect Active Conventions toggle for Strong 2C
+    const strongTwoClubsEnabled = strong2cOn;
+    console.log('Strong 2C enabled (effective):', strongTwoClubsEnabled);
     console.log('Has reached game level?', hasReachedGame);
     
     if (firstBidIs2C && isPartnerToOpener && strongTwoClubsEnabled && !hasReachedGame) {
@@ -2365,11 +2366,12 @@ function addBidExplanation(position, bid, explanation) {
     } catch (_) { /* best-effort enhancement */ }
     // For PASS bids, suppress the trailing explanation text to reduce noise
     const explText = (bidDisplay === 'PASS') ? '' : (explanation || '');
+    const badgeClass = getExplanationBadgeClass(explText);
     // Build: Who: <BID>. [Explanation]
     row.innerHTML = `
         <strong class="who">${getTurnName(position)}:</strong>
         <span class="bid-token ${sideClass}">${bidDisplay}.</span>
-        ${explText ? `<span class="explanation-text text-muted">${explText}</span>` : ''}
+        ${explText ? `<span class="explanation-text explanation-badge ${badgeClass}">${explText}</span>` : ''}
     `;
     explanationsList.appendChild(row);
     
@@ -2378,6 +2380,26 @@ function addBidExplanation(position, bid, explanation) {
     while (explanationsList.children.length > MAX_EXPL) {
         explanationsList.removeChild(explanationsList.firstChild);
     }
+}
+
+// Lightweight classifier to add subtle badge styles to common convention explanations
+function getExplanationBadgeClass(text) {
+    try {
+        if (!text || typeof text !== 'string') return '';
+        const t = text.toLowerCase();
+        if (t.includes('negative double')) return 'expl-neg-double';
+        if (t.includes('support double')) return 'expl-support-double';
+        if (t.includes('responsive double')) return 'expl-responsive-double';
+        if (t.includes('reopening double')) return 'expl-responsive-double';
+        if (t.includes('takeout double')) return 'expl-takeout-double';
+        if (t.includes('michaels')) return 'expl-michaels';
+        if (t.includes('unusual nt')) return 'expl-michaels';
+        if (t.includes('lebensohl')) return 'expl-lebensohl';
+        if (t.includes('cue bid raise')) return 'expl-cue-raise';
+        if (t.includes('stayman') || t.includes('transfer')) return 'expl-stayman-transfer';
+        if (t.includes('gerber') || t.includes('blackwood')) return 'expl-ace-asking';
+    } catch (_) { /* noop */ }
+    return '';
 }
 
 
@@ -2407,10 +2429,12 @@ async function initializeConventionUI() {
         } catch (e) {
             console.warn('Failed to apply persisted enabled conventions:', e);
         }
-        // Build General Settings (engine-wide toggles)
-        createGeneralSettingsSection();
-        createConventionCheckboxes();
-        createPracticeConventionOptions();
+    // Build General Settings (engine-wide toggles)
+    createGeneralSettingsSection();
+    createConventionCheckboxes();
+    createPracticeConventionOptions();
+    // Sync Active Conventions into engine configuration so bidding logic respects UI
+    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync Active Conventions to engine:', e); }
         
         console.log('Convention UI initialized successfully');
     } catch (error) {
@@ -2441,7 +2465,6 @@ function saveGeneralSettings() {
         const snapshot = {
             include_5422: !!(cfg?.general?.balanced_shapes?.include_5422),
             vulnerability_adjustments: !!(cfg?.general?.vulnerability_adjustments),
-            rkcb_responses: (cfg?.ace_asking?.blackwood?.responses) || (cfg?.slam_bidding?.blackwood_rkcb?.responses) || '1430',
             support_doubles_thru: (cfg?.competitive?.support_doubles?.thru) || '2S',
             responsive_doubles_thru: Number(cfg?.competitive?.responsive_doubles?.thru_level) || 3,
             michaels_strength: (cfg?.competitive?.michaels?.strength) || 'wide_range',
@@ -2530,15 +2553,7 @@ function applyGeneralSettingsToConfig(settings) {
         }
 
         // RKCB responses
-        const rkcb = settings.rkcb_responses;
-        if (rkcb === '1430' || rkcb === '3014') {
-            cfg.ace_asking = cfg.ace_asking || {};
-            cfg.ace_asking.blackwood = cfg.ace_asking.blackwood || { enabled: true };
-            cfg.ace_asking.blackwood.responses = rkcb;
-            if (cfg.slam_bidding && cfg.slam_bidding.blackwood_rkcb) {
-                cfg.slam_bidding.blackwood_rkcb.responses = rkcb;
-            }
-        }
+        // RKCB response structure removed from General Settings; use engine default
 
         // Competitive settings
         cfg.competitive = cfg.competitive || {};
@@ -2635,16 +2650,7 @@ function createGeneralSettingsSection() {
                         <span class="general-help-inline">Allows slightly lighter doubles (e.g., 11+ HCP with shape).</span>
                     </label>
                 </div>
-                <div class="general-settings-row" style="margin-top:8px;">
-                    <label for="select_rkcb_resp" class="toggle" style="gap:6px;">
-                        <span>RKCB response structure</span>
-                        <select id="select_rkcb_resp">
-                            <option value="1430" ${rkcbResp === '1430' ? 'selected' : ''}>1430</option>
-                            <option value="3014" ${rkcbResp === '3014' ? 'selected' : ''}>3014</option>
-                        </select>
-                        <span class="general-help-inline">Determines step meanings for 4NT ace/keycard responses.</span>
-                    </label>
-                </div>
+                
                 <div class="general-settings-row" style="margin-top:8px;">
                     <label for="select_support_thru" class="toggle" style="gap:6px;">
                         <span>Support doubles thru</span>
@@ -2780,30 +2786,7 @@ function createGeneralSettingsSection() {
             });
         }
 
-        const rkcbSel = document.getElementById('select_rkcb_resp');
-        if (rkcbSel) {
-            rkcbSel.addEventListener('change', (e) => {
-                try {
-                    const val = e.target.value === '3014' ? '3014' : '1430';
-                    // Prefer ace_asking.blackwood if present, else create it
-                    if (!system.conventions.config.ace_asking) system.conventions.config.ace_asking = {};
-                    if (!system.conventions.config.ace_asking.blackwood) system.conventions.config.ace_asking.blackwood = { enabled: true };
-                    system.conventions.config.ace_asking.blackwood.responses = val;
-                    // Keep slam_bidding.blackwood_rkcb in sync if it exists
-                    if (system.conventions.config.slam_bidding && system.conventions.config.slam_bidding.blackwood_rkcb) {
-                        system.conventions.config.slam_bidding.blackwood_rkcb.responses = val;
-                    }
-                    container.classList.add('flash-updated');
-                    setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated RKCB responses to', val);
-                    saveGeneralSettings();
-                    // Refresh convention labels so RKCB name updates live in the UI
-                    try { updateRKCBLabelAndRerender(); } catch (e2) { console.warn('RKCB label refresh failed:', e2); }
-                } catch (err) {
-                    console.warn('Failed to update RKCB responses:', err);
-                }
-            });
-        }
+        // RKCB response selector removed
 
         const supSel = document.getElementById('select_support_thru');
         if (supSel) {
@@ -3083,6 +3066,14 @@ async function loadAvailableConventions() {
             // Process conventions in this category
             Object.keys(category).forEach(conventionKey => {
                 const convention = category[conventionKey];
+                // Skip items we will synthesize into other UI categories to avoid dupes
+                if (categoryKey === 'ace_asking' && conventionKey === 'blackwood') {
+                    return; // synthesized under slam_bidding below
+                }
+                if (categoryKey === 'preempts' && conventionKey === 'weak_two') {
+                    return; // synthesized under opening_bids below
+                }
+
                 const displayName = getConventionDisplayName(conventionKey);
                 
                 availableConventions[displayName] = {
@@ -3099,6 +3090,138 @@ async function loadAvailableConventions() {
                 }
             });
         });
+        
+        // Synthesize Opening Bids category with Strong 2C and Weak Two (from config.preempts)
+        try {
+            if (!conventionCategories['opening_bids']) {
+                conventionCategories['opening_bids'] = { name: getCategoryDisplayName('opening_bids'), conventions: [] };
+            }
+            // Strong 2 Clubs (always available; UI toggle only)
+            if (!availableConventions['Strong 2 Clubs']) {
+                availableConventions['Strong 2 Clubs'] = {
+                    category: 'opening_bids',
+                    key: 'strong_2_clubs',
+                    description: getDefaultDescription('strong_2_clubs'),
+                    enabled: true,
+                    isGeneral: false
+                };
+            }
+            if (!conventionCategories['opening_bids'].conventions.includes('Strong 2 Clubs')) {
+                conventionCategories['opening_bids'].conventions.push('Strong 2 Clubs');
+            }
+            // Weak 2 Bids (reflect engine config if present)
+            const weakTwoEnabled = !!(conventionsConfig?.preempts?.weak_two?.enabled);
+            if (!availableConventions['Weak 2 Bids']) {
+                availableConventions['Weak 2 Bids'] = {
+                    category: 'opening_bids',
+                    key: 'weak_2_bids',
+                    description: getDefaultDescription('weak_2_bids'),
+                    enabled: weakTwoEnabled,
+                    isGeneral: false
+                };
+            } else {
+                // Ensure enabled reflects config
+                availableConventions['Weak 2 Bids'].enabled = weakTwoEnabled;
+                availableConventions['Weak 2 Bids'].category = 'opening_bids';
+            }
+            if (!conventionCategories['opening_bids'].conventions.includes('Weak 2 Bids')) {
+                conventionCategories['opening_bids'].conventions.push('Weak 2 Bids');
+            }
+        } catch (e) {
+            console.warn('Failed to synthesize Opening Bids category:', e);
+        }
+        
+        // Synthesize Slam Bidding category from ace_asking config (Gerber + Blackwood variants)
+        try {
+            const ace = conventionsConfig?.ace_asking || {};
+            const blackwood = ace.blackwood || { enabled: true, variant: 'rkcb', responses: '1430' };
+            const rkcbResp = (blackwood.responses === '3014') ? '3014' : '1430';
+            const rkcbLabel = `RKC Blackwood ${rkcbResp}`;
+            if (!conventionCategories['slam_bidding']) {
+                conventionCategories['slam_bidding'] = { name: getCategoryDisplayName('slam_bidding'), conventions: [] };
+            }
+            // Gerber
+            const gerberEnabled = !!(ace?.gerber?.enabled !== false);
+            if (!availableConventions['Gerber']) {
+                availableConventions['Gerber'] = {
+                    category: 'slam_bidding',
+                    key: 'gerber',
+                    description: getDefaultDescription('gerber'),
+                    enabled: gerberEnabled,
+                    isGeneral: false
+                };
+            } else {
+                availableConventions['Gerber'].category = 'slam_bidding';
+                availableConventions['Gerber'].enabled = gerberEnabled;
+            }
+            if (!conventionCategories['slam_bidding'].conventions.includes('Gerber')) {
+                conventionCategories['slam_bidding'].conventions.push('Gerber');
+            }
+            // Regular Blackwood (enabled when variant is NOT rkcb)
+            const isRkcb = (blackwood.variant === 'rkcb');
+            if (!availableConventions['Regular Blackwood']) {
+                availableConventions['Regular Blackwood'] = {
+                    category: 'slam_bidding',
+                    key: 'blackwood_regular',
+                    description: getDefaultDescription('blackwood_regular'),
+                    enabled: !isRkcb,
+                    isGeneral: false
+                };
+            } else {
+                availableConventions['Regular Blackwood'].category = 'slam_bidding';
+                availableConventions['Regular Blackwood'].enabled = !isRkcb;
+            }
+            if (!conventionCategories['slam_bidding'].conventions.includes('Regular Blackwood')) {
+                conventionCategories['slam_bidding'].conventions.push('Regular Blackwood');
+            }
+            // RKCB Blackwood (enabled when variant is rkcb)
+            if (!availableConventions[rkcbLabel]) {
+                availableConventions[rkcbLabel] = {
+                    category: 'slam_bidding',
+                    key: 'blackwood_rkcb',
+                    description: getDefaultDescription('blackwood_rkcb'),
+                    enabled: isRkcb,
+                    isGeneral: false
+                };
+            } else {
+                availableConventions[rkcbLabel].category = 'slam_bidding';
+                availableConventions[rkcbLabel].enabled = isRkcb;
+            }
+            if (!conventionCategories['slam_bidding'].conventions.includes(rkcbLabel)) {
+                conventionCategories['slam_bidding'].conventions.push(rkcbLabel);
+            }
+            // Remove legacy ace_asking category from UI if present
+            if (conventionCategories['ace_asking']) {
+                delete conventionCategories['ace_asking'];
+            }
+        } catch (e) {
+            console.warn('Failed to synthesize Slam Bidding category:', e);
+        }
+
+        // Move Meckwell from strong_club_defenses to No Trump Defenses for UI consistency
+        try {
+            if (conventionCategories['strong_club_defenses']) {
+                const meckLabel = 'Meckwell';
+                if (!conventionCategories['notrump_defenses']) {
+                    conventionCategories['notrump_defenses'] = { name: getCategoryDisplayName('notrump_defenses'), conventions: [] };
+                }
+                if (availableConventions[meckLabel]) {
+                    availableConventions[meckLabel].category = 'notrump_defenses';
+                    if (!conventionCategories['notrump_defenses'].conventions.includes(meckLabel)) {
+                        conventionCategories['notrump_defenses'].conventions.push(meckLabel);
+                    }
+                }
+                // Remove from original category list if present
+                const idx = conventionCategories['strong_club_defenses'].conventions.indexOf(meckLabel);
+                if (idx >= 0) conventionCategories['strong_club_defenses'].conventions.splice(idx, 1);
+                // If empty, drop the category
+                if (conventionCategories['strong_club_defenses'].conventions.length === 0) {
+                    delete conventionCategories['strong_club_defenses'];
+                }
+            }
+        } catch (e) {
+            console.warn('Failed to relocate Meckwell to notrump_defenses:', e);
+        }
         
         // Set up mutual exclusivity groups
         mutuallyExclusiveGroups = [
@@ -3120,27 +3243,8 @@ async function loadAvailableConventions() {
         
         console.log('Conventions loaded from inline/default config:', Object.keys(availableConventions));
 
-        // Add a practice-only selector for "Unusual NT (over minors)" without adding an Active checkbox
-        try {
-            const label = 'Unusual NT (over minors)';
-            // Avoid duplicates on reload
-            if (!availableConventions[label]) {
-                availableConventions[label] = {
-                    category: 'competitive',
-                    key: 'unusual_nt_over_minors',
-                    description: '2NT over 1♣/1♦ shows the two lowest unbid suits (5-5). When off, 2NT over minors is natural 19–21 with a stopper.',
-                    enabled: true, // practice-only; enablement handled dynamically in Practice tab
-                    isGeneral: false,
-                    practiceOnly: true
-                };
-                if (conventionCategories['competitive']) {
-                    conventionCategories['competitive'].conventions.push(label);
-                }
-            }
-        } catch (_) { /* ignore */ }
-
         // Reorder categories for a balanced two-column layout, with Slam Bidding below Responses (first column)
-        const desiredOrder = ['opening_bids','notrump_responses','responses','competitive','slam_bidding','notrump_defenses'];
+    const desiredOrder = ['opening_bids','notrump_responses','responses','competitive','slam_bidding','notrump_defenses'];
         const orderedCategories = {};
         desiredOrder.forEach(key => {
             if (conventionCategories[key]) {
@@ -3177,14 +3281,9 @@ function getCategoryDisplayName(categoryKey) {
 }
 
 function getConventionDisplayName(conventionKey) {
-    // Dynamic naming for RKCB based on selected response structure
+    // Always show RKCB as 1430 in the Active Conventions list
     if (conventionKey === 'blackwood_rkcb') {
-        try {
-            const resp = (system?.conventions?.getConventionSetting('blackwood', 'responses', 'ace_asking')) || '1430';
-            return `RKC Blackwood ${resp}`;
-        } catch (e) {
-            return 'RKC Blackwood 1430';
-        }
+        return 'RKC Blackwood 1430';
     }
     const conventionNames = {
         'strong_2_clubs': 'Strong 2 Clubs',
@@ -3228,7 +3327,7 @@ function getDefaultDescription(conventionKey) {
         'control_showing_cue_bids': 'Cue bids showing first or second round control in slam-going auctions',
         'gerber': 'Ace asking convention using 4C',
         'blackwood_regular': 'Regular Blackwood asking for aces only',
-    'blackwood_rkcb': 'Roman Key Card Blackwood with variable responses (1430 or 3014)',
+    'blackwood_rkcb': 'Roman Key Card Blackwood (1430 responses)',
         'dont': 'Defense against 1NT opening',
         'meckwell': 'Defense against strong club systems',
         'lebensohl': 'Lebensohl convention after interference',
@@ -3250,8 +3349,7 @@ function getDefaultDescription(conventionKey) {
 
 function loadFallbackConventions() {
     // Fallback hardcoded conventions if JSON loading fails
-    const rkcbVariant = (system?.conventions?.getConventionSetting('blackwood', 'responses', 'ace_asking')) || '1430';
-    const rkcbName = `RKC Blackwood ${rkcbVariant}`;
+    const rkcbName = 'RKC Blackwood 1430';
     availableConventions = {
         'Strong 2 Clubs': { category: 'opening_bids', key: 'strong_2_clubs', description: '2C opening shows 22+ HCP, artificial and game forcing', enabled: true, isGeneral: false },
         'Weak 2 Bids': { category: 'opening_bids', key: 'weak_2_bids', description: 'Weak 2 bids in diamonds, hearts, and spades', enabled: true, isGeneral: false },
@@ -3261,7 +3359,7 @@ function loadFallbackConventions() {
     'Minor Suit Transfers': { category: 'notrump_responses', key: 'minor_suit_transfers', description: '2S->3C; 2NT->3D over 1NT', enabled: false, isGeneral: false },
         'Gerber': { category: 'slam_bidding', key: 'gerber', description: 'Ace asking convention using 4C', enabled: true, isGeneral: false },
         'Regular Blackwood': { category: 'slam_bidding', key: 'blackwood_regular', description: 'Regular Blackwood asking for aces only', enabled: false, isGeneral: false },
-    [rkcbName]: { category: 'slam_bidding', key: 'blackwood_rkcb', description: `Roman Key Card Blackwood with ${rkcbVariant} responses`, enabled: true, isGeneral: false },
+    [rkcbName]: { category: 'slam_bidding', key: 'blackwood_rkcb', description: 'Roman Key Card Blackwood (1430 responses)', enabled: true, isGeneral: false },
         'Control Showing Cue Bids': { category: 'slam_bidding', key: 'control_showing_cue_bids', description: 'Cue bids showing first or second round control in slam-going auctions', enabled: true, isGeneral: false },
         'DONT': { category: 'notrump_defenses', key: 'dont', description: 'Defense against 1NT opening', enabled: true, isGeneral: false },
         'Meckwell': { category: 'notrump_defenses', key: 'meckwell', description: 'Defense against strong club systems', enabled: false, isGeneral: false },
@@ -3332,12 +3430,12 @@ function createConventionCheckboxes() {
     col3.className = 'convention-col col3';
 
     // Three-column layout per request:
-    // 1) Opening Bids, Responses, NT Defenses
-    // 2) No Trump Responses, Slam Bidding
-    // 3) Competitive Bidding
-    const col1Order = ['opening_bids','responses','notrump_defenses'];
-    const col2Order = ['notrump_responses','slam_bidding'];
-    const col3Order = ['competitive'];
+    // 1) Opening Bids, Competitive Bidding
+    // 2) No Trump Responses, No Trump Defenses
+    // 3) Responses, Slam Bidding
+    const col1Order = ['opening_bids','competitive'];
+    const col2Order = ['notrump_responses','notrump_defenses'];
+    const col3Order = ['responses','slam_bidding'];
 
     const renderCategory = (categoryKey, targetCol) => {
         const category = conventionCategories[categoryKey];
@@ -3405,9 +3503,12 @@ function createPracticeConventionOptions() {
     col3.className = 'convention-col col3';
 
     // Mirror Active tab three-column grouping
-    const col1Order = ['opening_bids','responses','notrump_defenses'];
-    const col2Order = ['notrump_responses','slam_bidding'];
-    const col3Order = ['competitive'];
+    // 1) Opening Bids, Competitive Bidding
+    // 2) No Trump Responses, No Trump Defenses
+    // 3) Responses, Slam Bidding
+    const col1Order = ['opening_bids','competitive'];
+    const col2Order = ['notrump_responses','notrump_defenses'];
+    const col3Order = ['responses','slam_bidding'];
 
     const renderPracticeCategory = (categoryKey, targetCol) => {
         const category = conventionCategories[categoryKey];
@@ -3514,6 +3615,8 @@ function updateConventionStatus(conventionName, enabled) {
     
     // Refresh practice convention checkboxes to reflect changes
     createPracticeConventionOptions();
+    // Push changes down to engine configuration so bidding logic respects the UI
+    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync convention change to engine:', e); }
     
     try { saveEnabledConventions(); } catch (_) {}
     console.log(`Convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
@@ -3561,6 +3664,7 @@ function selectAllConventions() {
     // Refresh practice convention checkboxes
     createPracticeConventionOptions();
     try { saveEnabledConventions(); } catch (_) {}
+    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after select all:', e); }
     
     console.log('All conventions enabled (except general, Meckwell, and Regular Blackwood)');
 }
@@ -3583,6 +3687,7 @@ function clearAllConventions() {
     practiceConventions = [];
     createPracticeConventionOptions();
     try { saveEnabledConventions(); } catch (_) {}
+    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after clear all:', e); }
     
     console.log('All conventions disabled (except general)');
 }
@@ -3595,19 +3700,94 @@ function updateSystemConventions() {
     
     const config = system.conventions.config;
     
-    // Update each convention category
+    // Update each convention category (generic path)
     Object.keys(availableConventions).forEach(conventionName => {
         const convention = availableConventions[conventionName];
-        const enabled = enabledConventions[conventionName];
-        
+        const enabled = !!enabledConventions[conventionName];
+
         try {
-            if (config[convention.category] && config[convention.category][convention.key]) {
+            // Create category/key path if it's missing (future-proof for new conventions)
+            if (convention.category && !config[convention.category]) {
+                config[convention.category] = {};
+            }
+            if (convention.category && convention.key && !config[convention.category][convention.key]) {
+                config[convention.category][convention.key] = { enabled: enabled };
+            }
+            if (convention.category && convention.key) {
                 config[convention.category][convention.key].enabled = enabled;
             }
         } catch (error) {
             console.warn(`Could not update convention ${conventionName}:`, error);
         }
+
+        // Special-case mappings to underlying engine config (category/key mismatches or complex variants)
+        try {
+            // Weak 2 Bids UI -> preempts.weak_two
+            if (convention.key === 'weak_2_bids') {
+                config.preempts = config.preempts || {};
+                config.preempts.weak_two = config.preempts.weak_two || { enabled: enabled };
+                config.preempts.weak_two.enabled = enabled;
+            }
+
+            // Meckwell UI (listed under notrump_defenses) -> strong_club_defenses.meckwell
+            if (convention.key === 'meckwell') {
+                config.strong_club_defenses = config.strong_club_defenses || {};
+                config.strong_club_defenses.meckwell = config.strong_club_defenses.meckwell || { enabled: enabled };
+                config.strong_club_defenses.meckwell.enabled = enabled;
+            }
+
+            // Unusual NT UI under Competitive -> notrump_defenses.unusual_nt
+            if (convention.key === 'unusual_nt') {
+                config.notrump_defenses = config.notrump_defenses || {};
+                config.notrump_defenses.unusual_nt = config.notrump_defenses.unusual_nt || { enabled: enabled, direct: true, passed_hand: false, over_minors: !!(config?.notrump_defenses?.unusual_nt?.over_minors) };
+                config.notrump_defenses.unusual_nt.enabled = enabled;
+            }
+
+            // Lebensohl UI under Competitive -> notrump_defenses.lebensohl
+            if (convention.key === 'lebensohl') {
+                config.notrump_defenses = config.notrump_defenses || {};
+                config.notrump_defenses.lebensohl = config.notrump_defenses.lebensohl || { enabled: enabled, after_interference: true, fast_denies: true };
+                config.notrump_defenses.lebensohl.enabled = enabled;
+            }
+
+            // Gerber UI under Slam Bidding -> ace_asking.gerber
+            if (convention.key === 'gerber') {
+                config.ace_asking = config.ace_asking || {};
+                config.ace_asking.gerber = config.ace_asking.gerber || { enabled: enabled, continuations: true, responses_map: ['4D','4H','4S','4NT'] };
+                config.ace_asking.gerber.enabled = enabled;
+            }
+
+            // Blackwood variants UI -> ace_asking.blackwood (enabled + variant)
+            if (convention.key === 'blackwood_regular') {
+                config.ace_asking = config.ace_asking || {};
+                config.ace_asking.blackwood = config.ace_asking.blackwood || { enabled: enabled, variant: 'classic', responses: (config?.ace_asking?.blackwood?.responses || '1430') };
+                config.ace_asking.blackwood.enabled = enabled;
+                if (enabled) config.ace_asking.blackwood.variant = 'classic';
+            }
+            if (convention.key === 'blackwood_rkcb') {
+                config.ace_asking = config.ace_asking || {};
+                config.ace_asking.blackwood = config.ace_asking.blackwood || { enabled: enabled, variant: 'rkcb', responses: (config?.ace_asking?.blackwood?.responses || '1430') };
+                config.ace_asking.blackwood.enabled = enabled;
+                if (enabled) config.ace_asking.blackwood.variant = 'rkcb';
+            }
+        } catch (e) {
+            console.warn('Special-case convention mapping failed for', conventionName, e);
+        }
     });
+
+    // Post-processing: If both Blackwood variants are disabled, turn off ace_asking.blackwood entirely
+    try {
+        const regularOn = !!enabledConventions['Regular Blackwood'];
+        // Dynamic RKCB label could be 1430 or 3014
+        const rkcbLabel1 = 'RKC Blackwood 1430';
+        const rkcbLabel2 = 'RKC Blackwood 3014';
+        const rkcbOn = !!(enabledConventions[rkcbLabel1] || enabledConventions[rkcbLabel2]);
+        if (!regularOn && !rkcbOn) {
+            config.ace_asking = config.ace_asking || {};
+            config.ace_asking.blackwood = config.ace_asking.blackwood || { enabled: false, variant: 'rkcb', responses: '1430' };
+            config.ace_asking.blackwood.enabled = false;
+        }
+    } catch (_) {}
     
     console.log('System conventions updated');
 }
@@ -3625,18 +3805,41 @@ function generateHandsForPractice() {
             return generateBasicRandomHands();
         }
         
-        // Select target convention for this hand generation
+        // First, try to satisfy ALL selected conventions at once
+        if (generateConventionTargetedHand(selectedConventions)) {
+            displayHands();
+            showAuctionSetup();
+            addPracticeIndicator(selectedConventions);
+            try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
+            return;
+        }
+
+        // Next, try all pairs (combinations of two) before falling back to a single
+        if (selectedConventions.length >= 2) {
+            const pairs = buildPairs(selectedConventions);
+            // Try pairs in random order to avoid bias
+            shuffleArrayInPlace(pairs);
+            for (const pair of pairs) {
+                if (generateConventionTargetedHand(pair)) {
+                    displayHands();
+                    showAuctionSetup();
+                    addPracticeIndicator(pair);
+                    try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
+                    return;
+                }
+            }
+        }
+
+        // If not possible, use any one randomly selected convention
         const targetConvention = selectTargetConvention(selectedConventions);
-        console.log(`Target convention for this hand: ${targetConvention}`);
-        
-        // Generate hand optimized for the target convention
+        console.log(`All-at-once generation failed; falling back to single target: ${targetConvention}`);
         if (generateConventionTargetedHand(targetConvention)) {
             displayHands();
             showAuctionSetup();
             addPracticeIndicator(targetConvention);
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         } else {
-            // Fall back to random generation if targeted generation fails
+            // Fall back to random generation if targeted generation fails entirely
             console.log('Targeted generation failed, falling back to random');
             generateRandomHands();
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
@@ -3692,20 +3895,47 @@ function selectTargetConvention(selectedConventions) {
     return selectedConventions[Math.floor(Math.random() * selectedConventions.length)];
 }
 
-function generateConventionTargetedHand(targetConvention) {
-    const maxAttempts = 50;
-    
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+function generateConventionTargetedHand(target) {
+    // Accept a single convention string or an array of conventions
+    const targets = Array.isArray(target) ? target.filter(Boolean) : [target];
+    if (!targets.length) return false;
+
+    // Try a larger number of attempts when aiming to satisfy multiple conventions
+    const maxAttemptsAll = targets.length > 1 ? 150 : 50;
+
+    for (let attempt = 0; attempt < maxAttemptsAll; attempt++) {
         generateBasicRandomHands();
-        
-        if (validateHandForConvention(currentHands.S, targetConvention)) {
-            console.log(`Successfully generated hand for ${targetConvention} in ${attempt + 1} attempts`);
+
+        // Must satisfy all selected conventions when multiple were provided
+        const allSatisfied = targets.every(conv => validateHandForConvention(currentHands.S, conv));
+        if (allSatisfied) {
+            console.log(`Successfully generated hand for [${targets.join(', ')}] in ${attempt + 1} attempts`);
             return true;
         }
     }
-    
-    console.log(`Failed to generate suitable hand for ${targetConvention} after ${maxAttempts} attempts`);
+    console.log(`Failed to generate suitable hand for [${targets.join(', ')}] after ${maxAttemptsAll} attempts`);
     return false;
+}
+
+// Build all unique unordered pairs from a list of labels
+function buildPairs(list) {
+    const uniq = Array.from(new Set(list.filter(Boolean)));
+    const pairs = [];
+    for (let i = 0; i < uniq.length; i++) {
+        for (let j = i + 1; j < uniq.length; j++) {
+            pairs.push([uniq[i], uniq[j]]);
+        }
+    }
+    return pairs;
+}
+
+// Fisher-Yates shuffle in-place for arrays
+function shuffleArrayInPlace(arr) {
+    for (let i = arr.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [arr[i], arr[j]] = [arr[j], arr[i]];
+    }
+    return arr;
 }
 
 function validateHandForConvention(southHand, conventionName) {
@@ -3784,8 +4014,9 @@ function addPracticeIndicator(targetConvention) {
     // Add new practice indicator
     const indicator = document.createElement('div');
     indicator.className = 'alert alert-info alert-dismissible fade show mt-2 practice-indicator';
+    const label = Array.isArray(targetConvention) ? targetConvention.join(', ') : targetConvention;
     indicator.innerHTML = `
-        <i class="bi bi-target"></i> <strong>Practice Mode:</strong> Hand generated for practicing <strong>${targetConvention}</strong>
+        <i class="bi bi-target"></i> <strong>Practice Mode:</strong> Hand generated for practicing <strong>${label}</strong>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
     

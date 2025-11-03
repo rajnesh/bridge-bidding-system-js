@@ -18,6 +18,9 @@ class ConventionCard {
      */
     _getDefaultConfig() {
         return {
+            opening_bids: {
+                strong_2_clubs: { enabled: true }
+            },
             ace_asking: {
                 gerber: {
                     enabled: true,
@@ -29,6 +32,9 @@ class ConventionCard {
                     variant: 'rkcb',
                     responses: '1430'
                 }
+            },
+            slam_bidding: {
+                control_showing_cue_bids: { enabled: true }
             },
             notrump_defenses: {
                 dont: { enabled: true, style: 'standard' },
@@ -45,7 +51,9 @@ class ConventionCard {
                 jacoby_2nt: { enabled: true },
                 splinter_bids: { enabled: true },
                 // New: Bergen Raises (off by default)
-                bergen_raises: { enabled: false, style: 'standard' }
+                bergen_raises: { enabled: false, style: 'standard' },
+                // Drury toggle
+                drury: { enabled: true }
             },
             competitive: {
                 michaels: { enabled: true, strength: 'wide_range', direct_only: true },
