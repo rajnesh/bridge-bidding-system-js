@@ -1527,7 +1527,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
 
             // Simple 1-level overcall (apply vulnerability adjustments)
-            for (const suit of ['S', 'H']) {
+            // Allow majors and minors where legally above the opener at the one level
+            for (const suit of ['S', 'H', 'D', 'C']) {
                 if (suit !== oppSuit && hand.lengths[suit] >= 5) {
                     if (level === 1) {
                         const order = ['C','D','H','S'];
