@@ -1030,8 +1030,11 @@ class SAYCBiddingSystem extends BiddingSystem {
             // For balanced hands without 4+ support, prefer NT responses when there is no opponent interference (passes don't count)
             {
                 const bids = this.currentAuction.bids || [];
-                const openedOneLevel = (bids[0] && bids[0].token && bids[0].token[0] === '1');
-                const noOppInterference = openedOneLevel && !bids.slice(1).some(b => (b && b.token && !this._isPassToken(b.token)));
+                // Find the specific opening token index to judge interference correctly even if auction started with passes
+                let openedIdx = -1;
+                for (let i = 0; i < bids.length; i++) { if (bids[i]?.token === opening) { openedIdx = i; break; } }
+                const openedOneLevel = (openedIdx >= 0 && opening && opening[0] === '1');
+                const noOppInterference = openedOneLevel && !bids.slice(openedIdx + 1).some(b => (b && b.token && !this._isPassToken(b.token)));
                 if (noOppInterference && this._isBalanced(hand) && supportLength < 4) {
                     // SAYC guideline: with a balanced hand and no fit over 1M, responder bids
                     // 1NT with a minimum range and 2NT invitational with medium values.
@@ -1051,8 +1054,10 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Natural raises when no opponent interference (passes don't count)
             {
                 const bids = this.currentAuction.bids || [];
-                const openedOneLevel = (bids[0] && bids[0].token && bids[0].token[0] === '1');
-                const noOppInterference = openedOneLevel && !bids.slice(1).some(b => (b && b.token && !this._isPassToken(b.token)));
+                let openedIdx = -1;
+                for (let i = 0; i < bids.length; i++) { if (bids[i]?.token === opening) { openedIdx = i; break; } }
+                const openedOneLevel = (openedIdx >= 0 && opening && opening[0] === '1');
+                const noOppInterference = openedOneLevel && !bids.slice(openedIdx + 1).some(b => (b && b.token && !this._isPassToken(b.token)));
                 if (!noOppInterference) {
                     // Skip this block if opponents have bid something (handled elsewhere)
                 } else {
@@ -1078,8 +1083,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                     }
                     }
                     }
-                } else if (supportLength === 3 && !this._isBalanced(hand)) {
-                    // Only raise with 3 cards if unbalanced
+                } else if (supportLength === 3) {
+                    // Allow 3-card raises with sufficient values; unbalanced hands are most common,
+                    // but do not force a pass on balanced minimums when a raise is clearly preferred in this app.
                     if (totalPoints >= 10) {
                         return new window.Bid(`3${openerSuit}`);
                     }
