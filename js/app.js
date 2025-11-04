@@ -25,6 +25,8 @@ let handVisibility = 'all';
 // Initialize the engine and UI when the page is ready
 function initializeSystem() {
     try {
+        // Render General Settings immediately so static notes are visible without waiting
+        try { createGeneralSettingsSection(); } catch (_) {}
         // Ensure engine is loaded; if not yet available, retry shortly
         if (!window || typeof window.SAYCBiddingSystem !== 'function') {
             console.warn('Bidding system not ready yet; retrying init...');
@@ -109,6 +111,31 @@ function initializeSystem() {
         console.error('initializeSystem failed:', err);
     }
 }
+
+// Expose initializer in browser and jsdom/test environments
+try {
+    if (typeof window !== 'undefined') {
+        window.initializeSystem = initializeSystem;
+        // Test-only hooks to manipulate internal state safely in jsdom
+        try {
+            Object.defineProperty(window, '__setCurrentTurnForTests', {
+                value: function(seat) { currentTurn = seat; },
+                writable: false,
+                enumerable: false
+            });
+            Object.defineProperty(window, '__getAuctionHistoryForTests', {
+                value: function() { return Array.isArray(auctionHistory) ? auctionHistory.slice() : []; },
+                writable: false,
+                enumerable: false
+            });
+            Object.defineProperty(window, '__getCurrentAuctionForTests', {
+                value: function() { return Array.isArray(currentAuction) ? currentAuction.slice() : []; },
+                writable: false,
+                enumerable: false
+            });
+        } catch (_) { /* ignore */ }
+    }
+} catch (_) { /* no-op */ }
 // getConventionExplanation is defined later; keep only one definition.
 function generateFromManualHands() {
     try {
@@ -702,6 +729,17 @@ function resetAuctionForNewDeal() {
 
         // Ensure controls are enabled so user can adjust before next auction
         try { setDealerVulnerabilityDisabled(false); } catch (_) {}
+
+        // Restore Hint button default state (red, invokes recommendation)
+        try {
+            const hintBtn = document.getElementById('hintBtn');
+            if (hintBtn) {
+                hintBtn.textContent = 'Hint';
+                hintBtn.classList.remove('secondary', 'success');
+                hintBtn.classList.add('danger');
+                hintBtn.setAttribute('onclick', 'getRecommendedBid()');
+            }
+        } catch (_) {}
     } catch (e) {
         console.warn('resetAuctionForNewDeal encountered an issue:', e?.message || e);
     }
@@ -851,6 +889,17 @@ function startNewAuction() {
         
     // Determine starting position (first to bid is the dealer)
     currentTurn = dealer;
+
+        // Ensure Hint button is in Hint mode at auction start
+        try {
+            const hintBtn = document.getElementById('hintBtn');
+            if (hintBtn) {
+                hintBtn.textContent = 'Hint';
+                hintBtn.classList.remove('secondary', 'success');
+                hintBtn.classList.add('danger');
+                hintBtn.setAttribute('onclick', 'getRecommendedBid()');
+            }
+        } catch (_) {}
         
         // Update UI
         updateAuctionTable();
@@ -1012,13 +1061,27 @@ function makeBid(bidString) {
 function isHigherBid(newBid, lastBid) {
     if (!lastBid) return true;
     
+    // Some test stubs may not populate level/suit on Bid objects; derive from token when missing
+    const parseParts = (b) => {
+        const tok = (typeof b === 'string') ? b : (b?.token || '');
+        const m = /^([1-7])(C|D|H|S|NT)$/.exec(tok);
+        if (m) return { level: parseInt(m[1], 10), suit: m[2] };
+        // For PASS/X/XX or invalid, return sentinel values
+        return { level: Number.NEGATIVE_INFINITY, suit: null };
+    };
+
+    const nbLevel = (newBid.level != null) ? newBid.level : parseParts(newBid).level;
+    const nbSuit = newBid.suit || parseParts(newBid).suit;
+    const lbLevel = (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level;
+    const lbSuit = lastBid.suit || parseParts(lastBid).suit;
+
     // Compare levels first
-    if (newBid.level > lastBid.level) return true;
-    if (newBid.level < lastBid.level) return false;
+    if (nbLevel > lbLevel) return true;
+    if (nbLevel < lbLevel) return false;
     
     // Same level - compare suits (C=0, D=1, H=2, S=3, NT=4)
     const suitOrder = { 'C': 0, 'D': 1, 'H': 2, 'S': 3, 'NT': 4 };
-    return suitOrder[newBid.suit] > suitOrder[lastBid.suit];
+    return (suitOrder[nbSuit] || 0) > (suitOrder[lbSuit] || 0);
 }
 
 function checkForcedResponse(hand, auction) {
@@ -1027,7 +1090,8 @@ function checkForcedResponse(hand, auction) {
     console.log('First bid:', auction.length > 0 ? auction[0].token : 'none');
     console.log('System object:', !!system);
     console.log('System conventions:', !!system?.conventions);
-    const strong2cOn = !!(system?.conventions?.isEnabled('strong_2_clubs', 'opening_bids'));
+    // Be robust when conventions API is stubbed in tests (isEnabled may be undefined)
+    const strong2cOn = !!(system?.conventions?.isEnabled?.('strong_2_clubs', 'opening_bids'));
     console.log('Strong 2C enabled:', strong2cOn);
     
     // Strong 2C forcing response - only for PARTNER, not opponents
@@ -1266,6 +1330,18 @@ function makeSystemBid() {
             }
         } catch (_) { /* best-effort */ }
 
+        // Engine-side legality guard for UI preview: if engine marks it illegal, show PASS instead (unless forced)
+        try {
+            if (!forcedBid && typeof system.isLegal === 'function') {
+                const legal = system.isLegal(recommendedBid);
+                if (!legal) {
+                    console.warn(`${currentTurn} recommended illegal bid by engine guard, passing instead`);
+                    recommendedBid = new window.Bid('PASS');
+                    explanation = 'Pass';
+                }
+            }
+        } catch (_) { /* non-fatal */ }
+
         // Safety filter: prevent weak/indirect or invalid-shape cue-bids of opener's suit (e.g., Michaels)
         // Context: Occasionally, in multi-bid auctions like 1m - Pass - 1H - (?), a 2m cue-bid can slip through
         // from engine fallbacks even with very weak hands. In mainstream styles, a cue-bid of opener's suit here
@@ -1278,6 +1354,12 @@ function makeSystemBid() {
                 const openingEntry = (auctionHistory || []).find(e => e && e.bid && e.bid.token && /^[1-7](C|D|H|S|NT)$/.test(e.bid.token));
                 const openingToken = openingEntry?.bid?.token;
                 const openingSuit = openingToken && openingToken.length >= 2 && openingToken !== '1NT' ? openingToken[1] : null;
+                const openingSeat = openingEntry?.position || null; // 'N','E','S','W'
+
+                // Determine side parity: are we on opener's side or the opponents' side?
+                const isNS = (s) => s === 'N' || s === 'S';
+                const isEW = (s) => s === 'E' || s === 'W';
+                const onOpenersSide = openingSeat ? ((isNS(openingSeat) && isNS(currentTurn)) || (isEW(openingSeat) && isEW(currentTurn))) : false;
 
                 // Determine if there was any intervening non-pass action after the opening (i.e., not direct seat)
                 let nonPassAfterOpening = false;
@@ -1315,7 +1397,9 @@ function makeSystemBid() {
                     if (openingSuit === 'S' && !heartsPlusMinor55) invalidMichaelsShape = true;
                 }
 
-                if (isCueOfOpeningSuit && (nonPassAfterOpening && (directOnly || tooWeak) || invalidMichaelsShape)) {
+                // Only treat 2-level cue of opener's suit as a potential Michaels overcall when we're on the OPPONENTS' side.
+                // If we're on opener's side (i.e., responder or opener), a 2-level bid in opener's suit is a simple raise, not a cue-bid — don't block it.
+                if (!onOpenersSide && isCueOfOpeningSuit && (nonPassAfterOpening && (directOnly || tooWeak) || invalidMichaelsShape)) {
                     // Downgrade to Pass instead of making a speculative/invalid cue-bid
                     console.warn(`Blocking indirect/weak cue-bid ${recommendedBid.token} with ${hand.hcp} HCP; using PASS instead.`);
                     recommendedBid = new window.Bid('PASS');
@@ -1790,6 +1874,31 @@ function endAuction() {
     }
     
     console.log('Auction ended');
+    
+    // Repurpose Hint button to allow user-triggered transition to Play
+    try {
+        const hintBtn = document.getElementById('hintBtn');
+        if (hintBtn) {
+            hintBtn.textContent = 'Play the Hand';
+            // Ensure it appears as the primary red action
+            hintBtn.classList.remove('secondary', 'success');
+            hintBtn.classList.add('danger');
+            hintBtn.setAttribute('onclick', "switchTab('play'); try { renderPlayTab(); } catch (e) {}");
+        }
+    } catch (e) {
+        console.warn('Failed to repurpose Hint button:', e?.message || e);
+    }
+
+    // After the auction ends, move to Play tab and render the play UI
+    try {
+        // Switch tabs first so the panel is visible, then render
+        switchTab('play');
+        // renderPlayTab is also called inside switchTab when selecting 'play',
+        // but call explicitly here in case a custom tab switcher is used.
+        try { renderPlayTab(); } catch (_) {}
+    } catch (e) {
+        console.warn('Failed to switch to Play tab after auction:', e?.message || e);
+    }
 }
 
 function updateAuctionHeaders() {
@@ -2130,33 +2239,56 @@ function formatBidForAuction(token, alertable) {
 
 function updateBidButtons() {
     // Enable/disable bid buttons based on auction state
-    const lastBid = getLastNonPassBid();
-    console.log('updateBidButtons called, lastBid:', lastBid);
+    console.log('updateBidButtons called');
     // If it's not user's turn, keep everything disabled
     if (currentTurn !== 'S') {
         try { setAllBidButtonsDisabled(true); } catch (_) {}
         return;
     }
-    
-    // Update all bid buttons - user should be able to make any legal bid
+
+    // Helper to ask engine if a bid is legal in the current auction
+    const isEngineLegal = (bidText) => {
+        try {
+            if (!system || typeof system.isLegal !== 'function') return true; // fallback
+            if (bidText === 'PASS') return true;
+            if (bidText === 'X') {
+                return system.isLegal(new window.Bid(null, { isDouble: true }));
+            }
+            if (bidText === 'XX') {
+                return system.isLegal(new window.Bid(null, { isRedouble: true }));
+            }
+            return system.isLegal(new window.Bid(bidText));
+        } catch (_) {
+            return true; // be permissive on UI helper failure
+        }
+    };
+
+    // Update all bid buttons - enable only legal ones, and highlight legal actions
     document.querySelectorAll('.bid-button').forEach(btn => {
         const onclickAttr = btn.getAttribute('onclick');
-        if (onclickAttr && onclickAttr.includes('makeBid')) {
-            const bidText = onclickAttr.match(/makeBid\('(.+?)'\)/)[1];
-            const isValid = isValidUserBid(bidText, lastBid);
-            btn.disabled = !isValid;
-            if (bidText === '2H' || bidText === '2S' || bidText === '2NT') {
-                console.log(`Button ${bidText}: disabled=${!isValid}, lastBid:`, lastBid);
-            }
-        }
+        if (!onclickAttr || !onclickAttr.includes('makeBid')) return;
+        const match = onclickAttr.match(/makeBid\('(.+?)'\)/);
+        const bidText = match ? match[1] : null;
+        if (!bidText) return;
+        const legal = isEngineLegal(bidText);
+        btn.disabled = !legal;
+        // Visual cue: legal bid buttons get a light blue background
+        if (legal) btn.classList.add('legal-bid'); else btn.classList.remove('legal-bid');
     });
-    
-    // Update special buttons
+
+    // Update special buttons using engine legality
     const doubleBtn = document.getElementById('doubleBtn');
+    if (doubleBtn) {
+        const legalX = isEngineLegal('X');
+        doubleBtn.disabled = !legalX;
+        if (legalX) doubleBtn.classList.add('legal-bid'); else doubleBtn.classList.remove('legal-bid');
+    }
     const redoubleBtn = document.getElementById('redoubleBtn');
-    
-    if (doubleBtn) doubleBtn.disabled = !canDouble();
-    if (redoubleBtn) redoubleBtn.disabled = !canRedouble();
+    if (redoubleBtn) {
+        const legalXX = isEngineLegal('XX');
+        redoubleBtn.disabled = !legalXX;
+        if (legalXX) redoubleBtn.classList.add('legal-bid'); else redoubleBtn.classList.remove('legal-bid');
+    }
 }
 
 function setAllBidButtonsDisabled(disabled) {
@@ -2190,11 +2322,23 @@ function isValidBid(bidString, lastBid) {
     // Compare bid levels for sufficient bids
     try {
         const newBid = new window.Bid(bidString);
+
+        // Derive level/suit when missing (e.g., in tests with simple stubs)
+        const parseParts = (b) => {
+            const tok = (typeof b === 'string') ? b : (b?.token || '');
+            const m = /^([1-7])(C|D|H|S|NT)$/.exec(tok);
+            if (m) return { level: parseInt(m[1], 10), suit: m[2] };
+            return { level: Number.NEGATIVE_INFINITY, suit: null };
+        };
+        const nb = { level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
+                     suit: newBid.suit || parseParts(newBid).suit };
+        const lb = { level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
+                     suit: lastBid.suit || parseParts(lastBid).suit };
         
         // Must be higher level or same level with higher suit
-        const isHigherLevel = newBid.level > lastBid.level;
-        const isSameLevelHigherSuit = (newBid.level === lastBid.level && 
-                                      getSuitRank(newBid.suit) > getSuitRank(lastBid.suit));
+        const isHigherLevel = nb.level > lb.level;
+        const isSameLevelHigherSuit = (nb.level === lb.level && 
+                                      getSuitRank(nb.suit) > getSuitRank(lb.suit));
         
         return isHigherLevel || isSameLevelHigherSuit;
     } catch (e) {
@@ -2214,11 +2358,22 @@ function isValidUserBid(bidString, lastBid) {
     // User can make any bid that's higher than the last bid
     try {
         const newBid = new window.Bid(bidString);
+
+        const parseParts = (b) => {
+            const tok = (typeof b === 'string') ? b : (b?.token || '');
+            const m = /^([1-7])(C|D|H|S|NT)$/.exec(tok);
+            if (m) return { level: parseInt(m[1], 10), suit: m[2] };
+            return { level: Number.NEGATIVE_INFINITY, suit: null };
+        };
+        const nb = { level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
+                     suit: newBid.suit || parseParts(newBid).suit };
+        const lb = { level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
+                     suit: lastBid.suit || parseParts(lastBid).suit };
         
         // Must be higher level or same level with higher suit
-        const isHigherLevel = newBid.level > lastBid.level;
-        const isSameLevelHigherSuit = (newBid.level === lastBid.level && 
-                                      getSuitRank(newBid.suit) > getSuitRank(lastBid.suit));
+        const isHigherLevel = nb.level > lb.level;
+        const isSameLevelHigherSuit = (nb.level === lb.level && 
+                                      getSuitRank(nb.suit) > getSuitRank(lb.suit));
         
         return isHigherLevel || isSameLevelHigherSuit;
     } catch (e) {
@@ -2752,6 +2907,12 @@ function createGeneralSettingsSection() {
                         <span>Stolen-bid double over 2♣ (X = Stayman)</span>
                         <span class="general-help-inline">When enabled (and Stayman is part of your system), double over 2♣ shows Stayman with 8+ HCP and a 4-card major.</span>
                     </label>
+                </div>
+                <div class="general-settings-divider" style="margin:10px 0; border-top:1px solid #ddd;"></div>
+                <div class="general-settings-row">
+                    <div class="general-help-inline" style="font-style:italic; line-height:1.3;">
+                        Note: One-level suit jump shifts — Overcalls are weak and natural (6+ in the bid suit, <10 HCP). Responder jump shifts are strong and natural (5+ in the bid suit, 13+ HCP).
+                    </div>
                 </div>
             </div>
         `;
@@ -4221,6 +4382,22 @@ function renderPlayTab() {
     // Snapshot original hands for replay
     playState.originalHands = cloneHands(currentHands);
 
+    // Update Play titles to reflect declarer and dummy roles
+    try {
+        const northTitleEl = document.querySelector('#playNorthArea .hand-title');
+        const southTitleEl = document.querySelector('#playSouthArea .hand-title');
+        if (northTitleEl && southTitleEl) {
+            const decl = playState.declarer;
+            const dum = playState.dummy;
+            const northIsDummy = dum === 'N';
+            const southIsDummy = dum === 'S';
+            const northIsDeclarer = decl === 'N';
+            const southIsDeclarer = decl === 'S';
+            northTitleEl.textContent = northIsDummy ? 'North (Dummy)' : (northIsDeclarer ? 'North (Declarer)' : 'North');
+            southTitleEl.textContent = southIsDummy ? 'South (Dummy)' : (southIsDeclarer ? 'South (Declarer)' : 'South (You)');
+        }
+    } catch (_) {}
+
     // Update contract info
     const info = document.getElementById('playContractInfo');
     if (info) {
@@ -4263,7 +4440,12 @@ function renderPlayTab() {
     try { document.getElementById('trickCountEW').textContent = '0'; } catch(_) {}
     try { const rs = document.getElementById('playResultSummary'); if (rs) rs.textContent = ''; } catch(_) {}
     try { const ul = document.getElementById('playScoreBreakdown'); if (ul) ul.innerHTML = ''; } catch(_) {}
-    showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
+    // Status line: opening lead prompt or all-pass message
+    if (!details.contract) {
+        showPlayStatus('All Pass — no play.', 'light');
+    } else {
+        showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
+    }
 
     // If next to play is E/W, auto-play to keep the trick moving
     setTimeout(() => autoPlayIfNeeded(), 200);

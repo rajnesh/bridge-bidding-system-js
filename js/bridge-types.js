@@ -24,6 +24,7 @@ class Hand {
     constructor(suitBuckets) {
         if (typeof suitBuckets === 'string') {
             // Parse PBN-style hand string like "AKQ2 J432 32 32"
+            // Support '-' to denote a void (no cards in that suit)
             const parts = suitBuckets.trim().split(/\s+/);
             if (parts.length !== 4) {
                 throw new Error('Invalid hand string format. Expected 4 space-separated suit strings.');
@@ -31,7 +32,13 @@ class Hand {
             const suits = ['S', 'H', 'D', 'C'];
             this.suitBuckets = {};
             suits.forEach((suit, index) => {
-                this.suitBuckets[suit] = Array.from(parts[index]).map(rank => new Card(rank, suit));
+                const raw = parts[index] || '';
+                if (raw === '-' || raw.length === 0) {
+                    this.suitBuckets[suit] = [];
+                } else {
+                    const chars = Array.from(raw).filter(ch => ch !== '-');
+                    this.suitBuckets[suit] = chars.map(rank => new Card(String(rank).toUpperCase(), suit));
+                }
             });
         } else {
             this.suitBuckets = suitBuckets;

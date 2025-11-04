@@ -74,36 +74,45 @@ function makeTestHand(spades, hearts, diamonds, clubs, hcp = 10) {
         C: Array(clubs).fill('2')
     };
 
-    // Add high cards to match HCP
+    // Add high cards to approximate the requested HCP.
+    // Previous implementation capped at ~16 HCP; this distributes honors round-robin without overwriting.
     const suits = ['S', 'H', 'D', 'C'];
-    let remainingHcp = hcp;
-    let i = 0;
+    const honorSteps = [
+        { rank: 'A', pts: 4 },
+        { rank: 'K', pts: 3 },
+        { rank: 'Q', pts: 2 },
+        { rank: 'J', pts: 1 }
+    ];
 
-    while (remainingHcp > 0 && i < suits.length) {
-        const suit = suits[i];
-        if (hand[suit].length > 0) {
-            // Try to use A first (4 HCP)
-            if (remainingHcp >= 4) {
-                hand[suit][0] = 'A';
-                remainingHcp -= 4;
-            }
-            // Then K (3 HCP)
-            else if (remainingHcp >= 3) {
-                hand[suit][0] = 'K';
-                remainingHcp -= 3;
-            }
-            // Then Q (2 HCP)
-            else if (remainingHcp >= 2) {
-                hand[suit][0] = 'Q';
-                remainingHcp -= 2;
-            }
-            // Finally J (1 HCP)
-            else if (remainingHcp >= 1) {
-                hand[suit][0] = 'J';
-                remainingHcp -= 1;
+    let remaining = Math.max(0, Math.floor(hcp));
+    // Track next slot to fill in each suit
+    const nextIdx = { S: 0, H: 0, D: 0, C: 0 };
+    let suitPtr = 0;
+
+    // Soft cap to avoid infinite loops if HCP request exceeds available slots*4 (max 4+3+2+1 per slot realistically stacks)
+    const maxIterations = 200;
+    let iter = 0;
+    while (remaining > 0 && iter < maxIterations) {
+        iter++;
+        const s = suits[suitPtr];
+        suitPtr = (suitPtr + 1) % suits.length;
+
+        // If this suit has no cards or we've filled all its slots, skip
+        if (hand[s].length === 0 || nextIdx[s] >= hand[s].length) continue;
+
+        // Place the highest honor we can fit for the remaining budget at the next available slot
+        let placed = false;
+        for (const step of honorSteps) {
+            if (remaining >= step.pts) {
+                hand[s][nextIdx[s]] = step.rank;
+                remaining -= step.pts;
+                nextIdx[s]++;
+                placed = true;
+                break;
             }
         }
-        i++;
+        // If we couldn't place even a J, break to avoid spinning
+        if (!placed) break;
     }
 
     return makeHandFromPattern(
