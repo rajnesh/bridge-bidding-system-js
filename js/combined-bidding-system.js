@@ -273,13 +273,39 @@ class BiddingSystem {
                         if (bidToken === '2NT') return '2NT rebid: 18–19 HCP, balanced';
                     }
                 }
-                // Opener rebids their own suit in competition (e.g., 1m (1S) Pass (2S); 3m)
+                // Opener rebids their own suit in competition (seat-aware)
+                // Only trigger when: (a) we can identify the opener seat, (b) this bid is by that same opener seat,
+                // (c) opponents made a non-pass call after the opening, and (d) the bid is in opener's original suit.
                 if (tokens.length >= 3) {
                     const openIdx = firstNonPassIdx;
                     const openerTok = openIdx === -1 ? null : tokens[openIdx];
                     const openerSuit = openerTok ? openerTok.slice(-1) : null;
-                    const theirBidAfterOpening = tokens.slice(openIdx + 1).find(t => t !== 'PASS' && t !== 'X' && t !== 'XX');
-                    if (openerSuit && isSuit && bidToken.slice(-1) === openerSuit && theirBidAfterOpening && /^[12-3][CDHS]$/.test(theirBidAfterOpening)) {
+
+                    // Need seats to be reliable; fall back to no mapping if unavailable
+                    const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
+                    const openerSeat = auct?.bids?.[openIdx]?.seat || null;
+                    const lastBidObj = (auctionLike && auctionLike.bids) ? auctionLike.bids[auctionLike.bids.length - 1] : (this.currentAuction?.bids?.[this.currentAuction.bids.length - 1]);
+                    const currentSeat = lastBidObj?.seat || null;
+
+                    // Check that opponents interfered at some point after the opening
+                    const theirBidAfterOpening = (() => {
+                        if (!auct || !openerSeat) return null;
+                        for (let i = openIdx + 1; i < (auct.bids?.length || 0); i++) {
+                            const b = auct.bids[i];
+                            const t = b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS');
+                            if (t !== 'PASS' && t !== 'X' && t !== 'XX') {
+                                // Must be by opponents relative to opener
+                                const byOpp = b?.seat ? !sameSideAs(b.seat, openerSeat) : true;
+                                if (byOpp) return t;
+                                return null;
+                            }
+                        }
+                        return null;
+                    })();
+
+                    const isOpenerRebidBySameSeat = (openerSeat && currentSeat && sameSideAs(openerSeat, currentSeat) && openerSeat === currentSeat);
+
+                    if (openerSuit && isSuit && bidToken.slice(-1) === openerSuit && theirBidAfterOpening && /^[12-3][CDHS]$/.test(theirBidAfterOpening) && isOpenerRebidBySameSeat) {
                         const s = suitName(openerSuit);
                         return `${bidToken}: Opener's rebid in ${s} — natural, competitive (shows extra length; typically minimum)`;
                     }
@@ -901,7 +927,9 @@ class SAYCBiddingSystem extends BiddingSystem {
 
         // Stayman with at least one 4-card major and 8+ HCP
         if (staymanOn && hand.hcp >= 8 && (hand.lengths['H'] >= 4 || hand.lengths['S'] >= 4)) {
-            return new window.Bid('2C');
+            const bid = new window.Bid('2C');
+            bid.conventionUsed = bid.conventionUsed || 'Stayman';
+            return bid;
         }
 
         // No 4-card major: choose NT contracts by strength
@@ -1861,6 +1889,20 @@ class SAYCBiddingSystem extends BiddingSystem {
                 } catch(_) { b.conventionUsed = 'Takeout Double'; }
                 return b;
             }
+
+            // Minor-opening relaxed takeout double: allow len(opp suit) <= 3 when majors are 4-3 and HCP >= 12
+            // This captures practical takeout shapes like 4S-3H over 1C/1D even when not strictly short (<=2)
+            try {
+                const isMinorOpening = (oppSuit === 'C' || oppSuit === 'D');
+                const majorsCover = ((hand.lengths['S'] || 0) >= 4 && (hand.lengths['H'] || 0) >= 3) ||
+                                    ((hand.lengths['H'] || 0) >= 4 && (hand.lengths['S'] || 0) >= 3);
+                const notTooLongInOpp = (hand.lengths[oppSuit] || 0) <= 3;
+                if (isMinorOpening && majorsCover && notTooLongInOpp && (hand.hcp || 0) >= 12) {
+                    const b = new window.Bid(null, { isDouble: true });
+                    b.conventionUsed = 'Takeout Double (minor; 4-3 majors)';
+                    return b;
+                }
+            } catch(_) { /* ignore */ }
             
             // Relaxed takeout double (configurable)
             try {
@@ -2032,8 +2074,65 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         }
 
-        // Competitive raises (only by opener's side after opponents interfere)
-        if (auction.bids.length >= 3) {
+        // Responder natural NT and cue-bid values after opponents overcall our 1-level suit opening
+        // Pattern: (We open 1x) – (They overcall at 1–2 level in a suit, not NT) – (? we, as responder)
+        // With a stopper and values, prefer 2NT (10–12) or 3NT (13+) when balanced and no obvious fit.
+        // Without a stopper but with game values (13+), cue-bid their suit to show values/ask for stopper.
+        try {
+            if (auction.bids.length >= 2) {
+                const bids = auction.bids;
+                // Find the opening bid (first contract) and ensure it was by our side and at the 1-level in a suit
+                let openIdx = -1;
+                for (let i = 0; i < bids.length; i++) {
+                    const t = bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { openIdx = i; break; }
+                }
+                if (openIdx !== -1) {
+                    const openedByUs = this._sameSideAs(bids[openIdx].seat, this.ourSeat);
+                    const openTok = bids[openIdx].token || '';
+                    const openerIsOneSuit = openedByUs && /^1[CDHS]$/.test(openTok);
+                    // Opponents overcalled next at 1–2 level in a suit (not NT)
+                    const overIdx = openIdx + 1;
+                    const overTok = bids[overIdx]?.token || '';
+                    const oppOvercalledSuit12 = overTok && /^[12][CDHS]$/.test(overTok) && !/NT$/.test(overTok);
+                    // Current actor should be on opener's side (responder turn)
+                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const currentSeat = ctx?.currentSeat || null;
+                    const onOpenersSide = currentSeat && bids[openIdx]?.seat && this._sameSideAs(currentSeat, bids[openIdx].seat);
+                    if (openerIsOneSuit && oppOvercalledSuit12 && onOpenersSide) {
+                        const oppSuit = overTok[1];
+                        const supportLen = hand.lengths[openTok[1]] || 0;
+                        const hcp = hand.hcp || 0;
+                        const balanced = this._isBalanced(hand);
+                        // Stopper heuristic in their suit
+                        const ranks = (hand.suitBuckets?.[oppSuit] || []).map(c => c.rank);
+                        const len = hand.lengths[oppSuit] || 0;
+                        const hasStopper = ranks.includes('A') || (ranks.includes('K') && len >= 2) || (ranks.includes('Q') && len >= 3);
+
+                        // If we already have a clear raise available (3+ support), let the competitive-raises block handle it later
+                        if (supportLen < 3) {
+                            // With stopper and balanced values: choose NT
+                            if (balanced && hasStopper) {
+                                if (hcp >= 13) { const b = new window.Bid('3NT'); b.conventionUsed = 'Natural 3NT over interference: balanced, stopper, game values'; return b; }
+                                if (hcp >= 10 && hcp <= 12) { const b = new window.Bid('2NT'); b.conventionUsed = 'Natural 2NT over interference: balanced 10–12 with stopper'; return b; }
+                            }
+                            // Without a stopper but with game values, cue-bid their suit to show values/ask for stopper
+                            if (hcp >= 13) {
+                                const overLevel = parseInt(overTok[0], 10) || 2;
+                                const cueTok = `${Math.min(overLevel + 1, 5)}${oppSuit}`;
+                                const b = new window.Bid(cueTok);
+                                b.conventionUsed = 'Cue Bid (values; asks for stopper)';
+                                return b;
+                            }
+                        }
+                    }
+                }
+            }
+        } catch (_) { /* conservative: ignore on failure */ }
+
+    // Competitive raises (only by opener's side after opponents interfere)
+    // Allow this as early as responder's first turn after 1-level opening and immediate interference
+    if (auction.bids.length >= 2) {
             try {
                 const bids = auction.bids;
                 // Find the first actual contract bid (ignore passes/doubles), treat as the opening
@@ -2062,12 +2161,36 @@ class SAYCBiddingSystem extends BiddingSystem {
 
                     // Only allow these raises when: opponents interfered and we are on opener's side
                     if (oppInterfered && onOpenersSide && hand.lengths[openedSuit] >= 3) {
-                        const totalPoints = hand.hcp + hand.distributionPoints;
-                        if (totalPoints >= 10) {
-                            return new window.Bid(`3${openedSuit}`);
+                        const totalPoints = (hand.hcp || 0) + (hand.distributionPoints || 0);
+                        // Baseline intended level by TP
+                        const intendedLevel = (totalPoints >= 10) ? 3 : 2;
+                        // Compute last contract to ensure legality
+                        let lastContractTok = null;
+                        for (let i = bids.length - 1; i >= 0; i--) {
+                            const t = bids[i]?.token;
+                            if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { lastContractTok = t; break; }
                         }
-                        if (totalPoints >= 6) {
-                            return new window.Bid(`2${openedSuit}`);
+                        const suitOrder = ['C','D','H','S','NT'];
+                        const parseLevel = (tok)=>{ try { return parseInt(tok[0],10)||null; } catch(_) { return null; } };
+                        const parseSuit = (tok)=>{ try { return tok.slice(1); } catch(_) { return null; } };
+                        const isHigherThan = (lvl, suit, refTok) => {
+                            if (!refTok) return true;
+                            const rl = parseLevel(refTok), rs = parseSuit(refTok);
+                            if (rl === null || !rs) return true;
+                            if (lvl > rl) return true;
+                            if (lvl < rl) return false;
+                            return suitOrder.indexOf(suit) > suitOrder.indexOf(rs);
+                        };
+                        // Find minimum legal level at our suit at or above intended
+                        let targetLevel = intendedLevel;
+                        while (targetLevel <= 7 && !isHigherThan(targetLevel, openedSuit, lastContractTok)) {
+                            targetLevel++;
+                        }
+                        if (targetLevel <= 7) {
+                            const b = new window.Bid(`${targetLevel}${openedSuit}`);
+                            const labelLevel = targetLevel; // reflect the actual level chosen
+                            b.conventionUsed = `Competitive raise (to ${labelLevel}${openedSuit})`;
+                            return b;
                         }
                     }
                 }
@@ -2160,9 +2283,70 @@ class SAYCBiddingSystem extends BiddingSystem {
             let lastSide = null;
             try { lastSide = this.currentAuction.lastSide(); } catch (_) { lastSide = null; }
 
+            // Early hook: explicit Support Double pattern 1x – (1/2y) – 1z
+            // Run this before other responder/opener logic to avoid being bypassed in seatless contexts
+            try {
+                const bids = this.currentAuction?.bids || [];
+                if (bids.length === 3) {
+                    const a = bids[0]?.token || null;
+                    const b = bids[1]?.token || null;
+                    const c = bids[2]?.token || null;
+                    const sdEn = (this.conventions?.isEnabled('support_doubles', 'competitive') || this.conventions?.isEnabled('support_doubles', 'competitive_bidding'));
+                    if (sdEn && a && b && c && a[0]==='1' && ['1','2'].includes(b[0]) && c[0]==='1') {
+                        const openerSuit = a[1];
+                        const partnerSuit = c[1];
+                        const overLevel = parseInt(b[0], 10) || 1;
+                        const maxThru = this.conventions?.getConventionSetting('support_doubles', 'thru', 'competitive') || '2S';
+                        const maxLvl = parseInt(maxThru[0], 10) || 2;
+                        const supportLen = hand.lengths[partnerSuit] || 0;
+                        if (partnerSuit !== openerSuit && supportLen === 3 && hand.hcp >= 10 && overLevel <= maxLvl) {
+                            const dbl = new window.Bid(null, { isDouble: true });
+                            try {
+                                const suitText = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[partnerSuit] || partnerSuit;
+                                dbl.conventionUsed = `Support Double (shows exactly 3 ${suitText})`;
+                            } catch (_) { dbl.conventionUsed = 'Support Double'; }
+                            return dbl;
+                        }
+                    }
+                }
+            } catch (_) { /* ignore */ }
+
             if (lastSide === 'they') {
-                const interferenceBid = this._handleInterference(this.currentAuction, hand);
-                if (interferenceBid) return interferenceBid;
+                // Guard: if this is the classic third-round opener pattern (we opened 1-level, they overcalled 1-level, two passes back to us),
+                // skip generic interference so our dedicated third-round opener logic (later in flow) can run.
+                let isThirdRoundOpener = false;
+                try {
+                    const bids = this.currentAuction.bids || [];
+                    // Find our 1-level suit opening
+                    let ourOpeningIdx = -1;
+                    for (let i = 0; i < bids.length; i++) {
+                        const b = bids[i];
+                        if (b && b.token && /^1[CDHS]$/.test(b.token) && this._sameSideAs(b.seat, this.currentAuction.ourSeat || this.ourSeat)) { ourOpeningIdx = i; break; }
+                    }
+                    if (ourOpeningIdx >= 0) {
+                        // Next non-pass by opponents is a 1-level suit overcall?
+                        let oppOverIdx = -1;
+                        for (let j = ourOpeningIdx + 1; j < bids.length; j++) {
+                            const bj = bids[j];
+                            if (!bj) continue;
+                            const t = bj.token;
+                            if (this._isPassToken(t) || t === 'X' || t === 'XX') continue;
+                            if (/^1[CDHS]$/.test(t) && !this._sameSideAs(bj.seat, this.currentAuction.ourSeat || this.ourSeat)) { oppOverIdx = j; break; }
+                            break; // different action than our targeted pattern
+                        }
+                        if (oppOverIdx !== -1) {
+                            const penult = bids[bids.length - 2]?.token;
+                            const last = bids[bids.length - 1]?.token;
+                            const twoPasses = this._isPassToken(penult) && this._isPassToken(last);
+                            isThirdRoundOpener = twoPasses;
+                        }
+                    }
+                } catch (_) { isThirdRoundOpener = false; }
+
+                if (!isThirdRoundOpener) {
+                    const interferenceBid = this._handleInterference(this.currentAuction, hand);
+                    if (interferenceBid) return interferenceBid;
+                }
             }
 
             // Handle responses to partner using seat context (robust to passes/interference)
@@ -2423,19 +2607,97 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (ob) return ob;
         }
 
-        // High-priority: reopening double pattern (opener's suit at 1–3 level followed by two passes)
+        // Early, seat-tolerant opener 1NT/2NT rebid after partner's 1-level response.
+        // Pattern: Our side opened a 1-level suit, partner made a 1-level new suit response, and it's our next turn (passes allowed between).
+        // Priority: Do this before generic responder/advancer/interference handling to avoid misclassification in seat-edge cases.
+        try {
+            // Find the first contract bid and ensure it was by our side (tolerate missing seat on opening; assume it's ours if unknown).
+            let firstContractIdx = -1;
+            for (let i = 0; i < bids.length; i++) {
+                const t = bids[i]?.token;
+                if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { firstContractIdx = i; break; }
+            }
+            if (firstContractIdx !== -1) {
+                const openTok = bids[firstContractIdx].token;
+                const openIsOneSuit = /^1[CDHS]$/.test(openTok || '');
+                // Determine side relative to our context
+                const openedSeat = bids[firstContractIdx].seat || null;
+                const effOurSeat = (this.currentAuction && this.currentAuction.ourSeat) ? this.currentAuction.ourSeat : this.ourSeat;
+                const openedByUs = openedSeat ? this._sameSideAs(openedSeat, effOurSeat) : true; // assume yes if unknown
+                if (openIsOneSuit && openedByUs) {
+                    // Partner's canonical response index is +2 from opening; must be a 1-level suit (new suit or raise)
+                    const partnerIdx = firstContractIdx + 2;
+                    const partnerTok = bids[partnerIdx]?.token || '';
+                    // Guard: ensure there was no opponents' non-pass action between opening and partner's response
+                    let noOpponentIntervened = true;
+                    for (let j = firstContractIdx + 1; j < partnerIdx; j++) {
+                        const tj = bids[j]?.token;
+                        if (tj && tj !== 'PASS') { noOpponentIntervened = false; break; }
+                    }
+                    if (noOpponentIntervened && /^1[CDHS]$/.test(partnerTok)) {
+                        // Balanced hand ranges
+                        if (this._isBalanced(hand) && (hand.hcp || 0) >= 12 && (hand.hcp || 0) <= 14) {
+                            const b = new window.Bid('1NT');
+                            b.conventionUsed = '1NT rebid: 12–14 HCP, balanced';
+                            return b;
+                        }
+                        if (this._isBalanced(hand) && (hand.hcp || 0) >= 18 && (hand.hcp || 0) <= 19) {
+                            const b = new window.Bid('2NT');
+                            b.conventionUsed = '2NT rebid: 18–19 HCP, balanced';
+                            return b;
+                        }
+                    }
+                }
+            }
+        } catch (_) { /* conservative: continue */ }
+
+        // High-priority: balancing seat over opponents' opening (opener's suit at 1–3 level followed by two passes)
         if (bids.length >= 3) {
             const first = bids[0];
             const b1 = bids[bids.length - 1];
             const b2 = bids[bids.length - 2];
             if (first?.token && /^[1-3][CDHS]$/.test(first.token) && this._isPassToken(b1.token) && this._isPassToken(b2.token)) {
-                const oppSuit = first.token.slice(1);
-                const shortOpp = (hand.lengths[oppSuit] || 0) <= 2;
-                const threeCardOthers = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
-                if (this.conventions.isEnabled('reopening_doubles', 'competitive') && hand.hcp >= 8 && shortOpp && threeCardOthers >= 2) {
-                    const bid = new window.Bid(null, { isDouble: true });
-                    bid.conventionUsed = 'Reopening Double';
-                    return bid;
+                // Apply ONLY when the opponents opened. If seat context is missing or indicates we opened, skip this block.
+                let openedByOpponents = false;
+                try {
+                    const openerSeat = first.seat || null;
+                    const effOurSeat = (this.currentAuction && this.currentAuction.ourSeat) ? this.currentAuction.ourSeat : this.ourSeat;
+                    openedByOpponents = !!(openerSeat && effOurSeat && !this._sameSideAs(openerSeat, effOurSeat));
+                } catch(_) { openedByOpponents = false; }
+                if (openedByOpponents) {
+                    const oppSuit = first.token.slice(1);
+                    const shortOpp = (hand.lengths[oppSuit] || 0) <= 2;
+                    const threeCardOthers = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
+
+                    // With strong balanced values in the balancing seat, prefer a notrump call when we plausibly hold a stopper
+                    // Threshold: 16+ HCP balanced -> 1NT (with stopper). Without a clear stopper but very strong (18+), take a value-preserving Double.
+                    const hcp = hand.hcp || 0;
+                    const balanced = this._isBalanced(hand);
+                    // Simple stopper heuristic based on honor holdings and length
+                    const ranks = (hand.suitBuckets?.[oppSuit] || []).map(c => c.rank);
+                    const len = hand.lengths[oppSuit] || 0;
+                    const hasStopper = ranks.includes('A') || (ranks.includes('K') && len >= 2) || (ranks.includes('Q') && len >= 3);
+
+                    if (balanced && hcp >= 16) {
+                        if (hasStopper) {
+                            const bid = new window.Bid('1NT');
+                            bid.conventionUsed = 'Balancing 1NT: 16–18 HCP, balanced (stopper)';
+                            return bid;
+                        }
+                        // Very strong but no clear stopper: preserve values by doubling to keep the auction alive
+                        if (hcp >= 18 && this.conventions.isEnabled('reopening_doubles', 'competitive')) {
+                            const bid = new window.Bid(null, { isDouble: true });
+                            bid.conventionUsed = 'Reopening Double (values; no stopper)';
+                            return bid;
+                        }
+                    }
+
+                    // Classic shape-driven reopening double
+                    if (this.conventions.isEnabled('reopening_doubles', 'competitive') && hcp >= 8 && shortOpp && threeCardOthers >= 2) {
+                        const bid = new window.Bid(null, { isDouble: true });
+                        bid.conventionUsed = 'Reopening Double';
+                        return bid;
+                    }
                 }
             }
         }
@@ -2470,6 +2732,38 @@ class SAYCBiddingSystem extends BiddingSystem {
     const ctx = this._getSeatsContext();
         if (ctx) {
             const tokens = bids.map(b => b.token).filter(Boolean);
+
+            // Early hook: Responder after our 1-level suit opening and immediate interference (1X – (1/2Y) – ?)
+            // Ensure responder-side competitive actions are considered before generic responder/openers blocks.
+            try {
+                if (bids.length >= 2) {
+                    // Find first contract (opening)
+                    let firstIdx = -1;
+                    for (let i = 0; i < bids.length; i++) {
+                        const t = bids[i]?.token;
+                        if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { firstIdx = i; break; }
+                    }
+                    if (firstIdx !== -1) {
+                        const openTok = bids[firstIdx]?.token || '';
+                        const openerIsOneSuit = /^1[CDHS]$/.test(openTok);
+                        const openedByUs = this._sameSideAs(bids[firstIdx]?.seat, this.ourSeat);
+                        const overTok = bids[firstIdx + 1]?.token || '';
+                        const oppOvercalledSuit12 = overTok && /^[12][CDHS]$/.test(overTok) && !/NT$/.test(overTok);
+                        const onOpenersSide = this._sameSideAs((this._getSeatsContext()||{}).currentSeat, bids[firstIdx]?.seat);
+                        // Only trigger this early responder hook when it's actually responder's turn now (partner of opener),
+                        // not on opener's later turns (e.g., classic third-round opener after two passes).
+                        const ctxNow = (this._getSeatsContext()||{});
+                        const currentSeatNow = ctxNow.currentSeat;
+                        const openerSeatNow = bids[firstIdx]?.seat;
+                        // It's responder's turn if we're on opener's side but not the opener's own seat
+                        const isResponderTurnNow = !!(currentSeatNow && openerSeatNow && this._sameSideAs(currentSeatNow, openerSeatNow) && currentSeatNow !== openerSeatNow);
+                        if (openerIsOneSuit && openedByUs && oppOvercalledSuit12 && onOpenersSide && isResponderTurnNow) {
+                            const interFirst = this._handleInterference(this.currentAuction, hand);
+                            if (interFirst) return interFirst; // includes Negative Double, competitive raises, cue-bid values, 2NT/3NT
+                        }
+                    }
+                }
+            } catch (_) { /* ignore and continue */ }
             const lastByPartner = ctx.lastPartner?.token || null;
             const lastByUs = ctx.lastOur?.token || null;
 
@@ -2657,7 +2951,19 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (ourOpeningIdx >= 0) {
                     // Partner made a 1-level response and it's now our turn again
                     const partnerIdx = ourOpeningIdx + 2;
-                    if (bids[partnerIdx] && /^[1][CDHS]$/.test(bids[partnerIdx].token)) {
+                    // Guard: ensure there was no opponents' non-pass action between our opening and partner's response
+                    let noOppBetween = true;
+                    for (let j = ourOpeningIdx + 1; j < partnerIdx; j++) {
+                        const tj = bids[j]?.token;
+                        if (tj && tj !== 'PASS') { noOppBetween = false; break; }
+                    }
+                    if (noOppBetween && bids[partnerIdx] && /^[1][CDHS]$/.test(bids[partnerIdx].token)) {
+                        // With 12–14 balanced, rebid 1NT
+                        if (this._isBalanced(hand) && (hand.hcp || 0) >= 12 && (hand.hcp || 0) <= 14) {
+                            const bid = new window.Bid('1NT');
+                            bid.conventionUsed = '1NT rebid: 12–14 HCP, balanced';
+                            return bid;
+                        }
                         // With 18–19 balanced, rebid 2NT
                         if (this._isBalanced(hand) && hand.hcp >= 18 && hand.hcp <= 19) {
                             const bid = new window.Bid('2NT');
@@ -2887,7 +3193,16 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
             // Determine the last relevant bid by our side to respond to (partner or opener on our side)
             const lastByOurSide = ctx.lastPartner?.token || ctx.lastOur?.token || null;
-            if ((currentOnOurSide || partnerWasOpener) && lastByOurSide && /^\d/.test(lastByOurSide) && lastByOurSide !== '1NT' && lastByOurSide !== '2NT') {
+            // Guard: only apply responder logic when it's actually responder's turn, not opener's rebid
+            let openerSeatForFirst = null;
+            try {
+                for (let i = 0; i < bids.length; i++) {
+                    const bt = bids[i]?.token;
+                    if (bt && /^[1-7](C|D|H|S|NT)$/.test(bt)) { openerSeatForFirst = bids[i]?.seat || null; break; }
+                }
+            } catch (_) { openerSeatForFirst = null; }
+            const isOpenersTurnNow = !!(openerSeatForFirst && ctx.currentSeat && this._sameSideAs(openerSeatForFirst, ctx.currentSeat) && openerSeatForFirst === ctx.currentSeat);
+            if (!isOpenersTurnNow && (currentOnOurSide || partnerWasOpener) && lastByOurSide && /^\d/.test(lastByOurSide) && lastByOurSide !== '1NT' && lastByOurSide !== '2NT') {
                 // Gate responder logic: ensure the first contract bid of the auction was made by our side
                 let firstContractIdx = -1;
                 for (let i = 0; i < bids.length; i++) {
@@ -3149,7 +3464,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 const isDouble = !!inter.isDouble;
                 const label = (inter.conventionUsed || '').toLowerCase();
                 const isResponderConvention = (
-                    label.includes('cue bid raise') ||
+                    label.includes('cue bid') || // includes cue bid raise and cue-bid values/ask stopper
                     label.includes('lebensohl') ||
                     label.includes('support double') ||
                     label.includes('reopening double') ||
@@ -3157,6 +3472,8 @@ class SAYCBiddingSystem extends BiddingSystem {
                     label.includes('stolen bid') ||
                     label.includes('transfer to') // systems-on over 1NT interference
                 );
+                // Natural responder NT continuations (e.g., 2NT/3NT over interference)
+                const isResponderNT = !!(inter.token && /^(2|3)NT$/.test(inter.token));
                 // Competitive natural raises of opener's suit (e.g., 2M/3M) without a label
                 let isCompetitiveRaise = false;
                 if (inter.token && /^[23][CDHS]$/.test(inter.token)) {
@@ -3170,7 +3487,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                         isCompetitiveRaise = true;
                     }
                 }
-                if (isDouble || isResponderConvention || isCompetitiveRaise) {
+                if (isDouble || isResponderConvention || isCompetitiveRaise || isResponderNT) {
                     return inter;
                 }
                 // Otherwise, suppress pure overcalls when our side opened
@@ -3179,6 +3496,12 @@ class SAYCBiddingSystem extends BiddingSystem {
             const inter = this._handleInterference(this.currentAuction, hand);
             if (inter) return inter;
         }
+
+        // One more safety: detect support double pattern before passing (helps seatless tests)
+        try {
+            const sdFinal = this._handleSupportDouble(this.currentAuction, hand);
+            if (sdFinal) return sdFinal;
+        } catch (_) { /* ignore */ }
 
         // Default: pass
         return new window.Bid('PASS');
@@ -3297,8 +3620,31 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         };
         SAYCBiddingSystem.prototype.getBid = function(hand) {
-            const b = orig.call(this, hand);
-            return this._ensureLegal(b);
+            let b = orig.call(this, hand);
+            // Safety net: if PASS was returned but a textbook support double pattern is present, emit X
+            try {
+                if ((!b || (!b.token && !b.isDouble && !b.isRedouble)) && this?.currentAuction?.bids?.length === 3) {
+                    const bids = this.currentAuction.bids;
+                    const a = bids[0]?.token || null;
+                    const o = bids[1]?.token || null;
+                    const p = bids[2]?.token || null;
+                    const sdEn = (this.conventions?.isEnabled('support_doubles', 'competitive') || this.conventions?.isEnabled('support_doubles', 'competitive_bidding'));
+                    if (sdEn && a && o && p && a[0]==='1' && ['1','2'].includes(o[0]) && p[0]==='1') {
+                        const openerSuit = a[1];
+                        const partnerSuit = p[1];
+                        const overLevel = parseInt(o[0], 10) || 1;
+                        const maxThru = this.conventions?.getConventionSetting('support_doubles', 'thru', 'competitive') || '2S';
+                        const maxLvl = parseInt(maxThru[0], 10) || 2;
+                        const supportLen = (hand?.lengths?.[partnerSuit] || 0);
+                        if (partnerSuit !== openerSuit && supportLen === 3 && (hand?.hcp || 0) >= 10 && overLevel <= maxLvl) {
+                            b = new window.Bid(null, { isDouble: true });
+                            try { const suitText = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[partnerSuit] || partnerSuit; b.conventionUsed = `Support Double (shows exactly 3 ${suitText})`; } catch(_) { b.conventionUsed = 'Support Double'; }
+                        }
+                    }
+                }
+            } catch (_) { /* ignore safety net errors */ }
+            const vetted = this._ensureLegal(b);
+            return vetted;
         };
     } catch (_) { /* no-op if wrapping fails */ }
 })();

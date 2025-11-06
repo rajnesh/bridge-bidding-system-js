@@ -984,6 +984,37 @@ h6 { font-size: 16px; }
 /* removed: .auction-bid.player-bid no longer used */
 .hint-text { margin-left: 8px; font-weight: 600; color: #495057; }
 
+/* Status line layout: text on left, action button on right */
+.auction-status-flex {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+.auction-status-flex .status-text {
+    font-weight: 600;
+}
+.auction-status-flex #hintBtn {
+    margin-left: 10px;
+    padding-left: 12px; /* make room for divider */
+    border-left: 1px solid #e3e6ea; /* subtle separator */
+}
+
+/* Inline hint chip shown in the status bar when legacy panel is absent */
+.hint-inline {
+    display: inline-block;
+    margin-left: 10px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: #e7f6ff;
+    border: 1px solid #cfe7fb;
+    color: #0b4a6f;
+    font-weight: 600;
+    font-size: 0.9em;
+}
+.hint-inline .hint-bid { font-weight: 700; margin-right: 6px; }
+.hint-inline .hint-expl { font-weight: 500; opacity: 0.95; }
+
 /* Links aligned with theme */
 a { color: #E84E4E; text-decoration: none; }
 a:hover { color: #ff6b6b; text-decoration: underline; }
