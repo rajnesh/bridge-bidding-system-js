@@ -2074,21 +2074,30 @@ function updateAuctionStatus() {
     if (auctionActive) {
         const turnName = getTurnName(currentTurn);
         // Make the status container flex via CSS class so we can place the existing Hint button on the right
-        try {
-            status.classList.add('auction-status-flex');
-        } catch (_) {}
-        // Set/refresh the left-side status text
+        try { status.classList.add('auction-status-flex'); } catch (_) {}
+
+        // Preserve (or recreate) the Hint button BEFORE resetting innerHTML to avoid nuking it
+        let hintBtn = document.getElementById('hintBtn');
+        if (!hintBtn) {
+            // Recreate a Hint button if it was removed by a previous innerHTML call
+            hintBtn = document.createElement('button');
+            hintBtn.id = 'hintBtn';
+            hintBtn.className = 'main-btn compact danger';
+            hintBtn.textContent = 'Hint';
+            hintBtn.setAttribute('onclick', 'getRecommendedBid()');
+        }
+
+        // Refresh the left-side status text (this clears previous children)
         status.innerHTML = `<span class="status-text">${turnName} to bid</span>`;
-        // Move the existing Hint button to the right side of the status line
+
+        // Normalize and show the Hint button, then append to the right side
         try {
-            const hintBtn = document.getElementById('hintBtn');
             if (hintBtn) {
                 hintBtn.classList.remove('secondary', 'success');
                 hintBtn.classList.add('danger');
                 hintBtn.textContent = 'Hint';
                 hintBtn.setAttribute('onclick', 'getRecommendedBid()');
                 hintBtn.style.display = 'inline-block';
-                // Re-home into the status container (right side)
                 status.appendChild(hintBtn);
             }
         } catch (_) {}
