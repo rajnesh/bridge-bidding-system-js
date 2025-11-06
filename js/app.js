@@ -1861,12 +1861,23 @@ function endAuction() {
     if (auctionControls) {
         auctionControls.style.display = 'none';
     }
+
+    // Ensure auction content/status area is visible so we can show the Play button
+    try {
+        const auctionContent = document.getElementById('auctionContent');
+        if (auctionContent) auctionContent.style.display = 'block';
+    } catch (_) {}
     
     // Update auction status if it exists (preserve flex layout)
     const auctionStatus = document.getElementById('auctionStatus');
     if (auctionStatus) {
-        auctionStatus.classList.remove('alert-info');
-        auctionStatus.classList.add('alert', 'alert-warning', 'auction-status-flex');
+        // Normalize classes and content
+        try {
+            auctionStatus.classList.remove('alert-info');
+            auctionStatus.classList.add('alert', 'alert-warning', 'auction-status-flex');
+        } catch (_) {}
+        // Remove any inline hint chip from active-auction UI
+        try { const ih = document.getElementById('inlineHint'); if (ih) ih.remove(); } catch(_) {}
         auctionStatus.innerHTML = '<span class="status-text">Auction Ended</span>';
     }
 
@@ -1924,20 +1935,21 @@ function endAuction() {
     
     // Repurpose Hint button to allow user-triggered transition to Play
     try {
-        const hintBtn = document.getElementById('hintBtn');
-        if (hintBtn) {
-            hintBtn.textContent = 'Play the Hand';
-            // Ensure it appears as the primary red action and is visible
-            hintBtn.classList.remove('secondary', 'success');
-            hintBtn.classList.add('danger');
-            hintBtn.style.display = 'inline-block';
-            hintBtn.setAttribute('onclick', "switchTab('play'); try { renderPlayTab(); } catch (e) {}");
-            // Place it to the right within the status line
-            const status = document.getElementById('auctionStatus');
-            if (status) {
-                status.appendChild(hintBtn);
-            }
+        let hintBtn = document.getElementById('hintBtn');
+        if (!hintBtn) {
+            // If the Hint button was removed earlier, recreate it now
+            hintBtn = document.createElement('button');
+            hintBtn.id = 'hintBtn';
+            hintBtn.className = 'main-btn compact danger';
         }
+        hintBtn.textContent = 'Play the Hand';
+        // Ensure it appears as the primary red action and is visible
+        hintBtn.classList.remove('secondary', 'success');
+        hintBtn.classList.add('danger');
+        hintBtn.style.display = 'inline-block';
+        hintBtn.setAttribute('onclick', "switchTab('play'); try { renderPlayTab(); } catch (e) {}");
+        // Place it to the right within the status line
+        if (auctionStatus) auctionStatus.appendChild(hintBtn);
     } catch (e) {
         console.warn('Failed to repurpose Hint button:', e?.message || e);
     }
