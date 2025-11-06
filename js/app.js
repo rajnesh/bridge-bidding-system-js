@@ -8,6 +8,8 @@ let systemReady = false;
 let generationMode = 'random';
 // Global state used across the UI (restored to avoid ReferenceErrors at runtime)
 let currentHands = { N: null, E: null, S: null, W: null };
+// Expose and keep a reference on window for jsdom/tests and cross-script access
+try { if (typeof window !== 'undefined') { window.currentHands = currentHands; } } catch (_) {}
 // Initialize auction state with safe defaults for tests and UI
 let auctionActive = false;
 let auctionHistory = [];
@@ -1947,7 +1949,8 @@ function endAuction() {
         hintBtn.classList.remove('secondary', 'success');
         hintBtn.classList.add('danger');
         hintBtn.style.display = 'inline-block';
-        hintBtn.setAttribute('onclick', "switchTab('play'); try { renderPlayTab(); } catch (e) {}");
+        // Use a small helper that guarantees both navigation and rendering
+        hintBtn.setAttribute('onclick', 'goToPlay()');
         // Place it to the right within the status line
         if (auctionStatus) auctionStatus.appendChild(hintBtn);
     } catch (e) {
@@ -3997,6 +4000,7 @@ function generateBasicRandomHands() {
     currentHands.E = new window.Hand(convertCardsToHandString(deck.slice(13, 26)));
     currentHands.S = new window.Hand(convertCardsToHandString(deck.slice(26, 39)));
     currentHands.W = new window.Hand(convertCardsToHandString(deck.slice(39, 52)));
+    try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) {}
 }
 
 // Public helper to generate a fresh random deal and refresh UI
@@ -4299,6 +4303,27 @@ let playState = {
 };
 
 function renderPlayTab() {
+    // Show a brief loading status while initializing the Play view
+    try {
+        const ps = document.getElementById('playStatus');
+        if (ps) {
+            ps.className = 'alert alert-info';
+            ps.style.display = 'block';
+            ps.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #1e88e5;border-top-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:spin .8s linear infinite"></span> Loading play layout…';
+            // Inject minimal spinner keyframes if not present
+            const styleId = 'play-spinner-style';
+            if (!document.getElementById(styleId)) {
+                const st = document.createElement('style');
+                st.id = styleId;
+                st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+                document.head.appendChild(st);
+            }
+        }
+    } catch (_) {}
+
+    // In test/jsdom scenarios, window.currentHands may be the source of truth
+    try { if (typeof window !== 'undefined' && window.currentHands) { currentHands = window.currentHands; } } catch (_) {}
+
     // Compute final contract from auction history
     const details = computePlayDetailsFromAuction();
     playState.contract = details.contract;
@@ -4384,6 +4409,27 @@ function renderPlayTab() {
     // If next to play is E/W, auto-play to keep the trick moving
     setTimeout(() => autoPlayIfNeeded(), 200);
 }
+
+// Expose helpers for reliable navigation and rendering from UI
+try {
+    if (typeof window !== 'undefined') {
+        // Ensure callable from tests and inline handlers
+        window.renderPlayTab = renderPlayTab;
+        window.goToPlay = function() {
+            try { switchTab('play'); } catch (_) {}
+            try { renderPlayTab(); } catch (_) {}
+        };
+    }
+} catch (_) {}
+
+// Make Play helpers accessible for inline handlers and external calls
+try { window.renderPlayTab = renderPlayTab; } catch (_) {}
+try {
+    window.goToPlay = function() {
+        try { switchTab('play'); } catch (_) {}
+        try { renderPlayTab(); } catch (_) {}
+    };
+} catch (_) {}
 
 function computePlayDetailsFromAuction() {
     // Find last contract and who declared
@@ -4904,6 +4950,7 @@ function replayHand() {
         if (!playState.originalHands) return;
         // Deep clone original hands back into currentHands
         currentHands = cloneHands(playState.originalHands);
+        try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) {}
         // Reset play state and re-render Play tab
         renderPlayTab();
         showPlayStatus('Replaying hand from the start.', 'light');

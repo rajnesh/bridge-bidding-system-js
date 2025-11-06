@@ -1873,18 +1873,37 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Takeout double
             const shortOpp = hand.lengths[oppSuit] <= 2;
             const threeCardSuits = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).length;
-            
-            if (hand.hcp >= 12 && shortOpp && threeCardSuits >= 2) {
+            // Slightly relax HCP in the direct seat after two passes: e.g., S PASS, W PASS, N 1S, E ?
+            // Detect two leading passes before this opening
+            let twoLeadingPasses = false;
+            try {
+                let firstNonPassIdx = -1;
+                for (let i = 0; i < auction.bids.length; i++) {
+                    const t = auction.bids[i]?.token || 'PASS';
+                    if (t !== 'PASS') { firstNonPassIdx = i; break; }
+                }
+                if (firstNonPassIdx >= 0) {
+                    const leading = auction.bids.slice(0, firstNonPassIdx);
+                    twoLeadingPasses = leading.length >= 2 && leading.every(b => this._isPassToken(b?.token));
+                }
+            } catch (_) { twoLeadingPasses = false; }
+            const relaxedDirectSeat = twoLeadingPasses && level === 1; // only over 1-level openings
+
+            if (((hand.hcp >= 12) || (relaxedDirectSeat && hand.hcp >= 11)) && shortOpp && threeCardSuits >= 2) {
                 const b = new window.Bid(null, { isDouble: true });
                 try {
                     const name = (s)=>({C:'clubs',D:'diamonds',H:'hearts',S:'spades'}[s]||s);
                     // Describe shortness and coverage
                     const cover = SUITS.filter(s => s !== oppSuit && hand.lengths[s] >= 3).map(name);
                     const shortTxt = name(oppSuit);
-                    if (cover.length >= 2) {
-                        b.conventionUsed = `Takeout Double (short ${shortTxt}; support for ${cover.slice(0,2).join(' and ')})`;
+                    const base = (cover.length >= 2)
+                        ? `Takeout Double — short ${shortTxt}; support for ${cover.slice(0,2).join(' and ')}`
+                        : 'Takeout Double';
+                    // If the relaxed direct-seat rule actually enabled this (i.e., exactly 11 HCP), surface a hint for learners
+                    if (relaxedDirectSeat && hand.hcp === 11) {
+                        b.conventionUsed = `${base} (direct seat after two passes; 11+ HCP allowed)`;
                     } else {
-                        b.conventionUsed = 'Takeout Double';
+                        b.conventionUsed = base;
                     }
                 } catch(_) { b.conventionUsed = 'Takeout Double'; }
                 return b;
