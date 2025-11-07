@@ -923,19 +923,19 @@ class SAYCBiddingSystem extends BiddingSystem {
         // Texas transfers to game with 6+ majors and game values
         if (enabledTexas) {
             const gameValues = hand.hcp >= 10; // align with tests: prefer Jacoby at ~8 HCP; Texas with stronger game values
-            if (gameValues && hand.lengths['H'] >= 6) return new window.Bid('4D'); // to 4H
-            if (gameValues && hand.lengths['S'] >= 6) return new window.Bid('4H'); // to 4S
+            if (gameValues && hand.lengths['H'] >= 6) { const b = new window.Bid('4D'); b.conventionUsed = 'Texas Transfer'; return b; }
+            if (gameValues && hand.lengths['S'] >= 6) { const b = new window.Bid('4H'); b.conventionUsed = 'Texas Transfer'; return b; }
         }
 
         // Jacoby transfers at 3-level over 2NT (use with 5+ majors when not forcing to game via Texas)
         if (enabledTransfers) {
-            if (hand.lengths['H'] >= 5) return new window.Bid('3D'); // transfer to hearts
-            if (hand.lengths['S'] >= 5) return new window.Bid('3H'); // transfer to spades
+            if (hand.lengths['H'] >= 5) { const b = new window.Bid('3D'); b.conventionUsed = 'Jacoby Transfer'; return b; }
+            if (hand.lengths['S'] >= 5) { const b = new window.Bid('3H'); b.conventionUsed = 'Jacoby Transfer'; return b; }
         }
 
         // Stayman over 2NT: 3C with any 4-card major and sufficient values for game
         if (staymanOn && hand.hcp >= 4 && (hand.lengths['H'] >= 4 || hand.lengths['S'] >= 4)) {
-            return new window.Bid('3C');
+            const b = new window.Bid('3C'); b.conventionUsed = 'Stayman'; return b;
         }
 
         // Natural actions over 2NT (no major interest):
@@ -977,8 +977,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             const invitationalPlus = hand.hcp >= 8;
             const has54 = (hand.lengths['S'] === 5 && hand.lengths['H'] >= 4) || (hand.lengths['H'] === 5 && hand.lengths['S'] >= 4);
             if (!(staymanOn && invitationalPlus && has54)) {
-                if (hand.lengths['H'] >= 5) return new window.Bid('2D');
-                if (hand.lengths['S'] >= 5) return new window.Bid('2H');
+                if (hand.lengths['H'] >= 5) { const b = new window.Bid('2D'); b.conventionUsed = 'Jacoby Transfer'; return b; }
+                if (hand.lengths['S'] >= 5) { const b = new window.Bid('2H'); b.conventionUsed = 'Jacoby Transfer'; return b; }
             }
         }
 
@@ -996,7 +996,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         // Stayman with at least one 4-card major and 8+ HCP
         if (staymanOn && hand.hcp >= 8 && (hand.lengths['H'] >= 4 || hand.lengths['S'] >= 4)) {
             const bid = new window.Bid('2C');
-            bid.conventionUsed = bid.conventionUsed || 'Stayman';
+            bid.conventionUsed = 'Stayman';
             return bid;
         }
 
