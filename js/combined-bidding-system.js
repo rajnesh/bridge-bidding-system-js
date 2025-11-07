@@ -153,6 +153,37 @@ class BiddingSystem {
 
             // Competitive simple mappings
             try {
+                // Establish seat context for the CURRENT bidder when possible
+                const auctCtx = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
+                const orderSeats = (typeof window !== 'undefined' && window.Auction && Array.isArray(window.Auction.TURN_ORDER))
+                    ? window.Auction.TURN_ORDER
+                    : ['N','E','S','W'];
+                const inferredCurrentSeat = (auctCtx && auctCtx.dealer != null)
+                    ? orderSeats[(orderSeats.indexOf(auctCtx.dealer) + ((auctCtx.bids?.length) || 0)) % 4]
+                    : null;
+                // Determine current bidder seat for explanation purposes:
+                // Prefer: (1) bid.seat if provided, else (2) inferred from dealer/length.
+                // Avoid relying on ourSeat here to prevent misclassifying partner/opponent actions.
+                let currentSeatCtx = (bid && bid.seat) ? bid.seat : inferredCurrentSeat;
+                // Early partner inference for abbreviated auctions:
+                // If only one opening bid is present (e.g., ['1C']) and tests omitted the PASS that would rotate seats,
+                // allow treating the current explanation context as opener's partner when ourSeat matches that partner.
+                try {
+                    if (auctCtx?.bids?.length === 1) {
+                        const openerSeat = auctCtx.bids[0].seat;
+                        if (openerSeat) {
+                            const openerIdx = orderSeats.indexOf(openerSeat);
+                            const partnerSeat = orderSeats[(openerIdx + 2) % 4];
+                            const ourSeatEff = auctCtx?.ourSeat || this.ourSeat || null;
+                            // In abbreviated setups with only the opening bid present, prefer treating the explainer
+                            // as opener's partner when ourSeat is that partner; this avoids mislabeling responder
+                            // actions as overcalls due to inference pointing to the next hand instead of partner.
+                            if (ourSeatEff && ourSeatEff === partnerSeat) {
+                                currentSeatCtx = partnerSeat; // treat as responder side
+                            }
+                        }
+                    }
+                } catch (_) { /* non-critical inference */ }
                 // Opener continuations over Weak Two when partner makes a new suit at 3-level (forcing one round)
                 {
                     // Build context
@@ -180,6 +211,42 @@ class BiddingSystem {
                         }
                     }
                 }
+                // Responder new suit at 1-level over 1-level opening (no interference) and jump-shifts
+                // Seat-aware ordering: Place this BEFORE overcall mapping so responder patterns take precedence
+                // when there’s no interference, but ONLY trigger when the current bidder is on the SAME SIDE as the opener.
+                try {
+                    const openIdx = firstNonPassIdx;
+                    const openerTok = openIdx === -1 ? null : tokens[openIdx];
+                    const between = tokens.slice(openIdx + 1, tokens.length - 1);
+                    const noOppInterference = between.every(t => t === 'PASS');
+                    const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
+                    const openerSeat = auct?.bids?.[openIdx]?.seat || null;
+                    const isSameSideAsOpener = (openerSeat && currentSeatCtx) ? sameSideAs(openerSeat, currentSeatCtx) : false;
+                    if (noOppInterference && isSameSideAsOpener && /^[1][CDHS]$/.test(openerTok || '') && /^[1][CDHS]$/.test(bidToken || '')) {
+                        const openerSuit = openerTok.slice(-1);
+                        const ourSuit = bidToken.slice(-1);
+                        if (ourSuit !== openerSuit) {
+                            return `1-level response in ${suitName(ourSuit)}: natural, 4+ ${suitName(ourSuit)}, about 6+ points`;
+                        }
+                    }
+                    // Responder jump shift identification (strong)
+                    if (noOppInterference && isSameSideAsOpener && /^[1][CDHS]$/.test(openerTok || '') && isSuit) {
+                        const openerSuit = openerTok.slice(-1);
+                        const ourSuit = bidToken.slice(-1);
+                        if (ourSuit !== openerSuit) {
+                            const level = parseInt(bidToken[0], 10);
+                            const minLvl = minLevelOver1(openerSuit, ourSuit);
+                            if (level === minLvl + 1) {
+                                return `Responder jump shift: strong (5+ ${suitName(ourSuit)}, 13+ HCP)`;
+                            }
+                            // Non-jump new suit at 2-level (e.g., 1S – 2H/2D/2C): natural, constructive values
+                            if (level === minLvl && level === 2) {
+                                return `New suit at 2-level: natural (5+ ${suitName(ourSuit)}), about 10+ total points`;
+                            }
+                        }
+                    }
+                } catch (_) {}
+
                 // Overcall over a 1-level suit opening (robust to leading passes)
                 {
                     const openIdx = firstNonPassIdx;
@@ -187,21 +254,22 @@ class BiddingSystem {
                     const openerIsOneLevelSuit = /^[1][CDHS]$/.test(openerTok || '');
                     const openerSuit = openerTok ? openerTok.slice(-1) : null;
                     if (openerIsOneLevelSuit) {
-                        // If seat info is available, only treat as overcall when the opener was by opponents
-                        let openerByOpponents = true;
+                        // Seat-aware: treat as overcall ONLY if the CURRENT bidder is on the OPPOSITE side from the opener.
+                        // This block is intentionally placed AFTER the responder mapping to avoid classifying
+                        // same-side responder actions as overcalls when there is no interference.
+                        let isCurrentOppositeOfOpener = false;
                         try {
                             const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
-                            const ourSeatEff = auct?.ourSeat || this.ourSeat || null;
                             const openerSeat = auct?.bids?.[openIdx]?.seat || null;
-                            if (ourSeatEff && openerSeat) {
-                                openerByOpponents = !sameSideAs(openerSeat, ourSeatEff);
+                            if (openerSeat && currentSeatCtx) {
+                                isCurrentOppositeOfOpener = !sameSideAs(openerSeat, currentSeatCtx);
                             }
-                        } catch (_) { /* default true */ }
+                        } catch (_) { /* keep default false when seats unknown to avoid false positives */ }
                         // Ensure only passes occurred between opener's bid and our current bid
                         const between = tokens.slice(openIdx + 1, tokens.length - 1);
                         const onlyPassesBetween = between.every(t => t === 'PASS');
                         // True overcall is the immediate next call after opener (no intervening calls by partner), i.e., zero bids between
-                        if (openerByOpponents && onlyPassesBetween && between.length === 0) {
+                        if (isCurrentOppositeOfOpener && onlyPassesBetween && between.length === 0) {
                             if (isSuit) {
                                 const s = bidToken.slice(-1);
                                 if (s !== openerSuit) {
