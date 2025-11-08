@@ -1285,6 +1285,8 @@ function makeSystemBid() {
     try {
     if (system.currentAuction) {
             system.currentAuction.ourSeat = currentTurn;
+            // Keep engine's side-tracking helpers (which rely on system.ourSeat) aligned with the actor
+            system.ourSeat = currentTurn;
         }
     } catch (e) { /* ignore */ }
 

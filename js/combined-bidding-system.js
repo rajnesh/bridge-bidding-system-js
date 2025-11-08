@@ -2944,12 +2944,16 @@ class SAYCBiddingSystem extends BiddingSystem {
                                 // Jump raise (invitational)
                                 if (support >= jumpMinSupp && hcp >= jumpMin && hcp <= jumpMax) {
                                     // If opponents raised opener's suit, still jump in our suit (3M) unaffected.
-                                    return new window.Bid(`3${partnerOvercalledSuit}`);
+                                    const jumpRaise = new window.Bid(`3${partnerOvercalledSuit}`);
+                                    jumpRaise.conventionUsed = 'Jump raise invitational (10-12 HCP, 4+ trumps)';
+                                    return jumpRaise;
                                 }
 
                                 // Simple raise
                                 if (support >= simpleMinSupp && hcp >= simpleMin && hcp <= simpleMax) {
-                                    return new window.Bid(`2${partnerOvercalledSuit}`);
+                                    const simpleRaise = new window.Bid(`2${partnerOvercalledSuit}`);
+                                    simpleRaise.conventionUsed = 'Simple raise (support with 6-10 HCP)';
+                                    return simpleRaise;
                                 }
                             }
                         }
