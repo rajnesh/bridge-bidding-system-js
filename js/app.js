@@ -1739,8 +1739,14 @@ function showInlineHintChip(bidDisplay, explanation) {
     const span = document.createElement('span');
     span.id = 'inlineHint';
     span.className = 'hint-inline';
-    span.title = explanation || '';
-    span.innerHTML = `<span class="hint-bid">Hint: ${bidDisplay}</span><span class="hint-expl">${explanation || ''}</span>`;
+    const trimmedBid = (bidDisplay || '').trim().toUpperCase();
+    const trimmedExplanation = (explanation || '').trim();
+    // Avoid duplicating "Pass" as both bid and explanation; keep explanation blank in that case.
+    const shownExplanation = (trimmedBid === 'PASS' && trimmedExplanation.toLowerCase() === 'pass')
+        ? ''
+        : trimmedExplanation;
+    span.title = shownExplanation || '';
+    span.innerHTML = `<span class="hint-bid">Hint: ${bidDisplay}</span><span class="hint-expl">${shownExplanation}</span>`;
     // Insert before the button if present; else append at end
     if (hintBtn && hintBtn.parentElement === status) {
         status.insertBefore(span, hintBtn);
