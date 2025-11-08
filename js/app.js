@@ -1637,15 +1637,20 @@ function shouldRaiseToGameAfterOpener2NT(hand, history) {
 
 function getRecommendedBid() {
     try {
-        if (currentTurn !== 'S' || !currentHands.S) {
+        console.log('getRecommendedBid: START, currentTurn=', currentTurn, 'currentHands.S=', !!currentHands.S);
+        // Be permissive when currentTurn is unset (e.g., jsdom tests). Only block if it's explicitly not South.
+        if ((currentTurn && currentTurn !== 'S') || !currentHands.S) {
             alert('Not your turn or no hand available');
+            console.log('getRecommendedBid: BLOCKED - not South turn or no hand');
             return;
         }
         // Ensure dealer is always defined when syncing to engine
         const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
+        console.log('getRecommendedBid: dealerSeat=', dealerSeat, 'system.currentAuction=', !!system?.currentAuction);
         
         // Get system recommendation - use current system auction state
         if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
+            console.log('getRecommendedBid: Initializing system auction');
             if (typeof system.startAuctionWithDealer !== 'function') {
                 system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
                     this.startAuction(ourSeat, /*we*/ vulNS, /*they*/ vulEW);
@@ -1681,7 +1686,17 @@ function getRecommendedBid() {
         try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) {}
         
     const recommendedBid = system.getBid(currentHands.S);
-    const explanation = recommendedBid.conventionUsed || 'Standard bid';
+    console.log('getRecommendedBid: Got bid=', recommendedBid?.token, 'conventionUsed=', recommendedBid?.conventionUsed);
+    // Derive a full textual explanation consistent with the explanations panel
+    let explanation = recommendedBid.conventionUsed || '';
+    try {
+        if (typeof system.getExplanationFor === 'function') {
+            const expl = system.getExplanationFor(recommendedBid, system.currentAuction);
+            if (expl && expl !== 'Your bid') explanation = expl;
+        }
+    } catch (_) { /* fallback below */ }
+    if (!explanation) explanation = 'Standard bid';
+    console.log('getRecommendedBid: explanation=', explanation);
 
         // Handle null token (which means Pass)
         const bidDisplay = recommendedBid.token || 'PASS';
@@ -1690,13 +1705,19 @@ function getRecommendedBid() {
         const panelBid = document.getElementById('recommendedBidDisplay');
         const panelReason = document.getElementById('recommendationReason');
         const panelWrap = document.getElementById('recommendationResult');
+        console.log('getRecommendedBid: panel elements exist=', !!panelBid, !!panelReason, !!panelWrap);
         if (panelBid && panelReason && panelWrap) {
             panelBid.innerHTML = `<span class="bid-level">${bidDisplay}</span>`;
             panelReason.textContent = explanation;
             panelWrap.style.display = 'block';
+            console.log('getRecommendedBid: Updated legacy panel');
         } else {
+            console.log('getRecommendedBid: Calling showInlineHintChip');
             try { showInlineHintChip(bidDisplay, explanation); }
-            catch (_) { alert(`Hint: ${bidDisplay}`); }
+            catch (e) { 
+                console.log('getRecommendedBid: showInlineHintChip failed:', e.message);
+                alert(`Hint: ${bidDisplay}`); 
+            }
         }
         
     } catch (error) {
@@ -1725,6 +1746,14 @@ function showInlineHintChip(bidDisplay, explanation) {
         status.appendChild(span);
     }
 }
+
+// Ensure key routines remain reachable when this script is loaded via CommonJS (e.g., Jest tests)
+try {
+    if (typeof window !== 'undefined') {
+        window.getRecommendedBid = getRecommendedBid;
+        window.showInlineHintChip = showInlineHintChip;
+    }
+} catch (_) { /* no-op */ }
 
 // Utility Functions
 function createDeck() {

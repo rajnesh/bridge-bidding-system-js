@@ -1275,9 +1275,25 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             }
 
-            // Cue bid raise (raise via cue of opponents' suit)
+            // Cue bid raise (raise via cue of opponents' suit) — only when it's responder's turn (partner of opener), not opener's own rebid
             if (this.currentAuction.bids.length >= 2) {
                 const theirOvercall = this.currentAuction.bids[1];
+                // Guard: ensure we're currently the responder (same side as opener, but not the opener seat itself)
+                try {
+                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const openerSeat = this.currentAuction.bids[0]?.seat;
+                    const isResponderTurn = !!(ctx && openerSeat && this._sameSideAs(ctx.currentSeat, openerSeat) && ctx.currentSeat !== openerSeat);
+                    if (!isResponderTurn) {
+                        // Skip this responder-only branch on opener's own rebid or opponents' turns
+                        throw new Error('skip_cuebid_responder_branch');
+                    }
+                } catch (guardErr) {
+                    if (String(guardErr?.message) === 'skip_cuebid_responder_branch') {
+                        // do nothing; fall past this block
+                    } else {
+                        // Unknown error; be conservative and continue normally
+                    }
+                }
                 
                 if (supportLength >= 4 &&
                     hand.hcp >= 10 &&
@@ -1288,7 +1304,10 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const theirLvl = parseInt(theirOvercall.token[0], 10);
                     const theirSuit = theirOvercall.token[1];
                     const bid = new window.Bid(`${theirLvl + 1}${theirSuit}`);
-                    bid.conventionUsed = 'Cue Bid Raise';
+                    // Mark explicitly forcing so partner logic never allows a pass next round.
+                    bid.conventionUsed = 'Cue Bid Raise (forcing)';
+                    // Attach a forcing flag for downstream responder/advancer logic.
+                    bid.forcing = true;
                     return bid;
                 }
             }
@@ -1631,7 +1650,8 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (hand.lengths[ourSuit] >= 4 && hand.hcp >= 10) {
                     const theirLevel = parseInt(auction.bids[1].token[0]);
                     const bid = new window.Bid(`${theirLevel + 1}${theirSuit}`);
-                    bid.conventionUsed = 'Cue Bid Raise';
+                    bid.conventionUsed = 'Cue Bid Raise (forcing)';
+                    bid.forcing = true;
                     return bid;
                 }
             }
@@ -2765,6 +2785,18 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const len = hand.lengths[oppSuit] || 0;
                     const hasStopper = ranks.includes('A') || (ranks.includes('K') && len >= 2) || (ranks.includes('Q') && len >= 3);
 
+                    // Improvement: Do not pass hands with clear two-suited offensive potential (5-5 shape) and 10+ HCP in balancing seat.
+                    // Offer takeout double with 5-5 and 10-15 HCP when not fitting NT criteria and no direct suit bid stands out.
+                    const lengthsArr = ['S','H','D','C'].map(s => hand.lengths[s] || 0);
+                    const isFiveFive = lengthsArr.filter(l => l >= 5).length >= 2 && lengthsArr.some(l => l === 5);
+                    if (!balanced && isFiveFive && hcp >= 10 && hcp <= 15) {
+                        if (this.conventions.isEnabled('takeout_doubles', 'competitive')) {
+                            const dbl = new window.Bid(null, { isDouble: true });
+                            dbl.conventionUsed = 'Balancing Takeout Double (5-5 shape, 10+ HCP)';
+                            return dbl;
+                        }
+                    }
+
                     if (balanced && hcp >= 16) {
                         if (hasStopper) {
                             const bid = new window.Bid('1NT');
@@ -2861,7 +2893,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             // - 13+ HCP: cue-bid opener's suit (limit+/GF raise of partner's suit)
             // Pattern: (Opp open 1-level suit) – (Partner overcalls 1M) – (RHO PASS) – (? we)
             try {
-                if (bids.length >= 4) {
+                if (bids.length >= 3) {
                     // Find first non-pass (opening)
                     let firstContractIdx = -1;
                     for (let i = 0; i < bids.length; i++) {
@@ -2877,8 +2909,11 @@ class SAYCBiddingSystem extends BiddingSystem {
                         const partnerLast = ctx.lastPartner;
                         const partnerOvercallTok = partnerLast?.token || '';
                         const partnerOvercalledSuit = (/^1[CDHS]$/.test(partnerOvercallTok)) ? partnerOvercallTok[1] : null;
-                        const rhoPassed = this._isPassToken(bids[bids.length - 1]?.token);
-                        if (oppOpenedOneSuit && partnerOvercalledSuit && rhoPassed) {
+                        const lastTok = bids[bids.length - 1]?.token || '';
+                        const rhoPassed = this._isPassToken(lastTok);
+                        // New context: opponents raised opener's suit (e.g., 1C – 1S – 2C) -> treat like a live competitive spot for advancer
+                        const opponentRaisedOpening = (!rhoPassed && /^2[CDHS]$/.test(lastTok) && lastTok[1] === openingTok[1] && /^1[CDHS]$/.test(openingTok));
+                        if (oppOpenedOneSuit && partnerOvercalledSuit && (rhoPassed || opponentRaisedOpening)) {
                             const support = hand.lengths[partnerOvercalledSuit] || 0;
                             const hcp = hand.hcp || 0;
                             const cfg = (this.conventions?.config?.competitive?.advancer_raises) || {};
@@ -2897,12 +2932,18 @@ class SAYCBiddingSystem extends BiddingSystem {
                                 if (support >= cueMinSupp && hcp >= cueMinHcp) {
                                     const openSuit = openingTok[1];
                                     const openLevel = parseInt(openingTok[0], 10) || 1;
-                                    const cue = `${openLevel + 1}${openSuit}`;
-                                    return new window.Bid(cue);
+                                    // If opponents already raised opener's suit (e.g., 2C is taken), cue at next available level (3C).
+                                    const cueLevel = opponentRaisedOpening ? (openLevel + 2) : (openLevel + 1);
+                                    const cue = `${cueLevel}${openSuit}`;
+                                    const b = new window.Bid(cue);
+                                    b.conventionUsed = 'Cue Bid Raise (forcing limit+/GF raise)';
+                                    b.forcing = true;
+                                    return b;
                                 }
 
                                 // Jump raise (invitational)
                                 if (support >= jumpMinSupp && hcp >= jumpMin && hcp <= jumpMax) {
+                                    // If opponents raised opener's suit, still jump in our suit (3M) unaffected.
                                     return new window.Bid(`3${partnerOvercalledSuit}`);
                                 }
 

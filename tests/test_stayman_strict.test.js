@@ -97,7 +97,8 @@ describe('Strict Stayman decision matrix', () => {
     system.conventions.config.general = system.conventions.config.general || {};
     system.conventions.config.general.systems_on_over_1nt_interference = {
       stayman: true,
-      transfers: true
+      transfers: true,
+      stolen_bid_double: true
     };
 
     // Auction: 1NT (us) – 2C (them) – ? (our seat is N, opener is N, 2C overcall is E, responder seat S now acts)
