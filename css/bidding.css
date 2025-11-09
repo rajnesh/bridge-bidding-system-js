@@ -1128,22 +1128,34 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 /* =============================
    Play Tab Layout and Cards
    ============================= */
-.play-layout { display: flex; flex-direction: column; align-items: center; gap: 12px; }
-.play-hand { width: 100%; max-width: 1000px; }
-.play-hand .hand-title { text-align: center; font-weight: 700; color: #2c3e50; margin: 6px 0; }
-.cards-row { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; }
-.card-svg { width: 76px; height: 112px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease; }
-.card-svg:hover { transform: translateY(-3px); box-shadow: 0 8px 16px rgba(0,0,0,0.12); }
-.card-svg.selected { outline: 3px solid #E84E4E; outline-offset: -3px; }
-.play-table { width: 100%; display: flex; justify-content: center; }
-.trick-area { min-height: 140px; min-width: 60%; border: 2px dashed #dee2e6; border-radius: 10px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 12px; background: #f8f9fa; color: #6c757d; position: relative; flex-wrap: wrap; }
-.trick-area .trick-hint { position: absolute; top: 8px; left: 12px; font-size: 0.9rem; color: #6c757d; }
+.play-tab { display: flex; flex-direction: column; gap: 20px; height: 100%; padding: 8px 0 20px; }
+.play-topbar { display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
+.play-contract { font-weight: 700; color: #2c3e50; font-size: 1.1rem; }
+.play-status { max-width: 680px; width: 100%; }
+.play-main { display: flex; flex-direction: column; gap: 18px; align-items: center; }
+.play-board { display: flex; flex-direction: column; align-items: center; gap: 20px; width: 100%; max-width: 940px; margin: 0 auto; }
+.play-seat { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
+.play-seat .hand-title { font-weight: 700; color: #2c3e50; text-align: center; }
+.card-button-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.card-button { background: #fff; border: 1px solid #d1d5db; border-radius: 10px; padding: 6px; cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
+.card-button:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
+.card-button:hover { transform: translateY(-3px); box-shadow: 0 10px 18px rgba(0,0,0,0.12); border-color: #2563eb; }
+.card-button[disabled] { cursor: default; opacity: 0.6; transform: none; box-shadow: none; border-color: #d1d5db; }
+.card-svg { width: 72px; height: 108px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); background: #fff; }
+.card-button .card-svg { width: 72px; height: 108px; pointer-events: none; }
+.play-center { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; border: 1px solid #dee2e6; border-radius: 14px; background: #f8f9fa; width: min(620px, 100%); }
+.trick-area { width: 100%; min-height: 150px; border: 2px dashed #cbd5e1; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px; background: #fff; color: #64748b; position: relative; flex-wrap: wrap; }
+.trick-area .trick-hint { position: absolute; top: 10px; left: 14px; font-size: 0.85rem; color: #94a3b8; }
 .trick-card { display: inline-flex; flex-direction: column; align-items: center; gap: 4px; }
-.trick-seat { font-size: 0.8rem; color: #495057; font-weight: 600; }
+.trick-seat { font-size: 0.8rem; color: #475569; font-weight: 600; }
+.play-metrics { display: flex; flex-direction: column; gap: 10px; align-items: center; width: 100%; }
+.trick-counts { display: flex; gap: 16px; font-weight: 600; color: #334155; justify-content: center; flex-wrap: wrap; }
+.play-result { font-weight: 700; color: #1f2937; text-align: center; }
+.play-controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
 
 @media (max-width: 600px) {
-    .card-svg { width: 64px; height: 96px; }
-    .trick-area { min-width: 90%; }
+    .card-button .card-svg { width: 64px; height: 96px; }
+    .play-center { width: 100%; }
 }
 
 /* Play tab status message variants */

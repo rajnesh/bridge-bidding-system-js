@@ -15,7 +15,7 @@ describe('Cue-bid Raises – minor openings and higher-level overcalls', () => {
   });
 
   test('1C (1H) with 4 clubs and 11 HCP -> 2H cue-bid raise', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C'));
     system.currentAuction.add(new Bid('1H'));
 
@@ -26,7 +26,7 @@ describe('Cue-bid Raises – minor openings and higher-level overcalls', () => {
   });
 
   test('1D (2H) with 4 diamonds and 12 HCP -> 3H cue-bid raise', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1D'));
     system.currentAuction.add(new Bid('2H'));
 
@@ -37,7 +37,7 @@ describe('Cue-bid Raises – minor openings and higher-level overcalls', () => {
   });
 
   test('1S (2D) with 4 spades and 10 HCP -> 3D cue-bid raise', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1S'));
     system.currentAuction.add(new Bid('2D'));
 

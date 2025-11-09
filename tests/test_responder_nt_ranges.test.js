@@ -19,7 +19,8 @@ describe('Responder NT ranges over 1M (Jacoby disabled)', () => {
   });
 
   test('10–11 HCP balanced, no 4-card support -> 1NT', () => {
-    system.currentAuction = new Auction();
+  // Dealer N, we are responder (S) — partner is N
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
     system.currentAuction.add(new Bid('1H'));
     // 10 HCP, balanced 4-3-3-3
     const hand = makeHandFromPattern('K32', 'Q32', 'Q32', 'K32'); // 10 HCP
@@ -28,7 +29,8 @@ describe('Responder NT ranges over 1M (Jacoby disabled)', () => {
   });
 
   test('12–14 HCP balanced, no 4-card support -> 2NT', () => {
-    system.currentAuction = new Auction();
+  // Dealer N, we are responder (S) — partner is N
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
     system.currentAuction.add(new Bid('1S'));
     const hand = makeHandFromPattern('KQ2', 'K32', 'Q32', 'Q32'); // 12 HCP, balanced
     const bid = system.getBid(hand);

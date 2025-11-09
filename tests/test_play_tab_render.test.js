@@ -67,7 +67,7 @@ function buildDOM() {
       <div class="play-layout">
         <div class="play-hand" id="playNorthArea">
           <div class="hand-title">North</div>
-          <div id="playNorthHand" class="cards-row"></div>
+          <div id="playNorthHand" class="card-button-row"></div>
         </div>
         <div class="play-table" id="playTableArea">
           <div class="trick-area" id="trickArea"></div>
@@ -76,7 +76,7 @@ function buildDOM() {
         </div>
         <div class="play-hand" id="playSouthArea">
           <div class="hand-title">South</div>
-          <div id="playSouthHand" class="cards-row"></div>
+          <div id="playSouthHand" class="card-button-row"></div>
         </div>
       </div>
     </div>

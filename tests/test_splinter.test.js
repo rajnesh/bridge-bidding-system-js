@@ -19,7 +19,7 @@ describe('Splinter Bid Tests', () => {
     test('4D splinter after 1H opening - singleton diamond', () => {
         // South opens 1H, East has 4+ hearts, 13+ HCP, singleton diamond
         // Diamonds are lower than hearts, so bid at 4-level
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -38,7 +38,7 @@ describe('Splinter Bid Tests', () => {
     test('4C splinter after 1S opening - singleton club', () => {
         // South opens 1S, East has 4+ spades, 13+ HCP, singleton club
         // Clubs are lower than spades, so bid at 4-level
-        const auction = new Auction([new Bid('1S')]);
+    const auction = new Auction([new Bid('1S')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -57,7 +57,7 @@ describe('Splinter Bid Tests', () => {
     test('4C splinter after 1H opening - club lower than hearts', () => {
         // South opens 1H, East has 4+ hearts, 13+ HCP, singleton club
         // Since clubs are lower ranking than hearts, need to bid at 4-level
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -75,7 +75,7 @@ describe('Splinter Bid Tests', () => {
 
     test('4D splinter after 1H opening - diamond lower than hearts', () => {
         // South opens 1H, East has 4+ hearts, 13+ HCP, singleton diamond
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -94,7 +94,7 @@ describe('Splinter Bid Tests', () => {
     test('4H splinter after 1S opening - singleton hearts', () => {
         // South opens 1S, East has 4+ spades, 13+ HCP, singleton heart
         // Hearts are lower than spades, so bid at 4-level
-        const auction = new Auction([new Bid('1S')]);
+    const auction = new Auction([new Bid('1S')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -113,7 +113,7 @@ describe('Splinter Bid Tests', () => {
     test('3S splinter after 1H opening - singleton spades', () => {
         // South opens 1H, East has 4+ hearts, 13+ HCP, singleton spade
         // Spades are higher than hearts, so bid at 3-level
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -132,7 +132,7 @@ describe('Splinter Bid Tests', () => {
     test('void splinter - 4C after 1S opening', () => {
         // South opens 1S, East has 4+ spades, 13+ HCP, void in clubs
         // Clubs are lower than spades, so bid at 4-level
-        const auction = new Auction([new Bid('1S')]);
+    const auction = new Auction([new Bid('1S')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -150,7 +150,7 @@ describe('Splinter Bid Tests', () => {
 
     test('no splinter with insufficient HCP', () => {
         // South opens 1H, East has 4+ hearts but only 10 HCP, singleton diamond
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -168,7 +168,7 @@ describe('Splinter Bid Tests', () => {
 
     test('no splinter with insufficient support', () => {
         // South opens 1H, East has only 3 hearts, 13+ HCP, singleton diamond
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -186,7 +186,7 @@ describe('Splinter Bid Tests', () => {
 
     test('no splinter with no singleton or void', () => {
         // South opens 1H, East has 4+ hearts, 13+ HCP, but no singleton/void
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({
@@ -203,7 +203,7 @@ describe('Splinter Bid Tests', () => {
 
     test('splinter takes priority over Jacoby 2NT when both enabled', () => {
         // Both splinter and Jacoby 2NT are enabled, splinter should take priority
-        const auction = new Auction([new Bid('1H')]);
+    const auction = new Auction([new Bid('1H')], { dealer: 'S', ourSeat: 'E' });
         system.currentAuction = auction;
 
         const hand = makeHandFromRanks({

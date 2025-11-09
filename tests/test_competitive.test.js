@@ -18,15 +18,15 @@ describe('Competitive Bidding Tests', () => {
         
         system.startAuction('N');
 
-        // Single-suited hand
-        system.currentAuction = new Auction();
+        // Single-suited hand (we are defending over 1NT as next seat)
+        system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'E' });
         system.currentAuction.add(new Bid('1NT'));
         let hand = makeTestHand(6, 2, 2, 3, 10);
         let bid = system.getBid(hand);
         expect(bid.token).toBe('2C');
 
         // Both majors
-        system.currentAuction = new Auction();
+    system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'E' });
         system.currentAuction.add(new Bid('1NT'));
         hand = makeTestHand(4, 4, 3, 2, 10);
         bid = system.getBid(hand);
@@ -37,7 +37,7 @@ describe('Competitive Bidding Tests', () => {
         const system = new SAYCBiddingSystem('tests/test_conventions.json');
         system.startAuction('N');
 
-        system.currentAuction = new Auction();
+    system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         system.currentAuction.add(new Bid('1D'));
         system.currentAuction.add(new Bid('1S'));
         system.currentAuction.add(new Bid('1H'));
@@ -51,7 +51,7 @@ describe('Competitive Bidding Tests', () => {
         const system = new SAYCBiddingSystem('tests/test_conventions.json');
         system.startAuction('N');
 
-        system.currentAuction = new Auction();
+    system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         system.currentAuction.add(new Bid('1H'));
         system.currentAuction.add(new Bid('1S'));
 
@@ -64,7 +64,7 @@ describe('Competitive Bidding Tests', () => {
         const system = new SAYCBiddingSystem('tests/test_conventions.json');
         system.startAuction('N');
 
-        system.currentAuction = new Auction();
+    system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         system.currentAuction.add(new Bid('1H'));
         system.currentAuction.add(new Bid(null));
         system.currentAuction.add(new Bid(null));
@@ -78,7 +78,7 @@ describe('Competitive Bidding Tests', () => {
         const system = new SAYCBiddingSystem();
         system.startAuction('N');
 
-        system.currentAuction = new Auction();
+    system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         system.currentAuction.add(new Bid('1H'));
         system.currentAuction.add(new Bid(null, { isDouble: true }));
         system.currentAuction.add(new Bid('2H'));

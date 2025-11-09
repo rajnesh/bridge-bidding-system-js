@@ -12,7 +12,7 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
     const system = new SAYCBiddingSystem();
     // East perspective (we = EW); set favorable (we not vul, they vul)
     system.startAuction('E', false, true);
-  system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
   system.currentAuction.reseat('S');
     // 1H - Pass - 1NT - ?
     system.currentAuction.add(new Bid('1H')); // they open 1H
@@ -35,7 +35,7 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
   test('Delayed natural overcall: equal vulnerability requires 7+; 6-card should not enter', () => {
     const system = new SAYCBiddingSystem();
     system.startAuction('E', false, false); // equal
-  system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
   system.currentAuction.reseat('S');
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid(null));
@@ -51,7 +51,7 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
   test('Delayed natural overcall: equal vulnerability with 7-card suit should enter and explain', () => {
     const system = new SAYCBiddingSystem();
     system.startAuction('E', false, false); // equal
-  system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
   system.currentAuction.reseat('S');
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid(null));

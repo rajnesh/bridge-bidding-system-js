@@ -20,7 +20,7 @@ describe('Unusual NT over minors (enabled)', () => {
   });
 
   test('Over 1C: 5D+5H shape -> 2NT (Unusual)', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C'));
 
     const hand = makeHandFromPattern('32', 'KQJ32', 'KQJ32', '32'); // 5 hearts + 5 diamonds
@@ -29,7 +29,7 @@ describe('Unusual NT over minors (enabled)', () => {
   });
 
   test('Over 1D: 5C+5H shape -> 2NT (Unusual)', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1D'));
 
     const hand = makeHandFromPattern('32', 'KQJ32', '32', 'KQJ32'); // 5 hearts + 5 clubs

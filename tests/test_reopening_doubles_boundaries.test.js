@@ -18,7 +18,7 @@ describe('Reopening Double behavior', () => {
   });
 
   test('With 8+ HCP, short in their suit, and two other suits 3+ -> Double', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1D')); // Opponents open
     system.currentAuction.add(new Bid(null)); // Pass
     system.currentAuction.add(new Bid(null)); // Pass
@@ -30,7 +30,7 @@ describe('Reopening Double behavior', () => {
   });
 
   test('Too few HCP (6) -> no reopening double', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid(null));
     system.currentAuction.add(new Bid(null));
@@ -41,7 +41,7 @@ describe('Reopening Double behavior', () => {
   });
 
   test('Not short in their suit (3 hearts) -> no reopening double', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid(null));
     system.currentAuction.add(new Bid(null));

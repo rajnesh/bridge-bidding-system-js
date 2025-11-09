@@ -19,7 +19,7 @@ describe('Responsive Double boundaries', () => {
   });
 
   test('Allowed at or below thru_level', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C')); // We opened minor
     system.currentAuction.add(new Bid('X', { isDouble: true })); // They double
     system.currentAuction.add(new Bid('2C')); // Partner raises
@@ -30,7 +30,7 @@ describe('Responsive Double boundaries', () => {
   });
 
   test('Disallowed beyond thru_level', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C'));
     system.currentAuction.add(new Bid('X', { isDouble: true }));
     system.currentAuction.add(new Bid('3C')); // Beyond thru_level

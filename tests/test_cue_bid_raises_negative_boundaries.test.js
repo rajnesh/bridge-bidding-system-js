@@ -15,7 +15,7 @@ describe('Cue-bid Raises – negative and boundary cases', () => {
   });
 
   test('1H (1S) with 4 hearts but 9 HCP -> do not cue-bid raise', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('1S'));
     const hand = makeTestHand(2, 4, 4, 3, 9);
@@ -24,7 +24,7 @@ describe('Cue-bid Raises – negative and boundary cases', () => {
   });
 
   test('1S (1NT) opponent overcall not at suit level -> not treated as cue-bid raise', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1S'));
     system.currentAuction.add(new Bid('1NT'));
 
@@ -35,7 +35,7 @@ describe('Cue-bid Raises – negative and boundary cases', () => {
   });
 
   test('1H (2S) with only 3 hearts and 12 HCP -> no cue-bid raise to 3S', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('2S'));
 

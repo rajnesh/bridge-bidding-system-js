@@ -18,7 +18,7 @@ describe('Support Double boundaries', () => {
   });
 
   test('Applies when overcall is at or below 2S', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H')); // We opened a major
     system.currentAuction.add(new Bid('1D')); // They overcall at 1-level
     system.currentAuction.add(new Bid('1S')); // Partner bids a new suit at 1-level
@@ -29,7 +29,7 @@ describe('Support Double boundaries', () => {
   });
 
   test('Does not apply beyond 2S (e.g., 3C overcall)', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('3C')); // Overcall beyond thru
     system.currentAuction.add(new Bid('1S'));

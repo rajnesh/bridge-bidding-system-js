@@ -4525,20 +4525,33 @@ function renderHandCards(containerId, seat) {
         const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
         cards.forEach(c => {
             const code = `${c.rank}${s}`;
-            const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
-            if (el) {
-                el.dataset.code = code;
-                el.dataset.seat = seat;
-                el.addEventListener('click', onCardClick);
-                container.appendChild(wrapCardWithSeat(el));
+            const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 72, height: 108 }) : null;
+            if (svgEl) {
+                const button = wrapCardWithSeat(svgEl, code, seat);
+                if (button) {
+                    container.appendChild(button);
+                }
             }
         });
     });
 }
 
-function wrapCardWithSeat(svgEl) {
-    // For hand rows, we don’t need seat labels; just return svg
-    return svgEl;
+function wrapCardWithSeat(svgEl, code, seat) {
+    if (!svgEl) return null;
+    try {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'card-button';
+        btn.dataset.code = code;
+        btn.dataset.seat = seat;
+        btn.addEventListener('click', onCardClick);
+        svgEl.dataset.code = code;
+        svgEl.dataset.seat = seat;
+        btn.appendChild(svgEl);
+        return btn;
+    } catch (_) {
+        return svgEl;
+    }
 }
 
 function onCardClick(ev) {
@@ -4559,7 +4572,7 @@ function onCardClick(ev) {
         }
 
         // Remove from hand UI
-        try { el.removeEventListener('click', onCardClick); } catch(_) {}
+    try { el.removeEventListener('click', onCardClick); } catch(_) {}
         try { el.parentElement?.removeChild(el); } catch(_) {}
 
     // Remove from underlying hand state
@@ -4948,12 +4961,12 @@ function returnCodeToHand(seat, code) {
         if (containerId) {
             const container = document.getElementById(containerId);
             if (container) {
-                const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
-                if (el) {
-                    el.dataset.code = code;
-                    el.dataset.seat = seat;
-                    el.addEventListener('click', onCardClick);
-                    container.appendChild(el);
+                const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 72, height: 108 }) : null;
+                if (svgEl) {
+                    const button = wrapCardWithSeat(svgEl, code, seat);
+                    if (button) {
+                        container.appendChild(button);
+                    }
                 }
             }
         }

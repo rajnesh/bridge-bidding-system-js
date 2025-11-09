@@ -7,20 +7,8 @@
 // Constants
 const SUITS = ['C', 'D', 'H', 'S'];
 
-// Debug helper: gate verbose logs with the DEBUG_SAYC env var.
-const SAYC_DEBUG = !!(typeof process !== 'undefined' && process.env && process.env.DEBUG_SAYC);
-function SAYC_dbg() {
-    if (!SAYC_DEBUG) return;
-    /* eslint-disable-next-line no-console */
-    console.log.apply(console, arguments);
-}
-// Very verbose debug gated separately so we can enable only the micro-logging
-const SAYC_DEBUG_VERBOSE = !!(typeof process !== 'undefined' && process.env && process.env.DEBUG_SAYC_VERBOSE);
-function SAYC_dbg_verbose() {
-    if (!SAYC_DEBUG_VERBOSE) return;
-    /* eslint-disable-next-line no-console */
-    console.log.apply(console, arguments);
-}
+// Debug helpers removed: debug call-sites have been deleted across the file to keep code clean
+// (Previously these were no-op functions; left removed to avoid clutter.)
 
 // Environment bridge: ensure window-like object exists and has required classes when under Node
 // This keeps the rest of the code using window.* unchanged.
@@ -703,7 +691,7 @@ class BiddingSystem {
             throw new Error('Auction not started');
         }
 
-        try { SAYC_dbg('CHK cp1 getBid entry - bidsLen=', this.currentAuction?.bids?.length, 'dealer=', this.currentAuction?.dealer, 'ourSeat=', this.currentAuction?.ourSeat); } catch(_) {}
+    try { /* debug removed: CHK cp1 entry log suppressed */ } catch(_) {}
 
         // Opening bid
         if (this._isOpeningBid()) {
@@ -789,6 +777,118 @@ class SAYCBiddingSystem extends BiddingSystem {
             return true;
         } catch (_) {
             return true; // be permissive on helper failures to avoid blocking UI
+        }
+    }
+
+    /**
+     * Internal legality guard moved into the class body for clarity.
+     * Returns the original bid when legal, or a PASS Bid when the proposed action is illegal
+     * (or downgraded cases such as a contract not higher than the last contract).
+     */
+    _ensureLegal(bid) {
+        try {
+            if (!bid || !this?.currentAuction) return bid;
+            const auction = this.currentAuction;
+            const bids = Array.isArray(auction?.bids) ? auction.bids : [];
+            const lastContract = (typeof auction.lastContract === 'function') ? auction.lastContract() : null;
+            const lastContractIdx = (function(){
+                for (let i = bids.length - 1; i >= 0; i--) {
+                    const t = bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) return i;
+                }
+                return -1;
+            })();
+
+            // Compute current seat and side helpers when dealer is known
+            const order = window.Auction?.TURN_ORDER || ['N','E','S','W'];
+            const dealer = auction?.dealer || null;
+            const ourSeat = auction?.ourSeat || this?.ourSeat || null;
+            const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + bids.length) % 4] : null;
+            const seatSide = (s) => (s && ['N','S'].includes(s)) ? 'NS' : (s && ['E','W'].includes(s) ? 'EW' : null);
+            const sameSide = (a,b) => !!a && !!b && seatSide(a) === seatSide(b);
+
+            // Handle Double/Redouble legality first
+            if (bid.isDouble || bid.isRedouble) {
+                // Must have a last contract to act on
+                if (!lastContract || lastContractIdx === -1) return new window.Bid('PASS');
+                // Examine actions since last contract
+                const since = bids.slice(lastContractIdx + 1).filter(x => x && (x.isDouble || x.isRedouble || (x.token && x.token !== 'PASS')));
+                const lastAction = since.length ? since[since.length - 1] : null;
+
+                // Identify last contract seat/side and current actor side
+                const lastContractSeat = bids[lastContractIdx]?.seat || null;
+                const lastContractSide = seatSide(lastContractSeat);
+                const actorSeat = currentSeat;
+                const actorSide = seatSide(actorSeat);
+                if (!lastContractSide || !actorSide) {
+                    // Seat context missing: fall back to token-based legality so tests without seats still work.
+                    // Allow Double only if there has been no X/XX since the last contract.
+                    // Allow Redouble only if the last non-pass action since the last contract is a Double.
+                    const sincePlain = bids.slice(lastContractIdx + 1);
+                    const lastNonPass = (function(){
+                        for (let i = sincePlain.length - 1; i >= 0; i--) {
+                            const x = sincePlain[i];
+                            if (!x) continue;
+                            if (x.isDouble || x.isRedouble) return x;
+                            const t = x.token;
+                            if (t && t !== 'PASS') return x;
+                        }
+                        return null;
+                    })();
+                    const anyXSince = sincePlain.some(x => x && (x.isDouble || x.isRedouble));
+                    if (bid.isDouble) {
+                        return anyXSince ? new window.Bid('PASS') : bid;
+                    }
+                    if (bid.isRedouble) {
+                        return (lastNonPass && lastNonPass.isDouble) ? bid : new window.Bid('PASS');
+                    }
+                    // Fallback — should not reach here
+                    return bid;
+                }
+
+                if (bid.isDouble) {
+                    // Double allowed only if opponents made the last contract and there is no X/XX since then
+                    const opponents = !sameSide(actorSeat, lastContractSeat);
+                    const alreadyX = !!lastAction && (lastAction.isDouble || lastAction.isRedouble);
+                    if (!opponents || alreadyX) return new window.Bid('PASS');
+                    return bid;
+                }
+
+                if (bid.isRedouble) {
+                    // Redouble allowed only if last non-pass action is a Double of our side's contract
+                    if (!lastAction || !lastAction.isDouble) return new window.Bid('PASS');
+                    // lastAction doubled the contract side; redouble must be by the side that was doubled
+                    // i.e., same side as last contract's bidder
+                    if (!sameSide(actorSeat, lastContractSeat)) return new window.Bid('PASS');
+                    return bid;
+                }
+            }
+
+            // Contract bids: ensure strictly higher than last contract
+            const tok = bid.token;
+            if (!tok || !/^[1-7](C|D|H|S|NT)$/.test(tok)) return bid; // PASS or non-contract after handling X/XX
+            if (!lastContract) return bid; // opening bids always legal
+            const suitOrder = ['C','D','H','S','NT'];
+            const parseLevel = (tokx) => { try { return parseInt(tokx[0], 10) || null; } catch(_) { return null; } };
+            const parseSuit = (tokx) => { try { return tokx.slice(1); } catch(_) { return null; } };
+            const higherThan = (aTok, bTok) => {
+                if (!aTok || !bTok) return true;
+                const la = parseLevel(aTok), lb = parseLevel(bTok);
+                const sa = parseSuit(aTok), sb = parseSuit(bTok);
+                if (la === null || lb === null || !sa || !sb) return true; // be permissive on parse failure
+                if (la > lb) return true;
+                if (la < lb) return false;
+                // same level: suit rank must be higher
+                const ra = suitOrder.indexOf(sa), rb = suitOrder.indexOf(sb);
+                if (ra === -1 || rb === -1) return true;
+                return ra > rb;
+            };
+            if (!higherThan(tok, lastContract)) {
+                return new window.Bid('PASS');
+            }
+            return bid;
+        } catch (_) {
+            return bid;
         }
     }
 
@@ -957,7 +1057,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             // 5+ card major
             if (hand.lengths['S'] >= hand.lengths['H'] && hand.lengths['S'] >= 5) {
                 // eslint-disable-next-line no-console
-                SAYC_dbg('DEBUG: opening 1S (5+ spades)');
+                // debug removed: opening 1S log suppressed
                 return new window.Bid('1S');
             }
             if (hand.lengths['H'] >= 5) {
@@ -975,12 +1075,12 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (exactlyThirdSeat) {
                     if (hand.lengths['S'] === 4 && hand.lengths['H'] === 4) {
                         // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: opening 1S (4-4 tie on third seat)');
+                        // debug removed: opening 1S (4-4 tie) log suppressed
                         return new window.Bid('1S');
                     }
                     if (hand.lengths['S'] === 4) {
                         // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: opening 1S (4-card spade opening allowed in third seat)');
+                        // debug removed: opening 1S (third seat) log suppressed
                         return new window.Bid('1S');
                     }
                     if (hand.lengths['H'] === 4) {
@@ -1154,9 +1254,9 @@ class SAYCBiddingSystem extends BiddingSystem {
             const auction = this.currentAuction;
             if (auction && Array.isArray(auction.bids) && auction.bids.length === 3) {
                 const b0 = auction.bids[0]?.token || '';
-                const b1 = auction.bids[1]?.token || '';
+                const b1raw = auction.bids[1] ? auction.bids[1].token : undefined;
                 const b2 = auction.bids[2]?.token || '';
-                if (/^1[CDHS]$/.test(b0) && this._isPassToken(b1) && b2 === '1NT') {
+                if (/^1[CDHS]$/.test(b0) && this._isPassToken(b1raw) && b2 === '1NT') {
                     const oppSuitOpening = b0[1];
                     const totalPoints = (hand.hcp || 0) + (hand.distributionPoints || 0 || 0);
                     let vulState = 'equal';
@@ -1178,7 +1278,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     }
                 }
             }
-        } catch (err) { SAYC_dbg('ERR delayed overcall check', err && err.stack); /* be conservative on failure */ }
+    } catch (err) { /* debug removed: delayed overcall error log suppressed */ }
         const totalPoints = hand.hcp + hand.distributionPoints;
 
         // Responses to Weak Two openings (2D/2H/2S)
@@ -1653,8 +1753,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (suit !== openerSuit && hand.lengths[suit] >= 5) {
                     // 1-level new suit requires only 6+ points when legal
                     if (suit > openerSuit) {
-                        // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: _handleInterference considering 1-level new suit', suit, 'over', openerSuit, 'hcp', hand.hcp);
+                        // debug removed: consider 1-level new suit log suppressed
                         return new window.Bid(`1${suit}`);
                     }
                     // 2-level new suit requires constructive values. Allow when HCP>=13
@@ -1666,8 +1765,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const ourLen = hand.lengths[suit] || 0;
                     const extremeShape = (openerLen <= 1) || (ourLen >= 6);
                     if (hand.hcp >= 13 || (totalPts >= 11 && (extremeShape || (opening === '1H' && suit === 'D')))) {
-                        // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: _handleInterference choosing 2-level natural', suit, { hcp: hand.hcp, totalPts });
+                        // debug removed: choosing 2-level natural log suppressed
                         return new window.Bid(`2${suit}`);
                     }
                     // Free bid style over interference: allow with 10+ total points and a strong long suit
@@ -1761,23 +1859,10 @@ class SAYCBiddingSystem extends BiddingSystem {
      * Handle opponent's interference according to SAYC guidelines (complete implementation).
      */
     _handleInterference(auction, hand) {
-        // DEBUG: trace specific failing test scenario
-        try {
-            if (Array.isArray(auction?.bids) && auction.bids.length === 1 && auction.bids[0]?.token === '1H' && (hand.hcp || 0) === 12 && (hand.lengths?.['D'] || 0) === 5) {
-                // eslint-disable-next-line no-console
-                SAYC_dbg('DEBUG: _handleInterference invoked for 1H opening with responder 12 HCP 5D');
-            }
-        } catch (_) {}
+        // debug removed: targeted failing-scenario trace suppressed
         if (!auction.bids || auction.bids.length === 0) return null;
 
-        // Additional TRACE for specific failing test
-        try {
-            const lb = auction.bids[auction.bids.length - 1];
-            if (Array.isArray(auction.bids) && auction.bids.length === 1 && lb && lb.token === '1H' && (hand.hcp || 0) === 12) {
-                // eslint-disable-next-line no-console
-                SAYC_dbg('TRACE: entering _handleInterference; lastBid=', lb.token, 'hand=', hand.lengths, 'hcp=', hand.hcp);
-            }
-        } catch (_) {}
+        // debug removed: entering _handleInterference trace suppressed
 
         // If responder (abbreviated auction) looks like a splinter candidate, avoid
         // choosing a natural 2-level overcall here; let the responder branch consider
@@ -1796,7 +1881,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // Any singleton/void in other suits?
                     const hasShort = SUITS.some(s => s !== openerSuit && ((hand.lengths[s] || 0) <= maxShort));
                     if (hasShort) {
-                        SAYC_dbg('DEBUG: _handleInterference suppressed due to splinter candidate', { openerTok, supportLen, hcp: hand.hcp, splCfg });
+                        // debug removed: suppression detail suppressed
                         // Return null to allow responder flow (splinter) to proceed
                         return null;
                     }
@@ -1812,10 +1897,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // a Michaels-style hand and should not be forced into a natural 2D overcall.
                 const otherFive = SUITS.filter(s => s !== 'D' && (hand.lengths?.[s] || 0) >= 5);
                 const hasMajorOtherFive = otherFive.some(s => s === 'S' || s === 'H');
-                if (!hasMajorOtherFive) {
-                    // eslint-disable-next-line no-console
-                    SAYC_dbg('DEBUG: override in _handleInterference - prefer natural 2D for 1H opening with 5D and 12+ HCP');
-                    return new window.Bid('2D');
+                    if (!hasMajorOtherFive) {
+                        // debug removed: override detail suppressed
+                        return new window.Bid('2D');
                 }
             }
         } catch (_) {}
@@ -2065,14 +2149,14 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (/^1[CDHS]$/.test(b0) && this._isPassToken(auction.bids[1]?.token) && b2 === '1NT') {
                     const oppSuitOpening = b0[1];
                     const totalPoints = (hand.hcp || 0) + (hand.distributionPoints || 0);
-                    SAYC_dbg('DEBUG delayed overcall check:', { b0, b1, b2, oppSuitOpening, totalPoints });
+                    /* debug removed */
                     // Vulnerability context for threshold
                     const vulState = this.vulnerability ? (this.vulnerability.we && !this.vulnerability.they ? 'unfav' : (!this.vulnerability.we && this.vulnerability.they ? 'fav' : 'equal')) : 'equal';
                     const minLen = (vulState === 'fav') ? 6 : 7;
                     // Prefer majors, then longest other suit; never cue-bid here
                     const candOrder = ['S','H','D','C'].filter(s => s !== oppSuitOpening);
                     const best = candOrder.find(s => (hand.lengths[s] || 0) >= minLen);
-                    SAYC_dbg('DEBUG delayed overcall thresholds:', { vulState, minLen, candOrder, best, lengths: hand.lengths });
+                    /* debug removed */
                     if (best) {
                         // Require decent playing strength to enter at the 2-level over 1NT
                         const minTP = 11; // e.g., 9 HCP + 2 DP or better
@@ -2168,10 +2252,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                             const adj = this.conventions.adjustForVulnerability('overcall', this.vulnerability);
                             minHcp = Math.max(0, minHcp + (adj?.minAdjust || 0));
                         }
-                        if (hand.hcp >= minHcp) {
-                            // eslint-disable-next-line no-console
-                            SAYC_dbg('DEBUG: _handleInterference simple 1-level overcall', suit, 'oppSuit', oppSuit, 'hcp', hand.hcp);
-                            return new window.Bid(`1${suit}`);
+                            if (hand.hcp >= minHcp) {
+                                // debug removed: simple 1-level overcall log suppressed
+                                return new window.Bid(`1${suit}`);
                         }
                     }
                 }
@@ -2255,7 +2338,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                         b.conventionUsed = base;
                     }
                 } catch(_) { b.conventionUsed = 'Takeout Double'; }
-                SAYC_dbg('DBG choose classic takeout double', { hcp: hand.hcp, dist: hand.distributionPoints, threeCardSuits, convention: b.conventionUsed });
+                /* debug removed */
                 return b;
             }
 
@@ -2293,7 +2376,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     if (otherSuitsWith2 >= 2 && !hasNaturalTwoCandidate && totalPtsRelax >= 11) {
                         const b = new window.Bid(null, { isDouble: true });
                         b.conventionUsed = 'Takeout Double (relaxed thresholds)';
-                        SAYC_dbg('DBG choose relaxed takeout double', { hcp: hand.hcp, dist: hand.distributionPoints, otherSuitsWith2, convention: b.conventionUsed });
+                        /* debug removed */
                         return b;
                     }
                 }
@@ -2334,13 +2417,13 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // takeout double instead — this matches the relaxed-takeout expectations in the tests.
                     if ((hand.hcp >= 12 && len >= 5) && hand.hcp >= minHcp && threeCardOthersAgain < 2) {
                         // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: natural 2-level path (prefer natural over double):', { suit, len, hcp: hand.hcp, minHcp, classicTakeout, relaxedTakeout, threeCardOthersAgain, preferNaturalTwoLevel });
+                        /* debug removed */
                         return new window.Bid(`2${suit}`);
                     }
                     // Only allow 2-level overcall in more marginal cases when no takeout double is preferred
                     if (!classicTakeout && !relaxedTakeout && hand.hcp >= minHcp && len >= 5) {
                         // eslint-disable-next-line no-console
-                        SAYC_dbg('DEBUG: natural 2-level fallback path:', { suit, len, hcp: hand.hcp, minHcp, classicTakeout, relaxedTakeout, preferNaturalTwoLevel, threeCardOthersAgain });
+                        /* debug removed */
                         return new window.Bid(`2${suit}`);
                     }
                 }
@@ -2609,12 +2692,12 @@ class SAYCBiddingSystem extends BiddingSystem {
         // Opening bid
         if (this._isOpeningBid()) {
             const bid = this._getOpeningBid(hand);
-            try { SAYC_dbg('CHK cp2 opening-branch - bid=', bid && (bid.token || (bid.isDouble?'X':''))); } catch(_) {}
+        try { /* debug removed: CHK cp2 opening-branch log suppressed */ } catch(_) {}
             return bid || new window.Bid('PASS');
         }
 
     // Single-bid auctions
-    try { SAYC_dbg('CHK cp3 before-single-bid-handling'); } catch(_) {}
+    try { /* debug removed: CHK cp3 single-bid handling log suppressed */ } catch(_) {}
     if (this.currentAuction.bids.length === 1) {
             // Upstream early-splinter detection: run before interference/overcall
             // handlers so abbreviated single-opener tests pick up Splinter bids
@@ -2625,13 +2708,13 @@ class SAYCBiddingSystem extends BiddingSystem {
                 const splMinHEarly = splCfgEarly.min_hcp || 13;
                 const splMinSupEarly = splCfgEarly.min_support || 4;
                 const maxShortEarly = splCfgEarly.max_shortness || 1;
-                SAYC_dbg('DBG: early-splinter-early-guards-eval', { openerTokEarly, splEnabledEarly, hcp: hand.hcp, splMinHEarly });
+                /* debug removed */
                 if (/^1[HS]$/.test(openerTokEarly) && splEnabledEarly && (hand.hcp || 0) >= splMinHEarly) {
                     const openerSuitEarly = openerTokEarly[1];
                     const supportLenEarly = hand.lengths[openerSuitEarly] || 0;
                     const hasShortEarly = SUITS.some(s => s !== openerSuitEarly && ((hand.lengths[s] || 0) <= maxShortEarly));
                     if (supportLenEarly >= splMinSupEarly && hasShortEarly) {
-                        SAYC_dbg_verbose('DBG: early-splinter-early-check', { openerTokEarly, supportLenEarly, hcp: hand.hcp, splCfgEarly });
+                        /* debug removed */
                         const suitOrder = ['C','D','H','S'];
                         const openerIdx = suitOrder.indexOf(openerSuitEarly);
                         for (const s2 of suitOrder) {
@@ -2642,7 +2725,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                                 const bidTok = `${level}${s2}`;
                                 const nb = new window.Bid(bidTok);
                                 nb.conventionUsed = 'Splinter Bid';
-                                SAYC_dbg_verbose('DBG: early-splinter-early-return', { bidTok, openerTokEarly, supportLenEarly, hcp: hand.hcp });
+                                /* debug removed */
                                 return nb;
                             }
                         }
@@ -2661,52 +2744,8 @@ class SAYCBiddingSystem extends BiddingSystem {
                 lastSide = null;
             }
 
-            // If auction provides dealer and ourSeat is the NEXT to act after the opener,
-            // treat this as responder even if lastSide() suggests otherwise (tests often
-            // construct abbreviated auctions where ourSeat refers to the next-to-act seat).
-            try {
-                const dealer = this.currentAuction.dealer;
-                const ourSeatEff = this.currentAuction.ourSeat || this.ourSeat || null;
-                if (dealer && ourSeatEff) {
-                    const order = window.Auction.TURN_ORDER || ['N','E','S','W'];
-                    const nextSeat = order[(order.indexOf(dealer) + 1) % 4];
-                    SAYC_dbg('DBG: single-bid nextSeat check', { dealer, nextSeat, ourSeatEff, lastSide });
-                    if (ourSeatEff === nextSeat) {
-                        lastSide = 'we';
-                        SAYC_dbg('DBG: single-bid override - treating as responder (lastSide=we)', { ourSeatEff, nextSeat });
-                    }
-                }
-            } catch (_) { /* non-critical */ }
-            // If the auction is abbreviated (only the opener present) and the test provided
-            // an explicit ourSeat, assume that ourSeat refers to the current to-act position
-            // (responder) and force responder semantics. This mirrors how tests construct
-            // simplified auctions and prevents overcall logic from running first.
-            try {
-                if (this.currentAuction.bids.length === 1 && (this.currentAuction.ourSeat || this.ourSeat)) {
-                    SAYC_dbg('DBG: forcing single-bid lastSide=we because ourSeat present', { ourSeat: this.currentAuction.ourSeat || this.ourSeat });
-                    lastSide = 'we';
-                }
-            } catch (_) { /* non-critical */ }
-
-            // Abbreviated-auction helper: when only the opening bid is present and the test
-            // has provided auction.ourSeat as the opener's partner, prefer treating the
-            // context as responder (our side). This matches how many tests construct
-            // simplified auctions for the responder and avoids requiring full rotation.
-            try {
-                if (this.currentAuction.bids.length === 1) {
-                    const openerSeat = this.currentAuction.bids[0]?.seat;
-                    if (openerSeat && this.currentAuction.ourSeat) {
-                        const order = window.Auction.TURN_ORDER || ['N','E','S','W'];
-                        const partnerSeat = order[(order.indexOf(openerSeat) + 2) % 4];
-                        if (this.currentAuction.ourSeat === partnerSeat) {
-                            // Force responder interpretation for abbreviated auctions where tests
-                            // set auction.ourSeat to the opener's partner but omit the intervening
-                            // rotation/passes. This mirrors the explanation helper behavior.
-                            lastSide = 'we';
-                        }
-                    }
-                }
-            } catch (_) { /* non-critical */ }
+            // Legacy seatless/abbreviated-auction fallbacks removed: rely on explicit
+            // auction seat/dealer information and normal lastSide() semantics.
 
             // 1NT opening
             if (opening === '1NT') {
@@ -2736,42 +2775,35 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const splMinH = splCfg.min_hcp || 13;
                     const splMinSup = splCfg.min_support || 4;
                     // Diagnostic entry
-                    SAYC_dbg_verbose('DBG: early-splinter-check entering', { openingSuit: suit, support: hand.lengths[suit], hcp: hand.hcp, splCfg, splEnabled });
+                    /* debug removed */
                     if (['H','S'].includes(suit) && splEnabled) {
                         const supportLen = hand.lengths[suit] || 0;
                         // Micro-logging of each guard so failing tests show which condition failed
-                        SAYC_dbg_verbose('DBG: early-splinter-guards', {
-                            isMajor: ['H','S'].includes(suit),
-                            enabled: !!this.conventions?.isEnabled('splinter_bids', 'responses'),
-                            supportLen,
-                            requiredSupport: splMinSup,
-                            hcp: hand.hcp || 0,
-                            requiredHcp: splMinH
-                        });
+                        /* debug removed */
 
                         if (supportLen >= splMinSup && (hand.hcp || 0) >= splMinH) {
                             const suitOrder = ['C','D','H','S'];
                             const openerSuitIndex = suitOrder.indexOf(suit);
                             for (const s2 of suitOrder) {
                                 const shortness = (hand.lengths[s2] || 0);
-                                SAYC_dbg_verbose('DBG: early-splinter candidate', { candidate: s2, shortness, max_shortness: splCfg.max_shortness || 1 });
+                                /* debug removed */
                                 if (s2 !== suit && shortness <= (splCfg.max_shortness || 1)) {
                                     const idx = suitOrder.indexOf(s2);
                                     const level = (idx > openerSuitIndex) ? 3 : 4;
                                     const bidTok = `${level}${s2}`;
                                     const b = new window.Bid(bidTok);
                                     b.conventionUsed = 'Splinter Bid';
-                                    SAYC_dbg_verbose('DBG: early-splinter-returning', { bid: bidTok, supportLen, hcp: hand.hcp });
+                                    /* debug removed */
                                     return b;
                                 }
                             }
                         } else {
-                            SAYC_dbg_verbose('DBG: early-splinter-check failed guards', { supportLen: hand.lengths[suit], splMinSup, hcp: hand.hcp, splMinH });
+                            /* debug removed */
                         }
                     } else {
-                        SAYC_dbg_verbose('DBG: early-splinter-not-enabled or suit not major', { suit, enabled: !!this.conventions?.isEnabled('splinter_bids', 'responses') });
+                        /* debug removed */
                     }
-                } catch (err) { SAYC_dbg('DBG: early-splinter-exception', err); /* non-critical */ }
+                } catch (err) { /* debug removed: early-splinter exception suppressed */ }
 
                 // Jacoby situation - respond to partner
                 if (lastSide === 'we' ||
@@ -2808,7 +2840,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                             const supportLen = hand.lengths[openerSuit] || 0;
                             const hasShort = SUITS.some(s => s !== openerSuit && ((hand.lengths[s] || 0) <= maxShort));
                             if (supportLen >= splMinSup && hasShort) {
-                                SAYC_dbg('DBG: single-bid interference suppressed -> allow responder flow for splinter candidate', { openerTok, supportLen, hcp: hand.hcp });
+                                /* debug removed */
                                 // fall through to responder handling (do not return PASS)
                             } else {
                                 return new window.Bid('PASS');
@@ -2835,11 +2867,11 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         }
         else {
-            try { SAYC_dbg('CHK cp4 enter-multi-bid-branch'); } catch(_) {}
+            try { /* debug removed: CHK cp4 multi-bid branch log suppressed */ } catch(_) {}
             // Multi-bid auctions - if last bid was by opponents, prefer interference handling first (e.g., negative doubles)
             let lastSide = null;
             try { lastSide = this.currentAuction.lastSide(); } catch (_) { lastSide = null; }
-            SAYC_dbg('DBG multi-bid branch - lastSide=', lastSide, 'auctionTokens=', (this.currentAuction?.bids||[]).map(b=>b?.token||(b?.isDouble?'X':b?.isRedouble?'XX':'PASS')) );
+            /* debug removed */
 
             // Early hook: explicit Support Double pattern 1x – (1/2y) – 1z
             // Run this before other responder/opener logic to avoid being bypassed in seatless contexts
@@ -2913,10 +2945,10 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // why the main flow might skip the drury handler in some test cases.
                 let preCtx = null;
                 try { preCtx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null; } catch(_) { preCtx = null; }
-                try { SAYC_dbg('DBG pre-Drury check - dealer=', this.currentAuction?.dealer, 'ourSeat=', this.currentAuction?.ourSeat, 'auctionTokens=', (this.currentAuction?.bids||[]).map(b=>b?.token||(b?.isDouble?'X':b?.isRedouble?'XX':'PASS')), 'preCtx=', preCtx); } catch(_) {}
+                /* debug removed */
 
                 const druryRebid = this._handleDruryOpenerRebid(this.currentAuction, hand);
-                try { SAYC_dbg('DBG post-Drury check - druryRebid=', druryRebid && (druryRebid.token || (druryRebid.isDouble?'X':druryRebid.isRedouble?'XX':'')), 'druryConvn=', druryRebid && druryRebid.conventionUsed); } catch(_) {}
+                /* debug removed */
                 if (druryRebid && (druryRebid.token || druryRebid.isDouble || druryRebid.isRedouble)) {
                     return druryRebid;
                 }
@@ -2946,7 +2978,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         const aceAskingResponse = this._handleAceAsking(this.currentAuction, hand);
         if (aceAskingResponse) return aceAskingResponse;
 
-        try { SAYC_dbg('CHK cp5 about-to-final-pass'); } catch(_) {}
+    /* debug removed */
         return new window.Bid('PASS'); // Pass
     }
 
@@ -2965,7 +2997,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
             if (druryIdx === -1) return null;
             const druryBid = bids[druryIdx];
-            SAYC_dbg('DBG _handleDruryOpenerRebid invoked - druryIdx=', druryIdx, 'druryBid=', druryBid && druryBid.token, 'current hand hcp=', hand?.hcp, 'lengths=', hand?.lengths);
+            /* debug removed */
             if (!druryBid || druryBid.token !== '2C') return null;
 
             const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
@@ -3009,14 +3041,14 @@ class SAYCBiddingSystem extends BiddingSystem {
             if (hasExtras) {
                 const bid = new window.Bid(`2${suit}`);
                 bid.conventionUsed = 'Drury response (sound opening confirmed)';
-                SAYC_dbg('DBG _handleDruryOpenerRebid chooses 2'+suit, { hcp: hand.hcp, ruleScore });
+                /* debug removed */
                 return bid;
             }
 
             // Minimum opening: rebid 2D per Drury agreement
             const minBid = new window.Bid('2D');
             minBid.conventionUsed = 'Drury response (minimum opening)';
-            SAYC_dbg('DBG _handleDruryOpenerRebid chooses 2D (minimum)', { hcp: hand.hcp, ruleScore });
+            /* debug removed */
             return minBid;
         } catch (_) {
             return null;
@@ -3243,7 +3275,7 @@ class SAYCBiddingSystem extends BiddingSystem {
     getBid(hand) {
     if (!this.currentAuction) throw new Error('Auction not started');
 
-        try { SAYC_dbg('CHK2 cp1 SAYC.getBid entry - bidsLen=', this.currentAuction?.bids?.length, 'dealer=', this.currentAuction?.dealer, 'ourSeat=', this.currentAuction?.ourSeat); } catch(_) {}
+    /* debug removed */
 
         const bids = this.currentAuction.bids;
 
@@ -3251,7 +3283,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         if (bids.length === 0 || (bids.length < 4 && bids.every(b => this._isPassToken(b.token)))) {
             const ob = this._getOpeningBid(hand);
             if (ob) return ob;
-            try { SAYC_dbg('CHK2 cp2 after-opening-block (no opening bid returned)'); } catch(_) {}
+            /* debug removed */
         }
 
         // Upstream early-splinter detection for abbreviated single-opener tests.
@@ -3266,12 +3298,12 @@ class SAYCBiddingSystem extends BiddingSystem {
                 const splMinHEarly = splCfgEarly.min_hcp || 13;
                 const splMinSupEarly = splCfgEarly.min_support || 4;
                 const maxShortEarly = splCfgEarly.max_shortness || 1;
-                SAYC_dbg_verbose('DBG: SAYC.orig early-splinter-guards-eval', { openerTokEarly, splEnabledEarly, hcp: hand.hcp, splMinHEarly });
+                /* debug removed */
                 if (/^1[HS]$/.test(openerTokEarly) && splEnabledEarly && (hand.hcp || 0) >= splMinHEarly) {
                     const openerSuitEarly = openerTokEarly[1];
                     const supportLenEarly = hand.lengths[openerSuitEarly] || 0;
                     const hasShortEarly = SUITS.some(s => s !== openerSuitEarly && ((hand.lengths[s] || 0) <= maxShortEarly));
-                    SAYC_dbg_verbose('DBG: SAYC.orig early-splinter-support-check', { openerSuitEarly, supportLenEarly, hasShortEarly });
+                    /* debug removed */
                     if (supportLenEarly >= splMinSupEarly && hasShortEarly) {
                         const suitOrder = ['C','D','H','S'];
                         const openerIdx = suitOrder.indexOf(openerSuitEarly);
@@ -3283,14 +3315,14 @@ class SAYCBiddingSystem extends BiddingSystem {
                                 const bidTok = `${level}${s2}`;
                                 const nb = new window.Bid(bidTok);
                                 nb.conventionUsed = 'Splinter Bid';
-                                SAYC_dbg_verbose('DBG: SAYC.orig early-splinter-return', { bidTok, openerTokEarly, supportLenEarly, hcp: hand.hcp });
+                                /* debug removed */
                                 return nb;
                             }
                         }
                     }
                 }
             }
-    } catch (err) { SAYC_dbg_verbose('DBG: SAYC.orig early-splinter-exception', err); }
+    } catch (err) { /* debug removed */ }
 
         // Early, seat-tolerant opener 1NT/2NT rebid after partner's 1-level response.
         // Pattern: Our side opened a 1-level suit, partner made a 1-level new suit response, and it's our next turn (passes allowed between).
@@ -3336,7 +3368,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         } catch (_) { /* conservative: continue */ }
 
-    try { SAYC_dbg('CHK2 cp3 after-1NT/2NT-rebid-check'); } catch(_) {}
+    /* debug removed */
 
         // High-priority: balancing seat over opponents' opening (opener's suit at 1–3 level followed by two passes)
         if (bids.length >= 3) {
@@ -3420,16 +3452,16 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             }
         }
-        try { SAYC_dbg('CHK2 cp4 after-high-priority-balancing-block'); } catch(_) {}
+        /* debug removed */
         // Minimal Drury integration: consult the Drury opener-rebid handler here so
         // the main SAYC flow will return the Drury continuation when appropriate.
         try {
             const druryNow = this._handleDruryOpenerRebid(this.currentAuction, hand);
             if (druryNow && (druryNow.token || druryNow.isDouble || druryNow.isRedouble)) {
-                try { SAYC_dbg('CHK2 cp4A drury-handler returned', druryNow && (druryNow.token || (druryNow.isDouble?'X':'')), druryNow.conventionUsed || ''); } catch(_) {}
+                /* debug removed */
                 return druryNow;
             } else {
-                try { SAYC_dbg('CHK2 cp4A drury-handler returned null'); } catch(_) {}
+                /* debug removed */
             }
         } catch(_) {}
 
@@ -4272,97 +4304,6 @@ class SAYCBiddingSystem extends BiddingSystem {
         };
 
         const orig = SAYCBiddingSystem.prototype.getBid;
-        SAYCBiddingSystem.prototype._ensureLegal = function(bid) {
-            try {
-                if (!bid || !this?.currentAuction) return bid;
-                const auction = this.currentAuction;
-                const bids = Array.isArray(auction?.bids) ? auction.bids : [];
-                const lastContract = (typeof auction.lastContract === 'function') ? auction.lastContract() : null;
-                const lastContractIdx = (function(){
-                    for (let i = bids.length - 1; i >= 0; i--) {
-                        const t = bids[i]?.token;
-                        if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) return i;
-                    }
-                    return -1;
-                })();
-
-                // Compute current seat and side helpers when dealer is known
-                const order = window.Auction?.TURN_ORDER || ['N','E','S','W'];
-                const dealer = auction?.dealer || null;
-                const ourSeat = auction?.ourSeat || this?.ourSeat || null;
-                const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + bids.length) % 4] : null;
-                const seatSide = (s) => (s && ['N','S'].includes(s)) ? 'NS' : (s && ['E','W'].includes(s) ? 'EW' : null);
-                const sameSide = (a,b) => !!a && !!b && seatSide(a) === seatSide(b);
-
-                // Handle Double/Redouble legality first
-                if (bid.isDouble || bid.isRedouble) {
-                    // Must have a last contract to act on
-                    if (!lastContract || lastContractIdx === -1) return new window.Bid('PASS');
-                    // Examine actions since last contract
-                    const since = bids.slice(lastContractIdx + 1).filter(x => x && (x.isDouble || x.isRedouble || (x.token && x.token !== 'PASS')));
-                    const lastAction = since.length ? since[since.length - 1] : null;
-
-                    // Identify last contract seat/side and current actor side
-                    const lastContractSeat = bids[lastContractIdx]?.seat || null;
-                    const lastContractSide = seatSide(lastContractSeat);
-                    const actorSeat = currentSeat;
-                    const actorSide = seatSide(actorSeat);
-                    if (!lastContractSide || !actorSide) {
-                        // Seat context missing: fall back to token-based legality so tests without seats still work.
-                        // Allow Double only if there has been no X/XX since the last contract.
-                        // Allow Redouble only if the last non-pass action since the last contract is a Double.
-                        const sincePlain = bids.slice(lastContractIdx + 1);
-                        const lastNonPass = (function(){
-                            for (let i = sincePlain.length - 1; i >= 0; i--) {
-                                const x = sincePlain[i];
-                                if (!x) continue;
-                                if (x.isDouble || x.isRedouble) return x;
-                                const t = x.token;
-                                if (t && t !== 'PASS') return x;
-                            }
-                            return null;
-                        })();
-                        const anyXSince = sincePlain.some(x => x && (x.isDouble || x.isRedouble));
-                        if (bid.isDouble) {
-                            return anyXSince ? new window.Bid('PASS') : bid;
-                        }
-                        if (bid.isRedouble) {
-                            return (lastNonPass && lastNonPass.isDouble) ? bid : new window.Bid('PASS');
-                        }
-                        // Fallback — should not reach here
-                        return bid;
-                    }
-
-                    if (bid.isDouble) {
-                        // Double allowed only if opponents made the last contract and there is no X/XX since then
-                        const opponents = !sameSide(actorSeat, lastContractSeat);
-                        const alreadyX = !!lastAction && (lastAction.isDouble || lastAction.isRedouble);
-                        if (!opponents || alreadyX) return new window.Bid('PASS');
-                        return bid;
-                    }
-
-                    if (bid.isRedouble) {
-                        // Redouble allowed only if last non-pass action is a Double of our side's contract
-                        if (!lastAction || !lastAction.isDouble) return new window.Bid('PASS');
-                        // lastAction doubled the contract side; redouble must be by the side that was doubled
-                        // i.e., same side as last contract's bidder
-                        if (!sameSide(actorSeat, lastContractSeat)) return new window.Bid('PASS');
-                        return bid;
-                    }
-                }
-
-                // Contract bids: ensure strictly higher than last contract
-                const tok = bid.token;
-                if (!tok || !/^[1-7](C|D|H|S|NT)$/.test(tok)) return bid; // PASS or non-contract after handling X/XX
-                if (!lastContract) return bid; // opening bids always legal
-                if (!higherThan(tok, lastContract)) {
-                    return new window.Bid('PASS');
-                }
-                return bid;
-            } catch (_) {
-                return bid;
-            }
-        };
         SAYCBiddingSystem.prototype._prepareAuctionContext = function() {
             const savedAuction = this.currentAuction;
             let tempCreated = false;
@@ -4416,7 +4357,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Debug entry: show auction snapshot and hand summary for each call
             try {
                 const bidsSnapshot = (this.currentAuction?.bids || []).map(x => (x?.token || (x?.isDouble ? 'X' : x?.isRedouble ? 'XX' : 'PASS')));
-                SAYC_dbg('DBG getBid start - auctionLen=', bidsSnapshot.length, 'tokens=', bidsSnapshot, 'hand hcp=', hand?.hcp, 'lengths=', hand?.lengths);
+                // debug removed: suppressed noisy wrapper entry log
             } catch (_) {}
 
             const ctx = this._prepareAuctionContext();
@@ -4426,78 +4367,31 @@ class SAYCBiddingSystem extends BiddingSystem {
             } finally {
                 this._restoreAuctionContext(ctx);
             }
-            if (b && b.token) { SAYC_dbg('WRAPPER: orig.getBid returned', b.token, b.conventionUsed || ''); }
-            else if (b && (b.isDouble||b.isRedouble)) { SAYC_dbg('WRAPPER: orig.getBid returned a double/redouble', b.conventionUsed || ''); }
-            else { SAYC_dbg('WRAPPER: orig.getBid returned', b); }
+            // debug removed: suppressed wrapper return logging
 
-            // Narrow fallback: if orig returned a 1-level suit overcall that _ensureLegal
-            // would convert to PASS (e.g., it was below a 1NT contract), attempt the
-            // delayed 2-level natural overcall check and prefer that candidate when
-            // it satisfies the conservative thresholds. This is a minimal, targeted
-            // compatibility shim to handle legacy tests that expect a delayed 2-level
-            // overcall (1M - Pass - 1NT => 2x) rather than an illegal 1-level overcall.
-            try {
-                SAYC_dbg('WRAPPER: fallback check entry, b=', b && (b.token || b), 'auctionLen=', (savedAuction||this.currentAuction)?.bids?.length);
-                if (b && typeof b.token === 'string' && /^[1][CDHS]$/.test(b.token)) {
-                    // If orig returned a 1-level suit overcall in the 1M-P-1NT pattern,
-                    // compute and prefer the delayed 2-level overcall candidate when appropriate.
-                    const auct = savedAuction || this.currentAuction;
-                    if (auct && Array.isArray(auct.bids) && auct.bids.length === 3) {
-                        SAYC_dbg('WRAPPER delayed candidate compute, bids=', auct.bids.map(x=>x?.token));
-                        const bb0 = auct.bids[0]?.token || '';
-                        const bb1 = auct.bids[1]?.token || '';
-                        const bb2 = auct.bids[2]?.token || '';
-                        SAYC_dbg('WRAPPER delayed candidate tokens', { bb0, bb1, bb2 });
-                        if (/^1[CDHS]$/.test(bb0) && this._isPassToken(auct.bids[1]?.token) && bb2 === '1NT') {
-                            const oppSuitOpening = bb0[1];
-                            const totalPoints = (hand.hcp || 0) + (hand.distributionPoints || 0);
-                            let vulState = 'equal';
-                            if (this.vulnerability) {
-                                if (!this.vulnerability.we && this.vulnerability.they) vulState = 'fav';
-                                else if (this.vulnerability.we && !this.vulnerability.they) vulState = 'unfav';
-                            }
-                            const minLen = (vulState === 'fav') ? 6 : 7;
-                            const candOrder = ['S','H','D','C'].filter(s => s !== oppSuitOpening);
-                            const best = candOrder.find(s => (hand.lengths[s] || 0) >= minLen);
-                            SAYC_dbg('WRAPPER delayed thresholds', { vulState, minLen, candOrder, best, lengths: hand.lengths });
-                            if (best) {
-                                const minTP = 11;
-                                if (totalPoints >= minTP) {
-                                    const candidate = new window.Bid(`2${best}`);
-                                    const len = hand.lengths[best] || 0;
-                                    candidate.conventionUsed = `Delayed natural overcall (after 1M-P-1NT): long ${best}, len=${len}, tp=${totalPoints}, vul=${vulState}; 6-card permitted at favorable vulnerability`;
-                                    SAYC_dbg('WRAPPER: applying delayed-overcall fallback ->', candidate.token);
-                                    b = candidate;
-                                }
-                            }
-                        }
-                    }
-                }
-            } catch (_) { /* be conservative */ }
+            // Narrow fallback removed: prefer upstream logic and explicit auction context
+            // The delayed overcall compatibility shim has been removed to avoid
+            // duplicative decision paths and seat-inference regressions.
 
             // Debug-only: ask the Drury handler what it *would* return for this auction/hand
             // and log the result. This is purely observational and does not change the
             // returned bid. Leave in place while diagnosing why the main flow returns PASS.
             try {
-                const dbgDrury = (typeof this._handleDruryOpenerRebid === 'function') ? this._handleDruryOpenerRebid(savedAuction || this.currentAuction, hand) : null;
-                if (dbgDrury && (dbgDrury.token || dbgDrury.isDouble || dbgDrury.isRedouble)) {
-                    SAYC_dbg('WRAPPER-DBG: _handleDruryOpenerRebid WOULD return', dbgDrury.token || (dbgDrury.isDouble?'X':''), dbgDrury.conventionUsed || '');
-                } else {
-                    SAYC_dbg('WRAPPER-DBG: _handleDruryOpenerRebid WOULD return', dbgDrury);
-                }
+                const dbgDrury = (typeof this._handleDruryOpenerRebid === 'function') ? this._handleDruryOpenerRebid((ctx && ctx.savedAuction) || this.currentAuction, hand) : null;
+                // debug removed: drury hypothetical logging suppressed
             } catch(_) {}
 
             // Additional diagnostics: show lastSide and what other handlers would return
             try {
                 let ls = null;
-                try { ls = (savedAuction && typeof savedAuction.lastSide === 'function') ? savedAuction.lastSide() : null; } catch(_) { ls = null; }
+                try { ls = (ctx && ctx.savedAuction && typeof ctx.savedAuction.lastSide === 'function') ? ctx.savedAuction.lastSide() : null; } catch(_) { ls = null; }
                 let dbgInter = null;
-                try { dbgInter = (typeof this._handleInterference === 'function') ? this._handleInterference(savedAuction || this.currentAuction, hand) : null; } catch(_) { dbgInter = null; }
+                try { dbgInter = (typeof this._handleInterference === 'function') ? this._handleInterference((ctx && ctx.savedAuction) || this.currentAuction, hand) : null; } catch(_) { dbgInter = null; }
                 let dbgAce = null;
-                try { dbgAce = (typeof this._handleAceAsking === 'function') ? this._handleAceAsking(savedAuction || this.currentAuction, hand) : null; } catch(_) { dbgAce = null; }
+                try { dbgAce = (typeof this._handleAceAsking === 'function') ? this._handleAceAsking((ctx && ctx.savedAuction) || this.currentAuction, hand) : null; } catch(_) { dbgAce = null; }
                 let dbgSd = null;
-                try { dbgSd = (typeof this._handleSupportDouble === 'function') ? this._handleSupportDouble(savedAuction || this.currentAuction, hand) : null; } catch(_) { dbgSd = null; }
-                SAYC_dbg('WRAPPER-DBG: lastSide=', ls, 'interference=', dbgInter && (dbgInter.token || dbgInter.isDouble?'X':''), 'aceAsk=', dbgAce && (dbgAce.token||dbgAce.isDouble?'X':''), 'supportDouble=', dbgSd && (dbgSd.token||dbgSd.isDouble?'X':''));
+                try { dbgSd = (typeof this._handleSupportDouble === 'function') ? this._handleSupportDouble((ctx && ctx.savedAuction) || this.currentAuction, hand) : null; } catch(_) { dbgSd = null; }
+                // debug removed: handler diagnostics suppressed
             } catch(_) {}
 
             // Wrapper shim removed: rely on upstream early-splinter detection and
@@ -4528,9 +4422,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     }
                 }
             } catch (_) { /* ignore safety net errors */ }
-            try { SAYC_dbg('WRAPPER: before ensureLegal, b=', b && (b.token || (b.isDouble?'X':'')), 'auctionLen=', this.currentAuction?.bids?.length); } catch(_) {}
             const vetted = this._ensureLegal(b);
-            try { SAYC_dbg('WRAPPER: after ensureLegal, vetted=', vetted && (vetted.token || (vetted.isDouble?'X':''))); } catch(_) {}
             return vetted;
         };
     } catch (_) { /* no-op if wrapping fails */ }

@@ -104,7 +104,7 @@ describe('SAYC Basic Tests', () => {
     });
 
     test('Blackwood response', () => {
-        const auction = new Auction();
+    const auction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         auction.add(new Bid('1S'));
         auction.add(new Bid('4NT')); // Asking bid
 

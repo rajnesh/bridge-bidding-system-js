@@ -15,7 +15,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
 
   test('1H (1S) with 4 hearts and 11 HCP -> 2S cue-bid raise with explanation', () => {
     system.startAuction('N');
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('1S'));
 
@@ -27,7 +27,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
 
   test('1S (2C) with 4 spades and 12 HCP -> 3C cue-bid raise with explanation', () => {
     system.startAuction('N');
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1S'));
     system.currentAuction.add(new Bid('2C'));
 
@@ -39,7 +39,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
 
   test('1D (1H) with 4 diamonds and 10 HCP -> 2H cue-bid raise with explanation', () => {
     system.startAuction('N');
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1D'));
     system.currentAuction.add(new Bid('1H'));
 
@@ -51,7 +51,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
 
   test('Insufficient strength (8 HCP) with 4-card support -> no cue-bid raise', () => {
     system.startAuction('N');
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('1S'));
 
@@ -63,7 +63,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
 
   test('Only 3-card support (12 HCP) -> no cue-bid raise', () => {
     system.startAuction('N');
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('1S'));
 
@@ -91,7 +91,7 @@ describe('Cue-bid Raises (limit+ strong raises)', () => {
     system.conventions.config.competitive.cue_bid_raises = { enabled: false };
     system.startAuction('N');
 
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1H'));
     system.currentAuction.add(new Bid('1S'));
     const hand = makeTestHand(2, 4, 3, 4, 12);

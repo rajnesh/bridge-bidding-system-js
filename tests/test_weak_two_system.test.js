@@ -23,8 +23,8 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Responder: raise to game over 2H with strong game values (17+) and support', () => {
-    // Auction: 2H by South (opener)
-    system.currentAuction = new Auction();
+    // Auction: 2H by South (opener) — set dealer to S and we are responder (W)
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2H'));
     // Responder: 15 HCP, 3-card support
   const responder = makeHandFromPattern('AK2', 'AKJ', 'Q2', 'Q2'); // 17 HCP
@@ -34,7 +34,8 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Responder: invitational raise to 3S over 2S with 10-11 HCP and support', () => {
-    system.currentAuction = new Auction();
+  // Opener 2S by South; we are responder (W)
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2S'));
     const responder = makeHandFromPattern('Q32', 'Q32', 'Q32', 'KQ'); // ~10 HCP, 3 spades
     const rBid = system.getBid(responder);
@@ -43,7 +44,7 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Responder: 3NT natural over 2H with balanced 16+ and stoppers', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2H'));
     // Balanced 16+ with stoppers in all other suits (give A/K/Q patterns)
     const responder = makeHandFromPattern('AQx', 'xx', 'KQx', 'KQx');
@@ -56,7 +57,8 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Responder: new suit forcing at 3-level over 2D with 16+ HCP and 5+ suit', () => {
-    system.currentAuction = new Auction();
+  // Opener 2D by South; we are responder (W)
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2D'));
   const responder = makeHandFromPattern('AKQJx', 'xx', 'xx', 'AKx'); // strong spade suit, 16+ HCP
     const rBid = system.getBid(responder);
@@ -65,7 +67,8 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Responder: 2NT is Feature ask over 2S with 15+ and support', () => {
-    system.currentAuction = new Auction();
+  // Opener 2S by South; we are responder (W)
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2S'));
     const responder = makeHandFromPattern('Qxx', 'Qxx', 'AKx', 'KQx'); // 15+ HCP, 3 spades
     const rBid = system.getBid(responder);
@@ -104,7 +107,7 @@ describe('Weak Two openings and responses', () => {
   });
 
   test('Minimal responder values without support prefer pass over raising new suit', () => {
-    system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
     system.currentAuction.add(new Bid('2S'));
     const responder = makeHandFromPattern('xx', 'KQJxx', 'Qxx', 'Qxx'); // minimal HCP, no 3+ spade support
     const rBid = system.getBid(responder);

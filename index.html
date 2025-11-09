@@ -455,35 +455,41 @@
                     
                     <!-- Play Tab -->
                     <div class="tab-panel" id="playPanel">
-                        <div class="content-section">
-                            <h3>Play</h3>
-                            <div id="playContractInfo" class="alert alert-secondary" aria-live="polite">Contract: —</div>
-                            <div id="playStatus" class="alert alert-light" style="display:none;"></div>
-                            <div class="play-controls" style="display:flex; gap:8px; align-items:center; margin:8px 0;">
-                                <button id="playUndoBtn" class="main-btn secondary compact">Undo</button>
-                                <button id="playClearTrickBtn" class="main-btn warning compact">Clear Trick</button>
-                                <button id="playClaimBtn" class="main-btn success compact">Claim</button>
-                                <button id="playReplayBtn" class="main-btn compact">Replay Hand</button>
-                                <button id="playNewDealBtn" class="main-btn danger compact">New Deal</button>
-                                <div style="margin-left:auto; font-weight:700; color:#2c3e50;">
-                                    Tricks — N/S: <span id="trickCountNS">0</span> | E/W: <span id="trickCountEW">0</span>
-                                </div>
+                        <div class="play-tab">
+                            <div class="play-topbar">
+                                <div id="playContractInfo" class="play-contract" aria-live="polite">Contract: —</div>
+                                <div id="playStatus" class="play-status alert alert-light" style="display:none;"></div>
                             </div>
-                            <div class="play-layout">
-                                <div class="play-hand" id="playNorthArea">
-                                    <div class="hand-title">North (Dummy)</div>
-                                    <div id="playNorthHand" class="cards-row"></div>
-                                </div>
-                                <div class="play-table" id="playTableArea">
-                                    <div class="trick-area" id="trickArea">
-                                        <div class="trick-hint">Click a card to play</div>
+                            <div class="play-main">
+                                <div class="play-board" role="region" aria-label="Play table">
+                                    <div class="play-seat play-seat-north" id="playNorthArea">
+                                        <div class="hand-title">North (Dummy)</div>
+                                        <div id="playNorthHand" class="card-button-row"></div>
                                     </div>
-                                    <div id="playResultSummary" style="text-align:center; margin-top:8px; font-weight:700; color:#2c3e50;"></div>
-                                    <ul id="playScoreBreakdown" class="score-breakdown"></ul>
+                                    <div class="play-center" id="playTableArea">
+                                        <div class="trick-area" id="trickArea">
+                                            <div class="trick-hint">Click a card to play</div>
+                                        </div>
+                                        <div class="play-metrics">
+                                            <div class="trick-counts">
+                                                <span class="trick-count">N/S Tricks: <span id="trickCountNS">0</span></span>
+                                                <span class="trick-count">E/W Tricks: <span id="trickCountEW">0</span></span>
+                                            </div>
+                                            <div id="playResultSummary" class="play-result"></div>
+                                            <ul id="playScoreBreakdown" class="score-breakdown"></ul>
+                                        </div>
+                                    </div>
+                                    <div class="play-seat play-seat-south" id="playSouthArea">
+                                        <div class="hand-title">South (You)</div>
+                                        <div id="playSouthHand" class="card-button-row"></div>
+                                    </div>
                                 </div>
-                                <div class="play-hand" id="playSouthArea">
-                                    <div class="hand-title">South (You)</div>
-                                    <div id="playSouthHand" class="cards-row"></div>
+                                <div class="play-controls">
+                                    <button id="playUndoBtn" class="main-btn secondary compact" type="button">Undo</button>
+                                    <button id="playClearTrickBtn" class="main-btn warning compact" type="button">Clear Trick</button>
+                                    <button id="playClaimBtn" class="main-btn success compact" type="button">Claim</button>
+                                    <button id="playReplayBtn" class="main-btn compact" type="button">Replay Hand</button>
+                                    <button id="playNewDealBtn" class="main-btn danger compact" type="button">New Deal</button>
                                 </div>
                             </div>
                         </div>
@@ -494,7 +500,7 @@
     </div>
 
     <!-- Scripts -->
-    <!-- Inline conventions config to avoid CORS and external fetches (Option B) -->
+    <!-- Inline conventions config to avoid CORS and external fetches -->
     <script>
     window.DEFAULT_CONVENTIONS_CONFIG = {
         "opening_bids": {
