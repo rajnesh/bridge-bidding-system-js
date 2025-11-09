@@ -4363,15 +4363,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 return bid;
             }
         };
-        SAYCBiddingSystem.prototype.getBid = function(hand) {
-            // Debug entry: show auction snapshot and hand summary for each call
-            try {
-                const bidsSnapshot = (this.currentAuction?.bids || []).map(x => (x?.token || (x?.isDouble ? 'X' : x?.isRedouble ? 'XX' : 'PASS')));
-                SAYC_dbg('DBG getBid start - auctionLen=', bidsSnapshot.length, 'tokens=', bidsSnapshot, 'hand hcp=', hand?.hcp, 'lengths=', hand?.lengths);
-            } catch (_) {}
-
-            // Ensure auction context has dealer and ourSeat set so Drury/opener-context logic
-            // within the main SAYC flow can operate without needing a post-call fallback.
+        SAYCBiddingSystem.prototype._prepareAuctionContext = function() {
             const savedAuction = this.currentAuction;
             let tempCreated = false;
             let modifiedSaved = false;
@@ -4401,47 +4393,42 @@ class SAYCBiddingSystem extends BiddingSystem {
                     }
                     modifiedSaved = true;
                 }
-                // Call the original getBid with a proper auction context (temporary if needed)
-                var b = orig.call(this, hand);
-            } finally {
-                // Restore original auction/dealer/ourSeat if we modified or created a temporary
-                try {
-                    if (modifiedSaved && savedAuction) {
-                        savedAuction.dealer = origDealer;
-                        savedAuction.ourSeat = origOurSeat;
-                    }
-                    if (tempCreated) {
-                        // remove the temporary auction
-                        this.currentAuction = savedAuction || null;
-                    }
-                } catch (_) {}
-
-                // Narrow fallback: if auction originally lacked dealer/ourSeat and the main flow
-                // returned PASS, attempt the Drury opener-rebid handler directly. Use the saved
-                // original values (origDealer/origOurSeat) so we're testing the pre-call state.
-                //
-                // NOTE (maintainers): some older tests construct `new Auction()` without
-                // specifying `dealer`/`ourSeat`. The SAYC bidding logic relies on seat/dealer
-                // context to distinguish responder vs overcaller behavior (e.g., Drury).
-                // Historically we had a wrapper-level fallback to handle those seatless tests.
-                // We purposefully avoid assigning `dealer = ourSeat` (or otherwise inventing
-                // dealer) because that corrupts turn/seat inference and causes responder
-                // decisions to be misclassified (leading to PASS where a bid is expected).
-                //
-                // This narrow fallback is a last-resort compatibility shim for those legacy
-                // tests. Prefer updating tests (or creating auctions with explicit
-                // dealer/ourSeat) and removing this fallback in the future.
-                // NOTE: legacy seatless-auction fallback removed intentionally. Tests should
-                // construct auctions with explicit dealer/ourSeat so the main SAYC flow has
-                // correct seat context. The narrow fallback previously present here was a
-                // compatibility shim and caused subtle seat-inference regressions; prefer
-                // updating tests instead.
+            } catch (err) {
+                // non-critical
             }
+            return { savedAuction, tempCreated, modifiedSaved, origDealer, origOurSeat };
+        };
+
+        SAYCBiddingSystem.prototype._restoreAuctionContext = function(ctx) {
             try {
-                if (b && b.token) { SAYC_dbg('WRAPPER: orig.getBid returned', b.token, b.conventionUsed || ''); }
-                else if (b && (b.isDouble||b.isRedouble)) { SAYC_dbg('WRAPPER: orig.getBid returned a double/redouble', b.conventionUsed || ''); }
-                else { SAYC_dbg('WRAPPER: orig.getBid returned', b); }
-            } catch(_) {}
+                const { savedAuction, tempCreated, modifiedSaved, origDealer, origOurSeat } = ctx || {};
+                if (modifiedSaved && savedAuction) {
+                    savedAuction.dealer = origDealer;
+                    savedAuction.ourSeat = origOurSeat;
+                }
+                if (tempCreated) {
+                    this.currentAuction = savedAuction || null;
+                }
+            } catch (_) { /* ignore */ }
+        };
+
+        SAYCBiddingSystem.prototype.getBid = function(hand) {
+            // Debug entry: show auction snapshot and hand summary for each call
+            try {
+                const bidsSnapshot = (this.currentAuction?.bids || []).map(x => (x?.token || (x?.isDouble ? 'X' : x?.isRedouble ? 'XX' : 'PASS')));
+                SAYC_dbg('DBG getBid start - auctionLen=', bidsSnapshot.length, 'tokens=', bidsSnapshot, 'hand hcp=', hand?.hcp, 'lengths=', hand?.lengths);
+            } catch (_) {}
+
+            const ctx = this._prepareAuctionContext();
+            let b;
+            try {
+                b = orig.call(this, hand);
+            } finally {
+                this._restoreAuctionContext(ctx);
+            }
+            if (b && b.token) { SAYC_dbg('WRAPPER: orig.getBid returned', b.token, b.conventionUsed || ''); }
+            else if (b && (b.isDouble||b.isRedouble)) { SAYC_dbg('WRAPPER: orig.getBid returned a double/redouble', b.conventionUsed || ''); }
+            else { SAYC_dbg('WRAPPER: orig.getBid returned', b); }
 
             // Narrow fallback: if orig returned a 1-level suit overcall that _ensureLegal
             // would convert to PASS (e.g., it was below a 1NT contract), attempt the
