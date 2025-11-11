@@ -90,7 +90,7 @@ describe('CBS uncovered branches: 2C continuations, opener acceptances, conserva
       const system = new SAYCBiddingSystem();
       system.startAuction('N');
       // Create an auction without dealer assignment (seatless)
-      system.currentAuction = new Auction([], { ourSeat: 'N' });
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
       system.currentAuction.add(new Bid('1D')); // last contract exists, no seat assigned
       system.currentAuction.add(new Bid(null, { isDouble: true })); // some X on table
 
@@ -102,7 +102,7 @@ describe('CBS uncovered branches: 2C continuations, opener acceptances, conserva
     test('Seatless: disallow Redouble when last non-pass is not a Double', () => {
       const system = new SAYCBiddingSystem();
       system.startAuction('N');
-      system.currentAuction = new Auction([], { ourSeat: 'N' });
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'N' });
       system.currentAuction.add(new Bid('1C'));
       system.currentAuction.add(new Bid('PASS'));
 

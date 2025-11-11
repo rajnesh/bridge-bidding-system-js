@@ -117,8 +117,8 @@ describe('Additional SAYC branches coverage', () => {
     beforeEach(() => { system = new SAYCBiddingSystem(); system.startAuction('S'); });
 
     test('Over 1C, with 4 spades and 12+ HCP -> 1S', () => {
-      // No dealer set => seat-unknown fallback applies
-      const a = new Auction([], { ourSeat: 'S' });
+      // Provide explicit dealer/ourSeat so seat-aware logic runs deterministically
+      const a = new Auction([], { dealer: 'N', ourSeat: 'S' });
       a.add(new Bid('1C'));
       system.currentAuction = a;
       const hand = makeHandFromPattern('KQJ2', 'Q32', 'Q2', '432'); // 12+ HCP, 4 spades
@@ -145,7 +145,7 @@ describe('Global legality guard _ensureLegal', () => {
   test('Double legality without seats: allowed only if no X/XX since last contract', () => {
     const system = new SAYCBiddingSystem();
     system.startAuction('S');
-    const a = new Auction([], { ourSeat: 'S' }); // no dealer -> seat-unknown
+  const a = new Auction([], { dealer: 'N', ourSeat: 'S' }); // explicit dealer and ourSeat
     a.add(new Bid('1H'));
     system.currentAuction = a;
     let v = system._ensureLegal(new Bid(null, { isDouble: true }));

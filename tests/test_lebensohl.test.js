@@ -16,10 +16,10 @@ describe('Lebensohl Tests', () => {
     test('Lebensohl fast denial', () => {
         system.startAuction('N');
         const hand = new Hand('AQxx KQxx AQx Kx'); // 17 HCP with stoppers
-        system.currentAuction = new Auction();
-        system.currentAuction.add(new Bid('1NT'));
-        system.currentAuction.add(new Bid(null));
-        system.currentAuction.add(new Bid('2H'));
+    system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+    system.currentAuction.add(new Bid('1NT'));
+    system.currentAuction.add(new Bid(null));
+    system.currentAuction.add(new Bid('2H'));
 
         const bid = system.getBid(hand);
         expect(bid.token).toBe('3NT');
@@ -28,10 +28,10 @@ describe('Lebensohl Tests', () => {
     test('Lebensohl slow sequences', () => {
         system.startAuction('N');
         const hand = new Hand('xxx xxx QJ10xxx x'); // Weak hand with long diamonds
-        system.currentAuction = new Auction();
-        system.currentAuction.add(new Bid('1NT'));
-        system.currentAuction.add(new Bid(null));
-        system.currentAuction.add(new Bid('2H'));
+    system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+    system.currentAuction.add(new Bid('1NT'));
+    system.currentAuction.add(new Bid(null));
+    system.currentAuction.add(new Bid('2H'));
 
         const bid = system.getBid(hand);
         expect(bid.token).toBe('2NT');
@@ -40,10 +40,10 @@ describe('Lebensohl Tests', () => {
     test('Lebensohl stopper asking', () => {
         system.startAuction('N');
         const hand = new Hand('xxxx AQxx AKx KQx'); // Strong hand without spade stopper
-        system.currentAuction = new Auction();
-        system.currentAuction.add(new Bid('1NT'));
-        system.currentAuction.add(new Bid(null));
-        system.currentAuction.add(new Bid('2S'));
+    system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+    system.currentAuction.add(new Bid('1NT'));
+    system.currentAuction.add(new Bid(null));
+    system.currentAuction.add(new Bid('2S'));
 
         const bid = system.getBid(hand);
         expect(bid.token).toBe('3S');

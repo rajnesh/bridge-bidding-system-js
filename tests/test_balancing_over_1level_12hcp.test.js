@@ -21,10 +21,10 @@ describe('Balancing over 1-level opening with 12 HCP (East to act)', () => {
   });
 
   test('5-card spade suit over 1H -> Double (engine prioritizes reopening double)', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H')); // South opens 1H
-    system.currentAuction.add(new Bid(null)); // West passes
-    system.currentAuction.add(new Bid(null)); // North passes
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1H')); // South opens 1H
+  system.currentAuction.add(new Bid(null)); // West passes
+  system.currentAuction.add(new Bid(null)); // North passes
 
     // East: 12 HCP, 5 spades, short hearts -> engine chooses reopening Double over a natural 1S
     const hand = makeTestHand(5, 2, 3, 3, 12);
@@ -33,10 +33,10 @@ describe('Balancing over 1-level opening with 12 HCP (East to act)', () => {
   });
 
   test('Only a 4-card suit (no 5-card suit) with shortness in opener suit -> Double (takeout)', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H')); // South opens 1H
-    system.currentAuction.add(new Bid(null)); // West passes
-    system.currentAuction.add(new Bid(null)); // North passes
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1H')); // South opens 1H
+  system.currentAuction.add(new Bid(null)); // West passes
+  system.currentAuction.add(new Bid(null)); // North passes
 
     // East: 12 HCP, only 4 spades, classic takeout shape
     const hand = makeHandFromPattern(
@@ -50,10 +50,10 @@ describe('Balancing over 1-level opening with 12 HCP (East to act)', () => {
   });
 
   test('Balanced with a stopper in opener’s suit and a 4-card higher major -> 1S (engine behavior)', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H')); // South opens 1H
-    system.currentAuction.add(new Bid(null)); // West passes
-    system.currentAuction.add(new Bid(null)); // North passes
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1H')); // South opens 1H
+  system.currentAuction.add(new Bid(null)); // West passes
+  system.currentAuction.add(new Bid(null)); // North passes
 
     // East: 12 HCP, balanced 4-3-3-3, heart stopper (Q); engine selects 1S with a 4-card higher-ranking major
     const hand = makeHandFromPattern(
@@ -67,10 +67,10 @@ describe('Balancing over 1-level opening with 12 HCP (East to act)', () => {
   });
 
   test('Both majors over 1D with no clear stopper -> Double (takeout)', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1D')); // South opens 1D
-    system.currentAuction.add(new Bid(null)); // West passes
-    system.currentAuction.add(new Bid(null)); // North passes
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1D')); // South opens 1D
+  system.currentAuction.add(new Bid(null)); // West passes
+  system.currentAuction.add(new Bid(null)); // North passes
 
     // East: 12 HCP, both majors 4-4, short diamonds -> takeout Double instead of Michaels in balancing seat
     const hand = makeHandFromPattern(

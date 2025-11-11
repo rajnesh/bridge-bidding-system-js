@@ -34,5 +34,4 @@ a.add(new Bid('1S'));
 a.add(new Bid('1H'));
 system.currentAuction = a;
 const hand = makeTestHand(2,3,5,3,13);
-const bid = system.getBid(hand);
-console.log('Support Double bid:', bid);
+// REMOVED: debug_support_double tool cleaned up. Recreate from VCS history if needed.

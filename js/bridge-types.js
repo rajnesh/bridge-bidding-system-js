@@ -158,6 +158,10 @@ class Auction {
             const startIdx = Auction.TURN_ORDER.indexOf(this.dealer);
             const nextIdx = (startIdx + this.bids.length) % 4;
             bid.seat = Auction.TURN_ORDER[nextIdx];
+            // Mark that the seat was auto-assigned by the auction (helps callers
+            // distinguish explicit per-bid seats vs auto-assigned seats used for
+            // test fixtures that intentionally omit seat metadata).
+            bid._autoAssignedSeat = true;
         }
         this.bids.push(bid);
     }

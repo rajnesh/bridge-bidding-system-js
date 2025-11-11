@@ -443,9 +443,25 @@ class ConventionCard {
             const style = this.getConventionSetting('michaels', 'strength', 'competitive');
             const directOnly = this.getConventionSetting('michaels', 'direct_only', 'competitive');
 
-            // Skip if not direct seat and direct_only is True
-            if (directOnly && auction.bids.length > 1) {
-                return { isTwoSuited: false, convention: '', suits: [] };
+            // If direct_only is configured, require that this 2-level cue bid is a direct
+            // overcall (i.e., there were no non-PASS bids after the opening). The previous
+            // check used auction.bids.length which can be >1 due to leading PASSES and
+            // incorrectly rejected valid direct-seat cue-bids. Instead, scan the auction
+            // to ensure the opening was immediately followed only by PASSes until now.
+            if (directOnly) {
+                const openingToken = auction.lastContract();
+                let sawOpening = false;
+                for (const b of auction.bids) {
+                    const t = b?.token || 'PASS';
+                    if (!sawOpening) {
+                        if (t === openingToken) sawOpening = true;
+                        continue;
+                    }
+                    // If anything other than PASS occurred after the opening, it's not direct
+                    if (t !== 'PASS') {
+                        return { isTwoSuited: false, convention: '', suits: [] };
+                    }
+                }
             }
 
             const lastContract = auction.lastContract();
@@ -454,28 +470,29 @@ class ConventionCard {
                 lastContract[0] === '1' &&
                 bid.token[1] === lastContract[1]) {
                 
-                // Validate hand shape if provided
+                // Validate hand shape if provided and classify correct suits
                 if (hand) {
                     const minHcp = style === 'wide_range' ? 6 : 10;
                     if (hand.hcp < minHcp) {
                         return { isTwoSuited: false, convention: '', suits: [] };
                     }
 
-                    // Need 5-5 or better for Michaels
-                    const sortedLengths = ConventionCard.SUITS
-                        .map(s => ({ suit: s, length: hand.lengths[s] }))
-                        .sort((a, b) => b.length - a.length || a.suit.localeCompare(b.suit));
-                    
-                    if (sortedLengths[0].length < 5 || sortedLengths[1].length < 5) {
+                    // For a minor opening (1C/1D) Michaels shows both majors (H+S)
+                    if (['C','D'].includes(lastContract[1])) {
+                        if ((hand.lengths['H'] || 0) >= 5 && (hand.lengths['S'] || 0) >= 5) {
+                            return { isTwoSuited: true, convention: 'michaels', suits: ['H','S'] };
+                        }
                         return { isTwoSuited: false, convention: '', suits: [] };
                     }
-                }
 
-                if (['C', 'D'].includes(lastContract[1])) {
-                    return { isTwoSuited: true, convention: 'michaels', suits: ['H', 'S'] };
-                } else { // Major suit opening
+                    // For a major opening (1H/1S) Michaels shows the other major + a minor.
                     const otherMajor = lastContract[1] === 'S' ? 'H' : 'S';
-                    return { isTwoSuited: true, convention: 'michaels', suits: [otherMajor, 'C'] };
+                    // Prefer the minor with 5+ cards if present
+                    const minorSuit = (hand.lengths['C'] || 0) >= 5 ? 'C' : ((hand.lengths['D'] || 0) >= 5 ? 'D' : null);
+                    if ((hand.lengths[otherMajor] || 0) >= 5 && minorSuit) {
+                        return { isTwoSuited: true, convention: 'michaels', suits: [otherMajor, minorSuit] };
+                    }
+                    return { isTwoSuited: false, convention: '', suits: [] };
                 }
             }
         }
@@ -494,12 +511,19 @@ class ConventionCard {
                     // Enforce direct overcall if configured
                     const directOnly = !!(this.config?.notrump_defenses?.unusual_nt?.direct);
                     if (directOnly) {
+                        // Determine the opening token (first contract bid in the auction)
+                        let openingToken = null;
+                        for (const b of auction.bids) {
+                            const t = b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS');
+                            if (t && /^[1-7]/.test(t)) { openingToken = t; break; }
+                        }
+                        if (!openingToken) return { isTwoSuited: false, convention: '', suits: [] };
                         // Require that there are no other non-pass bids after the opening before this 2NT is considered Unusual
                         let sawOpening = false;
                         for (const b of auction.bids) {
                             const t = b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS');
                             if (!sawOpening) {
-                                if (t === lastContract) sawOpening = true;
+                                if (t === openingToken) sawOpening = true;
                                 continue;
                             }
                             if (t !== 'PASS') {

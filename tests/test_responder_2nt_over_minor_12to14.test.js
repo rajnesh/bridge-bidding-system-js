@@ -18,7 +18,7 @@ describe('Responder: 2NT (12–14) over 1m, balanced without a 4-card major', ()
     system.currentAuction.add(new Bid('PASS'));
   });
 
-  test.skip('Balanced 13 HCP, 3-3 majors, no 4-card support -> 2NT', () => {
+  test('Balanced 13 HCP, 3-3 majors, no 4-card support -> 2NT', () => {
     // Shape 3-3-4-3; no 4-card major; not 4+ clubs (avoid simple raise)
     // HCP: S A (4), H J (1), D KQ (5), C K (3) => 13
     const hand = makeHandFromPattern('A32', 'J32', 'KQ32', 'K32');

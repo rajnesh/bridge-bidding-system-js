@@ -18,10 +18,10 @@ describe('Reopening Doubles – comprehensive', () => {
   });
 
   test('1S – Pass – Pass: short spades, 9 HCP, two other suits 3+ -> Double with explanation', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1S'));
-    system.currentAuction.add(new Bid(null));
-    system.currentAuction.add(new Bid(null));
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
+  system.currentAuction.add(new Bid('1S'));
+  system.currentAuction.add(new Bid(null));
+  system.currentAuction.add(new Bid(null));
 
     const hand = makeHandFromPattern('Q3', 'KQ32', 'KJ32', '32'); // short spades (2), 9 HCP, two suits with 3+
     const bid = system.getBid(hand);
@@ -30,10 +30,10 @@ describe('Reopening Doubles – comprehensive', () => {
   });
 
   test('2D – Pass – Pass: short diamonds, 10 HCP, two other suits 3+ -> Double', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('2D'));
-    system.currentAuction.add(new Bid(null));
-    system.currentAuction.add(new Bid(null));
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
+  system.currentAuction.add(new Bid('2D'));
+  system.currentAuction.add(new Bid(null));
+  system.currentAuction.add(new Bid(null));
 
     const hand = makeHandFromPattern('QJ3', 'KQ32', '32', 'K32');
     const bid = system.getBid(hand);
@@ -41,10 +41,10 @@ describe('Reopening Doubles – comprehensive', () => {
   });
 
   test('3C – Pass – Pass: short clubs, 11 HCP, two other suits 3+ -> Double', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('3C'));
-    system.currentAuction.add(new Bid(null));
-    system.currentAuction.add(new Bid(null));
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
+  system.currentAuction.add(new Bid('3C'));
+  system.currentAuction.add(new Bid(null));
+  system.currentAuction.add(new Bid(null));
 
     const hand = makeHandFromPattern('QJ3', 'KQ32', 'K32', '32');
     const bid = system.getBid(hand);
@@ -64,10 +64,10 @@ describe('Reopening Doubles – comprehensive', () => {
   });
 
   test('Fails: only one other suit with 3+ -> no Double', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1D'));
-    system.currentAuction.add(new Bid(null));
-    system.currentAuction.add(new Bid(null));
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
+  system.currentAuction.add(new Bid('1D'));
+  system.currentAuction.add(new Bid(null));
+  system.currentAuction.add(new Bid(null));
 
     const hand = makeHandFromPattern('AKQ2', 'K2', '32', 'Q2'); // only spades 3+; hearts=1, clubs=2
     const bid = system.getBid(hand);
@@ -76,10 +76,10 @@ describe('Reopening Doubles – comprehensive', () => {
 
   test('Disabled convention -> no Reopening Double even if shape fits', () => {
     system.conventions.config.competitive.reopening_doubles = { enabled: false };
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H'));
-    system.currentAuction.add(new Bid(null));
-    system.currentAuction.add(new Bid(null));
+  system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
+  system.currentAuction.add(new Bid('1H'));
+  system.currentAuction.add(new Bid(null));
+  system.currentAuction.add(new Bid(null));
 
     const hand = makeHandFromPattern('QJ32', '32', 'KQ32', 'KJ3');
     const bid = system.getBid(hand);

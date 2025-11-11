@@ -16,10 +16,8 @@ describe('1NT overcall over 1-level suit opening', () => {
   });
 
   test('Balanced 16 HCP over 1H -> 1NT overcall', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H'));
-    // Ensure opener is an opponent (East) for proper interference context
-    system.currentAuction.reseat('E');
+  system.currentAuction = new Auction([], { dealer: 'E', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1H'));
 
     // 16 HCP balanced 4-3-3-3
     const hand = makeHandFromPattern('KQ2', 'QJ2', 'KQ2', 'QJ2');
@@ -28,9 +26,8 @@ describe('1NT overcall over 1-level suit opening', () => {
   });
 
   test('Balanced 18 HCP over 1S -> 1NT overcall', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1S'));
-    system.currentAuction.reseat('E');
+  system.currentAuction = new Auction([], { dealer: 'E', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1S'));
 
     const hand = makeHandFromPattern('AK2', 'QJ2', 'KQ2', 'QJ2'); // 18 HCP balanced
     const bid = system.getBid(hand);

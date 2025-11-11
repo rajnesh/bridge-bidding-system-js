@@ -4,7 +4,7 @@
 
 // This test forces a pure Node environment (no window), covering the global export branch
 
-test.skip('combined-bidding-system global export branch sets globals in Node env', () => {
+test('combined-bidding-system global export branch sets globals in Node env', () => {
   // eslint-disable-next-line global-require
   const mod = require('../js/combined-bidding-system');
   // Ensure global assignments occurred

@@ -14,7 +14,7 @@ describe('Negative Double explanation strings', () => {
     system.conventions.config.competitive = system.conventions.config.competitive || {};
     system.conventions.config.competitive.negative_doubles = { enabled: true, thru_level: 3 };
   // Use seat-unknown context (no dealer reseat) like other negative-double tests
-  system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C')); // South opens
     system.currentAuction.add(new Bid('1S')); // West overcalls spades
 
@@ -32,7 +32,7 @@ describe('Negative Double explanation strings', () => {
     system.startAuction('N');
     system.conventions.config.competitive = system.conventions.config.competitive || {};
     system.conventions.config.competitive.negative_doubles = { enabled: true, thru_level: 3 };
-  system.currentAuction = new Auction();
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
     system.currentAuction.add(new Bid('1C'));
     system.currentAuction.add(new Bid('1D'));
 

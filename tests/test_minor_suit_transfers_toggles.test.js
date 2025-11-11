@@ -20,11 +20,10 @@ describe('Minor-suit transfers toggles over 1NT', () => {
     system.conventions.config.notrump_responses.minor_suit_transfers = { enabled: true };
 
     // Partner opens 1NT; we respond with MST
-  system.currentAuction = new Auction();
-  // Seat so opener is South and responder is North
-  system.currentAuction.reseat('S');
-  system.currentAuction.add(new Bid('1NT')); // S opens
-  system.currentAuction.add(new Bid(null));  // W passes
+    system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+    // S opens
+    system.currentAuction.add(new Bid('1NT'));
+    system.currentAuction.add(new Bid(null));  // W passes
 
     const hand = makeHandFromPattern('32', '32', '32', 'KQJ987'); // 6+ clubs
     const resp = system.getBid(hand);
@@ -42,8 +41,8 @@ describe('Minor-suit transfers toggles over 1NT', () => {
     system.conventions.config.notrump_responses = system.conventions.config.notrump_responses || {};
     system.conventions.config.notrump_responses.minor_suit_transfers = { enabled: false };
 
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1NT'));
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1NT'));
 
     const hand = makeHandFromPattern('32', '32', '32', 'KQJ987'); // 6+ clubs
     const resp = system.getBid(hand);

@@ -1243,7 +1243,7 @@ function makeSystemBid() {
         
         // Initialize system auction if not already done or if we need fresh state
     if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
-            console.log(`Initializing system auction with dealer: ${dealer}, current turn: ${currentTurn}`);
+            // initialization logging suppressed in non-debug runs
             // Human is South; keep ourSeat fixed as 'S' for partnership-relative logic
             if (typeof system.startAuctionWithDealer !== 'function') {
                 system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
@@ -1271,15 +1271,13 @@ function makeSystemBid() {
                     system.currentAuction.bids.push(bid);
                     try { system.currentAuction.reseat(dealerSeat); } catch { /* noop */ }
                 }
-                console.log(`Added bid to system: ${bid.token || 'PASS'}`);
+                // suppressed per housekeeping: do not spam console in tests/UI
             });
         }
         
         // Check for forced responses (e.g., Strong 2C)
-        console.log('Checking for forced responses...');
-        console.log('Current auction:', currentAuction.map(bid => bid.token || 'PASS'));
-        const forcedBid = checkForcedResponse(hand, currentAuction);
-        console.log('Forced bid result:', forcedBid ? forcedBid.token : 'none');
+    // suppressed noisy diagnostics in UI/tests
+    const forcedBid = checkForcedResponse(hand, currentAuction);
         
     // Ensure the engine evaluates from the current actor's perspective
     try {
@@ -1639,7 +1637,7 @@ function shouldRaiseToGameAfterOpener2NT(hand, history) {
 
 function getRecommendedBid() {
     try {
-        console.log('getRecommendedBid: START, currentTurn=', currentTurn, 'currentHands.S=', !!currentHands.S);
+    // suppressed noisy diagnostics in UI/tests
         // Be permissive when currentTurn is unset (e.g., jsdom tests). Only block if it's explicitly not South.
         if ((currentTurn && currentTurn !== 'S') || !currentHands.S) {
             alert('Not your turn or no hand available');
@@ -1648,11 +1646,11 @@ function getRecommendedBid() {
         }
         // Ensure dealer is always defined when syncing to engine
         const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
-        console.log('getRecommendedBid: dealerSeat=', dealerSeat, 'system.currentAuction=', !!system?.currentAuction);
+    // suppressed noisy diagnostics in UI/tests
         
         // Get system recommendation - use current system auction state
         if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
-            console.log('getRecommendedBid: Initializing system auction');
+            // suppressed noisy diagnostics in UI/tests
             if (typeof system.startAuctionWithDealer !== 'function') {
                 system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
                     this.startAuction(ourSeat, /*we*/ vulNS, /*they*/ vulEW);
@@ -1688,7 +1686,6 @@ function getRecommendedBid() {
         try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) {}
         
     const recommendedBid = system.getBid(currentHands.S);
-    console.log('getRecommendedBid: Got bid=', recommendedBid?.token, 'conventionUsed=', recommendedBid?.conventionUsed);
     // Derive a full textual explanation consistent with the explanations panel
     let explanation = recommendedBid.conventionUsed || '';
     try {
@@ -1698,7 +1695,7 @@ function getRecommendedBid() {
         }
     } catch (_) { /* fallback below */ }
     if (!explanation) explanation = 'Standard bid';
-    console.log('getRecommendedBid: explanation=', explanation);
+    // suppressed noisy diagnostics in UI/tests
 
         // Handle null token (which means Pass)
         const bidDisplay = recommendedBid.token || 'PASS';

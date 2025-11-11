@@ -15,7 +15,7 @@ describe('Advanced Convention Tests', () => {
     });
 
     test('RKCB responses', () => {
-        const auction = new Auction();
+    const auction = new Auction([], { dealer: 'N', ourSeat: 'N' });
         auction.add(new Bid('1S'));
         auction.add(new Bid(null));
         auction.add(new Bid('4S'));

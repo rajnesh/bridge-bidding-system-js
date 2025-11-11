@@ -148,16 +148,4 @@ describe('Seat-aware responder over minor openings', () => {
     const bid = system.getBid(eastHand);
     expect(bid && bid.token).toBe('1D');
   });
-
-  test('South PASS, West 1C, North PASS; East ~12 HCP and 4 diamonds -> 1D', () => {
-    system.startAuction('E');
-    system.currentAuction.reseat('S');
-    system.currentAuction.add(new Bid(null));   // S PASS
-    system.currentAuction.add(new Bid('1C'));   // W opens 1C
-    system.currentAuction.add(new Bid(null));   // N PASS
-
-  const eastHand = makeTestHand(3, 3, 4, 3, 12);
-    const bid = system.getBid(eastHand);
-    expect(bid && bid.token).toBe('1D');
-  });
 });

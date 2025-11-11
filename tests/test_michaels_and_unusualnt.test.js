@@ -20,8 +20,8 @@ describe('Michaels and Unusual NT', () => {
   });
 
   test('Michaels over minor: 5-5 majors over 1C -> 2C', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1C'));
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1C'));
 
     const hand = makeHandFromPattern('KQJ32', 'KQJ32', '32', '32'); // 5-5 majors
     const bid = system.getBid(hand);
@@ -29,8 +29,8 @@ describe('Michaels and Unusual NT', () => {
   });
 
   test('Michaels over major: spades+clubs over 1H -> 2H', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1H'));
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1H'));
 
     const hand = makeHandFromPattern('KQJ32', '32', '32', 'KQJ32'); // 5 spades + 5 clubs
     const bid = system.getBid(hand);
@@ -38,8 +38,8 @@ describe('Michaels and Unusual NT', () => {
   });
 
   test('Unusual NT over major: 5-5 minors over 1S -> 2NT', () => {
-    system.currentAuction = new Auction();
-    system.currentAuction.add(new Bid('1S'));
+  system.currentAuction = new Auction([], { dealer: 'S', ourSeat: 'N' });
+  system.currentAuction.add(new Bid('1S'));
 
     const hand = makeHandFromPattern('32', '32', 'KQJ32', 'KQJ32'); // 5-5 minors
     const bid = system.getBid(hand);

@@ -69,7 +69,7 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
     const system = new SAYCBiddingSystem();
     // Opener is South (we = S)
     system.startAuction('S');
-    const A = new Auction();
+    const A = new Auction([], { dealer: 'S', ourSeat: 'S' });
   system.currentAuction = A;
   A.reseat('S');
     A.add(new Bid('1D')); // we open
@@ -88,9 +88,9 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
   test('Michaels cue-bid explanation present', () => {
     const system = new SAYCBiddingSystem();
     system.startAuction('E');
-    const A = new Auction();
-    system.currentAuction = A;
-    A.add(new Bid('1H'));
+  const A = new Auction([], { dealer: 'W', ourSeat: 'E' });
+  system.currentAuction = A;
+  A.add(new Bid('1H'));
 
     // East hand: Michaels over 1H -> spades + a minor (5-5)
     const east = makeTestHand(5, 1, 5, 2, 12);
@@ -102,9 +102,9 @@ describe('Comprehensive explanation strings (engine-provided)', () => {
   test('Unusual 2NT explanation present', () => {
     const system = new SAYCBiddingSystem();
     system.startAuction('E');
-    const A = new Auction();
-    system.currentAuction = A;
-    A.add(new Bid('1S'));
+  const A = new Auction([], { dealer: 'W', ourSeat: 'E' });
+  system.currentAuction = A;
+  A.add(new Bid('1S'));
 
     // East hand: 5-5 in minors -> Unusual 2NT
     const east = makeTestHand(1, 2, 5, 5, 12);
