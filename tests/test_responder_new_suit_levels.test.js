@@ -36,8 +36,8 @@ describe('Responder new-suit levels over 1-level openings', () => {
   // Opener is North (1H); set ourSeat to South so system is responder to the 1H opening
   system.currentAuction = new Auction([], { dealer: 'N', ourSeat: 'S' });
     system.currentAuction.add(new Bid('1H', { seat: 'N' }));
-    // Avoid relaxed takeout double preference so we exercise natural new-suit response
-    system.conventions.config.general.relaxed_takeout_doubles = false;
+  // Ensure relaxed takeout double preference remains enabled (default) so behavior is consistent
+  system.conventions.config.general.relaxed_takeout_doubles = true;
     const hand = makeHandFromPattern('Q2', 'Q2', 'AKQJ2', '32'); // 13 HCP, 5D
     const bid = system.getBid(hand);
     expect(bid && bid.token).toBe('2D');
