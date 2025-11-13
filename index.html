@@ -31,6 +31,25 @@
             <div id="loadingIndicator" class="alert alert-info">
                 ⏳ Initializing bidding system...
             </div>
+            <!-- Visible runtime error catcher: display first JS error in the loading indicator
+                 so users can see why initialization failed without opening DevTools. -->
+            <script>
+                (function(){
+                    function showError(msg){
+                        try{
+                            var li = document.getElementById('loadingIndicator');
+                            if(li){ li.textContent = '❌ JS Error: ' + msg; li.className = 'alert alert-danger'; li.style.display = 'block'; }
+                        }catch(e){ /* ignore */ }
+                    }
+                    window.addEventListener('error', function(ev){
+                        try{ var s = ev && ev.error && ev.error.message ? ev.error.message : (ev.message || String(ev)); showError(s); }catch(_){}
+                    });
+                    window.addEventListener('unhandledrejection', function(ev){
+                        try{ var s = ev && ev.reason && ev.reason.message ? ev.reason.message : String(ev.reason); showError('UnhandledRejection: ' + s); }catch(_){}
+                    });
+                    window.onerror = function(msg, src, ln, col, err){ try{ showError(msg + ' (' + src + ':' + ln + ':' + col + ')'); }catch(_){} };
+                })();
+            </script>
             
             <!-- Removed old page-banner in favor of restored header -->
             

@@ -792,7 +792,7 @@ h6 { font-size: 16px; }
 /* Progress track and fill under tabs */
 .tab-nav::before { content: none; }
 .tab-nav::after { content: none; }
-.tab-panel { display: none; height: 100%; }
+.tab-panel { display: none; height: auto; }
 .tab-panel.active { display: block; }
 
 /* Setup tab grid */
@@ -1137,11 +1137,44 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 .play-seat { display: flex; flex-direction: column; align-items: center; gap: 10px; width: 100%; }
 .play-seat .hand-title { font-weight: 700; color: #2c3e50; text-align: center; }
 .card-button-row { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+/* Diagnostic visual aid: make Play hand containers obvious during debugging */
+#playSouthHand, #playNorthHand {
+    outline: 2px dashed rgba(59,130,246,0.35);
+    background: rgba(59,130,246,0.03);
+    padding: 6px;
+    border-radius: 8px;
+}
+/* Temporary safety net: force visible sizes for Play tab and card buttons while debugging */
+.tab-content { min-height: 320px !important; }
+.tab-panel.active .play-tab { min-height: 240px !important; }
+.play-board, .play-seat, .card-button-row { min-height: 32px !important; }
+.card-button { display: inline-flex !important; min-width: 44px !important; min-height: 28px !important; align-items: center !important; justify-content: center !important; }
+
+/* Scoped overrides removed: restore normal tab show/hide behavior so Play panel
+   is visible only when its tab is active. The card buttons themselves keep a
+   small inline defensive size to avoid collapsing in some environments. */
 .card-button { background: #fff; border: 1px solid #d1d5db; border-radius: 10px; padding: 6px; cursor: pointer; transition: transform 0.12s ease, box-shadow 0.12s ease, border-color 0.12s ease; box-shadow: 0 4px 10px rgba(0,0,0,0.05); }
 .card-button:focus-visible { outline: 3px solid #2563eb; outline-offset: 2px; }
 .card-button:hover { transform: translateY(-3px); box-shadow: 0 10px 18px rgba(0,0,0,0.12); border-color: #2563eb; }
 .card-button[disabled] { cursor: default; opacity: 0.6; transform: none; box-shadow: none; border-color: #d1d5db; }
 .card-svg { width: 72px; height: 108px; border-radius: 8px; box-shadow: 0 4px 10px rgba(0,0,0,0.08); background: #fff; }
+
+/* Ensure Play panel has a real layout box when active. This is scoped to
+   the active Play tab only so it doesn't affect other panels. Kept small
+   and non-!important to avoid interfering with normal tab semantics. */
+.tab-panel.active#playPanel {
+    /* Let the Play panel size to its content (avoid percentage height collapse)
+       while keeping a modest minimum to prevent overly small layout. */
+    height: auto;
+    min-height: 260px;
+}
+.tab-panel.active#playPanel .play-board {
+    min-height: 160px;
+}
+/* Ensure the inner play-tab uses natural height when play panel is active. */
+.tab-panel.active#playPanel .play-tab {
+    height: auto;
+}
 .card-button .card-svg { width: 72px; height: 108px; pointer-events: none; }
 .play-center { display: flex; flex-direction: column; align-items: center; gap: 14px; padding: 16px; border: 1px solid #dee2e6; border-radius: 14px; background: #f8f9fa; width: min(620px, 100%); }
 .trick-area { width: 100%; min-height: 150px; border: 2px dashed #cbd5e1; border-radius: 12px; display: flex; align-items: center; justify-content: center; gap: 16px; padding: 16px; background: #fff; color: #64748b; position: relative; flex-wrap: wrap; }

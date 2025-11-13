@@ -7,12 +7,6 @@
 // Constants
 const SUITS = ['C', 'D', 'H', 'S'];
 
-// Debug helpers removed: debug call-sites have been deleted across the file to keep code clean
-// (Previously these were no-op functions; left removed to avoid clutter.)
-
-// Environment bridge: ensure window-like object exists and has required classes when under Node
-// This keeps the rest of the code using window.* unchanged.
-/* eslint-disable no-var */
 var window = (typeof globalThis !== 'undefined' && typeof globalThis.window !== 'undefined')
     ? globalThis.window
     : (typeof window !== 'undefined' ? window : (typeof global !== 'undefined' ? (global.window || (global.window = {})) : {}));
@@ -54,11 +48,7 @@ class BiddingSystem {
         this.vulnerability = new window.VulnerabilityState(vulWe, vulThey);
     }
 
-    /**
-     * Generate a human-readable explanation for a bid given the current or provided auction.
-     * Centralizes explanation text to avoid UI/engine drift.
-     */
-    getExplanationFor(bid, auctionLike) {
+        getExplanationFor(bid, auctionLike) {
         try {
             const bidToken = bid?.token || null;
             const suitName = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
@@ -441,7 +431,6 @@ class BiddingSystem {
 
             // Permissive fallback: label opener rebids in competition when tokens
             // indicate opponent interference and the current bid matches opener's suit.
-            // This covers test fixtures that omit per-bid seat metadata.
             try {
                 const openIdx2 = firstNonPassIdx;
                 const openerTok2 = openIdx2 === -1 ? null : tokens[openIdx2];
@@ -613,53 +602,7 @@ class BiddingSystem {
             return 'Your bid';
         }
     }
-    /**
-
-        // Seat-aware partner/opponent detection using dealer and assigned seats
-        const bids = this.currentAuction.bids;
-        const dealer = this.currentAuction.dealer;
-        if (dealer) {
-            const order = window.Auction.TURN_ORDER || ['N','E','S','W'];
-            const dealerIdx = order.indexOf(dealer);
-            const currentSeat = order[(dealerIdx + bids.length) % 4];
-            const partnerSeat = order[(order.indexOf(currentSeat) + 2) % 4];
-
-            // Find partner's most recent bid
-            let partnerLastBid = null;
-            for (let i = bids.length - 1; i >= 0; i--) {
-                const b = bids[i];
-                if (b.seat === partnerSeat && b.token) { partnerLastBid = b; break; }
-            }
-
-            if (partnerLastBid && partnerLastBid.token) {
-                // Respond to partner
-                if (partnerLastBid.token === '1NT') {
-                    const ntResp = this._handle1NTResponse(hand);
-                    if (ntResp) return ntResp;
-                } else if (/^\d/.test(partnerLastBid.token)) {
-                    const resp = this._getResponseToSuit(partnerLastBid.token, hand);
-                    if (resp && (resp.token || resp.isDouble || resp.isRedouble)) return resp;
-                }
-            }
-        }
-
-        // Competitive actions (overcalls, doubles, etc.)
-        const interferenceBid = this._handleInterference(this.currentAuction, hand);
-        if (interferenceBid) return interferenceBid;
-                if (hand.lengths[b] !== hand.lengths[a]) {
-                    return hand.lengths[b] - hand.lengths[a];
-                }
-                return a.localeCompare(b);
-            });
-            
-            if (hand.lengths[suits[0]] >= 5 && hand.lengths[suits[1]] >= 4) {
-                return new window.Bid('2C'); // Shows clubs and another suit
-            }
-        }
-
-        return null;
-    }
-
+    
     /**
      * Handle ace-asking bids.
      */
@@ -924,7 +867,6 @@ class SAYCBiddingSystem extends BiddingSystem {
      * Lightweight legality helper for UI previews.
      * Returns true if the bid would be considered legal in the current auction context,
      * using the same rules as the internal legality guard.
-     * Note: This uses the currentAuction state; it does not mutate state.
      */
     isLegal(bid) {
         try {
@@ -949,11 +891,6 @@ class SAYCBiddingSystem extends BiddingSystem {
         }
     }
 
-    /**
-     * Internal legality guard moved into the class body for clarity.
-     * Returns the original bid when legal, or a PASS Bid when the proposed action is illegal
-     * (or downgraded cases such as a contract not higher than the last contract).
-     */
     _ensureLegal(bid) {
         try {
             if (!bid || !this?.currentAuction) return bid;
@@ -988,9 +925,6 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const lastContractSeat = bids[lastContractIdx]?.seat || null;
                     const lastContractSide = seatSide(lastContractSeat);
                     // Use the computed currentSeat (seat to act) for legality checks.
-                    // This preserves the historical behaviour where _ensureLegal
-                    // evaluates doubles/redoubles for the seat that would act next
-                    // given the auction rotation.
                     const actorSeat = currentSeat;
                     const actorSide = seatSide(actorSeat);
                 if (!lastContractSide || !actorSide) {

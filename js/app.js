@@ -1842,68 +1842,12 @@ function advanceTurn() {
     currentTurn = order[(currentIndex + 1) % 4];
 }
 
-function isAuctionComplete() {
-    console.log('isAuctionComplete called');
-    console.log('Current auction:', currentAuction.map(bid => bid.token || 'PASS'));
-    console.log('Auction length:', currentAuction.length);
-    
-    // Auction ends when 3 consecutive passes after a bid, or 4 passes from start
-    if (currentAuction.length < 3) {
-        console.log('Less than 3 bids, auction continues');
-        return false;
-    }
-    
-    // Check for 4 passes from the start (all pass auction)
-    if (currentAuction.length >= 4) {
-        const lastFour = currentAuction.slice(-4);
-        const allPasses = lastFour.every(bid => (bid.token || 'PASS') === 'PASS');
-        console.log('Last 4 bids:', lastFour.map(bid => bid.token || 'PASS'));
-        console.log('All passes?', allPasses);
-        if (allPasses) {
-            console.log('Four consecutive passes - auction ends');
-            return true;
-        }
-    }
-    
-    // Check for 3 consecutive passes after at least one bid
-    if (currentAuction.length >= 3) {
-        const lastThree = currentAuction.slice(-3);
-        const threeConsecutivePasses = lastThree.every(bid => (bid.token || 'PASS') === 'PASS');
-        console.log('Last 3 bids:', lastThree.map(bid => bid.token || 'PASS'));
-        console.log('Three consecutive passes?', threeConsecutivePasses);
-        
-        if (threeConsecutivePasses) {
-            // Make sure there was at least one non-pass bid in the auction
-            const hasNonPassBid = currentAuction.some(bid => (bid.token || 'PASS') !== 'PASS');
-            console.log('Has non-pass bid in auction?', hasNonPassBid);
-            if (hasNonPassBid) {
-                console.log('Three consecutive passes after a bid - auction ends');
-                return true;
-            }
-        }
-    }
-    
-    console.log('Auction continues');
-    return false;
-}
-
 function endAuction() {
-    auctionActive = false;
-    // Re-enable Dealer/Vulnerability controls now that auction is over
-    setDealerVulnerabilityDisabled(false);
-    
-    // Hide auction controls if they exist
-    const auctionControls = document.getElementById('auctionControls');
-    if (auctionControls) {
-        auctionControls.style.display = 'none';
-    }
-
-    // Ensure auction content/status area is visible so we can show the Play button
     try {
         const auctionContent = document.getElementById('auctionContent');
         if (auctionContent) auctionContent.style.display = 'block';
     } catch (_) {}
-    
+
     // Update auction status if it exists (preserve flex layout)
     const auctionStatus = document.getElementById('auctionStatus');
     if (auctionStatus) {
@@ -2279,6 +2223,15 @@ function getLastNonPassBid() {
     }
     console.log('No non-pass bid found, returning null');
     return null;
+}
+
+function isAuctionComplete() {
+    // Auction is complete when there are three consecutive PASSes at the end
+    // (this also covers the case of four initial passes — the last three will be PASS).
+    if (!Array.isArray(currentAuction) || currentAuction.length === 0) return false;
+    const tokens = currentAuction.map(b => (b && b.token) ? b.token : 'PASS');
+    if (tokens.length >= 3 && tokens.slice(-3).every(t => t === 'PASS')) return true;
+    return false;
 }
 
 function isValidBid(bidString, lastBid) {
@@ -4337,6 +4290,20 @@ let playState = {
 };
 
 function renderPlayTab() {
+    try {
+        appendPlayDebug('renderPlayTab: start');
+        // Ensure playPanel is a child of .tab-content. Some browsers will
+        // autocorrect malformed HTML and place nodes outside the intended
+        // container; if that happens, move it back so tab logic and CSS
+        // apply correctly.
+        try {
+            const tabContent = document.querySelector('.tab-content');
+            const playPanelEl = document.getElementById('playPanel');
+            if (tabContent && playPanelEl && playPanelEl.parentElement !== tabContent) {
+                tabContent.appendChild(playPanelEl);
+                appendPlayDebug('renderPlayTab: moved playPanel into .tab-content');
+            }
+        } catch (_) {}
     // Show a brief loading status while initializing the Play view
     try {
         const ps = document.getElementById('playStatus');
@@ -4358,8 +4325,49 @@ function renderPlayTab() {
     // In test/jsdom scenarios, window.currentHands may be the source of truth
     try { if (typeof window !== 'undefined' && window.currentHands) { currentHands = window.currentHands; } } catch (_) {}
 
+    // If the Play panel is currently hidden (tab not active), don't force it
+    // visible — instead defer rendering until it's activated. This prevents
+    // showing Play content on the wrong tab while still ensuring renderPlayTab
+    // will run when the panel becomes active via switchTab().
+    try {
+        const playPanel = document.getElementById('playPanel');
+        if (playPanel) {
+            const cs = window.getComputedStyle ? getComputedStyle(playPanel) : null;
+            if (cs && cs.display === 'none') {
+                appendPlayDebug('renderPlayTab: panel is hidden; deferring render until activated');
+                // Watch for the 'active' class being added and then render once.
+                const mo = new MutationObserver((mutations, obs) => {
+                    try {
+                        const nowCs = getComputedStyle(playPanel);
+                        if (playPanel.classList.contains('active') && nowCs.display !== 'none') {
+                            appendPlayDebug('renderPlayTab: panel activated via mutation observer — rendering now');
+                            obs.disconnect();
+                            // Defer slightly to allow the browser layout to settle
+                            setTimeout(() => { try { renderPlayTab(); } catch(_) {} }, 40);
+                        }
+                    } catch (_) {}
+                });
+                mo.observe(playPanel, { attributes: true, attributeFilter: ['class', 'style'] });
+                // Also set a safety timeout to attempt rendering in case mutation observer misses
+                setTimeout(() => {
+                    try {
+                        const cs2 = getComputedStyle(playPanel);
+                        if (playPanel.classList.contains('active') && cs2.display !== 'none') {
+                            appendPlayDebug('renderPlayTab: panel active (timeout check) — rendering now');
+                            renderPlayTab();
+                        } else {
+                            appendPlayDebug('renderPlayTab: still hidden after timeout — aborting render');
+                        }
+                    } catch (_) {}
+                }, 500);
+                return; // abort this invocation — will rerun when panel activated
+            }
+        }
+    } catch (_) {}
+
     // Compute final contract from auction history
     const details = computePlayDetailsFromAuction();
+    try { appendPlayDebug('renderPlayTab: computed details: ' + JSON.stringify({ contract: details.contract ? `${details.contract.level}${details.contract.strain}` : null, declarer: details.declarer, dummy: details.dummy })); } catch(_) {}
     playState.contract = details.contract;
     playState.declarer = details.declarer;
     playState.dummy = details.dummy;
@@ -4406,21 +4414,43 @@ function renderPlayTab() {
 
     // Render hands (South and Dummy if dummy is North)
     try {
+        appendPlayDebug('renderPlayTab: start rendering hands');
         const southRow = document.getElementById('playSouthHand');
         const northRow = document.getElementById('playNorthHand');
         if (southRow) southRow.innerHTML = '';
         if (northRow) northRow.innerHTML = '';
 
-        // Reveal dummy only after the opening lead
-        // If South is dummy, hide South's cards initially; if North is dummy, hide North's cards initially
+        // Reveal dummy only after the opening lead. Render hands using the
+        // auction-style textual layout (suit groups) but create per-card
+        // clickable elements for the Play tab instead of using CardSVG.render.
         const dummySeat = playState.dummy;
-        if (currentHands && currentHands.S && dummySeat !== 'S') {
-            renderHandCards('playSouthHand', 'S');
+        // South's cards must always be clickable per requirements
+        if (currentHands && currentHands.S) {
+            try { appendPlayDebug('renderPlayTab: rendering South hand (clickable)'); } catch(_) {}
+            renderPlayHand('playSouthHand', 'S', true);
         }
-        if (currentHands && currentHands.N && dummySeat !== 'N') {
-            renderHandCards('playNorthHand', 'N');
+        // North's cards are clickable only when declarer is South (North is dummy)
+        // or when declarer is North (North is declarer) — i.e., clickable when
+        // the contract involves the N/S side as declarer or dummy.
+        const northClickable = (playState.declarer === 'S' || playState.declarer === 'N');
+        if (currentHands && currentHands.N) {
+            try { appendPlayDebug('renderPlayTab: northClickable=' + northClickable + ' dummy=' + playState.dummy); } catch(_) {}
+            // If dummy is not yet revealed and North is dummy but not clickable, hide content
+            if (playState.dummy === 'N' && !northClickable && northRow) {
+                northRow.innerHTML = '';
+            } else {
+                renderPlayHand('playNorthHand', 'N', !!northClickable);
+            }
         }
     } catch (_) {}
+
+    // Provide immediate DOM counts for diagnosis (south/north child counts)
+    try { const southCnt = document.getElementById('playSouthHand')?.childElementCount; const northCnt = document.getElementById('playNorthHand')?.childElementCount; appendPlayDebug('renderPlayTab: DOM counts south=' + (typeof southCnt === 'number' ? southCnt : 'none') + ' north=' + (typeof northCnt === 'number' ? northCnt : 'none')); } catch(_) {}
+
+    // Layout guard removed: rely on scoped CSS rules in `css/bidding.css`
+    // (e.g. `.tab-panel.active#playPanel` and `.card-button` sizing) to
+    // prevent Play area collapse across browsers. This keeps DOM untouched
+    // and avoids transient inline style changes.
 
     // Reset trick area
     const trickArea = document.getElementById('trickArea');
@@ -4442,6 +4472,13 @@ function renderPlayTab() {
 
     // If next to play is E/W, auto-play to keep the trick moving
     setTimeout(() => autoPlayIfNeeded(), 200);
+    try { appendPlayDebug('renderPlayTab: finished'); } catch(_) {}
+    } catch (e) {
+        // Ensure user sees an error instead of a blank Play tab
+        try { showPlayStatus('Failed to render Play view: ' + (e?.message || e), 'danger'); } catch(_) {}
+        try { appendPlayDebug('renderPlayTab: ERROR -> ' + (e?.message || String(e))); } catch(_) {}
+        console.error('renderPlayTab error:', e);
+    }
 }
 
 // Expose helpers for reliable navigation and rendering from UI
@@ -4520,6 +4557,7 @@ function renderHandCards(containerId, seat) {
     const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
     suits.forEach(s => {
         const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+        try { appendPlayDebug(`renderHandCards: ${seat} processing suit ${s} (${cards.map(c=>c.rank).join('')})`); } catch(_) {}
         cards.forEach(c => {
             const code = `${c.rank}${s}`;
             const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 72, height: 108 }) : null;
@@ -4533,6 +4571,70 @@ function renderHandCards(containerId, seat) {
     });
 }
 
+/**
+ * Render a play-friendly hand into the Play tab.
+ * Uses auction-style textual grouping but creates per-card buttons so
+ * South (and dummy when appropriate) can click to play.
+ * containerId - id of element to populate
+ * seat - 'N'|'S' etc.
+ * clickable - boolean whether cards should be interactive (click to play)
+ */
+function renderPlayHand(containerId, seat, clickable) {
+    const container = document.getElementById(containerId);
+    if (!container) return;
+    const hand = currentHands?.[seat];
+    if (!hand || !hand.suitBuckets) return;
+    container.innerHTML = '';
+    const suits = ['S','H','D','C'];
+    const suitSymbols = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
+    const suitColors = { 'S': '#000', 'H': '#d63031', 'D': '#d63031', 'C': '#000' };
+    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+
+    suits.forEach(s => {
+        const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+        if (!cards.length) return;
+        try { appendPlayDebug(`renderPlayHand: ${seat} processing suit ${s} (${cards.map(c=>c.rank).join('')}) clickable=${!!clickable}`); } catch(_) {}
+        const suitGroup = document.createElement('div');
+        suitGroup.className = 'hand-suit';
+        const sym = document.createElement('span');
+        sym.className = 'suit-symbol';
+        sym.style.color = suitColors[s];
+        sym.textContent = suitSymbols[s];
+        suitGroup.appendChild(sym);
+        const cardsSpan = document.createElement('span');
+        cardsSpan.className = 'suit-cards';
+        // Create a button for each card (clickable if allowed)
+        cards.forEach(c => {
+            const code = `${c.rank}${s}`;
+            if (clickable) {
+                const btn = document.createElement('button');
+                btn.type = 'button';
+                btn.className = 'card-button';
+                btn.dataset.code = code;
+                btn.dataset.seat = seat;
+                btn.innerHTML = `<span class="suit-symbol" style="color:${suitColors[s]}">${suitSymbols[s]}</span> <span class="card-rank">${c.rank}</span>`;
+                    // Inline defensive sizing to avoid collapsed-zero boxes in some layouts
+                    try {
+                        btn.style.display = 'inline-flex';
+                        btn.style.minWidth = '44px';
+                        btn.style.minHeight = '28px';
+                        btn.style.alignItems = 'center';
+                        btn.style.justifyContent = 'center';
+                    } catch (_) {}
+                btn.addEventListener('click', onCardClick);
+                cardsSpan.appendChild(btn);
+            } else {
+                const span = document.createElement('span');
+                span.className = 'suit-card-text';
+                span.textContent = c.rank;
+                cardsSpan.appendChild(span);
+            }
+        });
+        suitGroup.appendChild(cardsSpan);
+        container.appendChild(suitGroup);
+    });
+}
+
 function wrapCardWithSeat(svgEl, code, seat) {
     if (!svgEl) return null;
     try {
@@ -4542,6 +4644,8 @@ function wrapCardWithSeat(svgEl, code, seat) {
         btn.dataset.code = code;
         btn.dataset.seat = seat;
         btn.addEventListener('click', onCardClick);
+        // Defensive inline sizing for SVG-wrapped buttons
+        try { btn.style.display = 'inline-flex'; btn.style.minWidth = '44px'; btn.style.minHeight = '28px'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; } catch(_) {}
         svgEl.dataset.code = code;
         svgEl.dataset.seat = seat;
         btn.appendChild(svgEl);
@@ -4761,6 +4865,10 @@ function showPlayStatus(message, kind='light') {
         setTimeout(() => { try { el.style.display = 'none'; } catch(_) {} }, 1800);
     }
 }
+
+// Debugging output disabled in cleaned state: keep a no-op so call sites
+// remain valid but do not produce UI overlay noise. Re-enable as needed.
+function appendPlayDebug(msg) { /* no-op */ }
 
 function summarizeResult() {
     const contract = playState.contract;
