@@ -1,6 +1,6 @@
 {
   "name": "bridge-bidding-sayc",
-  "version": "1.0.0",
+  "version": "0.2.0",
   "description": "Standard American Yellow Card (SAYC) Bridge Bidding System - Web Application",
   "main": "index.html",
   "scripts": {
