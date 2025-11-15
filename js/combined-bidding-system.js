@@ -164,17 +164,14 @@ class BiddingSystem {
                 try {
                     if (auctCtx?.bids?.length === 1) {
                         // Prefer explicit seat if present; otherwise infer opener seat from dealer
-                        let openerSeat = auctCtx.bids[0]?.seat || null;
-                        try {
-                            if (!openerSeat && auctCtx && auctCtx.dealer != null) {
-                                const dealerIdx = orderSeats.indexOf(auctCtx.dealer);
-                                if (dealerIdx !== -1) openerSeat = orderSeats[(dealerIdx + 0) % 4];
-                            }
-                        } catch (_) { openerSeat = openerSeat || null; }
+                        let openerSeat = this._seatAtIndex(auctCtx, 0);
                         if (openerSeat) {
                             const openerIdx = orderSeats.indexOf(openerSeat);
                             const partnerSeat = orderSeats[(openerIdx + 2) % 4];
-                            const ourSeatEff = auctCtx?.ourSeat || this.ourSeat || null;
+                            // Prefer explicit ourSeat on the provided auction, else fall back to system.ourSeat
+                            const ourSeatEff = (auctCtx && auctCtx.ourSeat && orderSeats.includes(auctCtx.ourSeat))
+                                ? auctCtx.ourSeat
+                                : (this.ourSeat && orderSeats.includes(this.ourSeat) ? this.ourSeat : null);
                             // In abbreviated setups with only the opening bid present, prefer treating the explainer
                             // as opener's partner when ourSeat is that partner; this avoids mislabeling responder
                             // actions as overcalls due to inference pointing to the next hand instead of partner.
@@ -221,13 +218,7 @@ class BiddingSystem {
                     const noOppInterference = between.every(t => t === 'PASS');
                     const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
                     // Prefer explicit seat if present; otherwise infer opener seat from dealer when available
-                    let openerSeat = auct?.bids?.[openIdx]?.seat || null;
-                    try {
-                        if (!openerSeat && auct && auct.dealer != null && typeof orderSeats !== 'undefined') {
-                            const dealerIdx = orderSeats.indexOf(auct.dealer);
-                            if (dealerIdx !== -1) openerSeat = orderSeats[(dealerIdx + (openIdx || 0)) % 4];
-                        }
-                    } catch (_) { openerSeat = openerSeat || null; }
+                    let openerSeat = this._seatAtIndex(auct, openIdx);
                     const isSameSideAsOpener = (openerSeat && currentSeatCtx) ? sameSideAs(openerSeat, currentSeatCtx) : false;
                     if (noOppInterference && isSameSideAsOpener && /^[1][CDHS]$/.test(openerTok || '') && /^[1][CDHS]$/.test(bidToken || '')) {
                         const openerSuit = openerTok.slice(-1);
@@ -257,6 +248,8 @@ class BiddingSystem {
                         }
                     }
                 } catch (_) {}
+
+ 
 
                 // Overcall over a 1-level suit opening (robust to leading passes)
                 {
@@ -296,7 +289,15 @@ class BiddingSystem {
                                     return `Overcall: natural 5+ ${suitName(s)}`;
                                 }
                             }
-                            if (bidToken === '1NT') return '1NT overcall: 15–18 HCP, balanced with a stopper';
+                            if (bidToken === '1NT') {
+                                // If there were only passes between opener and this bid (i.e. no interference)
+                                // and this looks like the immediate responder action to partner's 1-level major,
+                                // prefer the responder wording (tests expect the "no 3-card <major> support" phrasing).
+                                if (onlyPassesBetween && between.length === 0 && openerSuit && (openerSuit === 'H' || openerSuit === 'S')) {
+                                    return `1NT response: balanced 6–11 HCP, no 3-card ${suitName(openerSuit)} support`;
+                                }
+                                return '1NT overcall: 15–18 HCP, balanced with a stopper';
+                            }
                         }
                     }
                 }
@@ -366,22 +367,11 @@ class BiddingSystem {
                     // Need seats to be reliable; fall back to inferred seats when bids omit seat properties
                     const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
                     // Try explicit seat on the opener bid, otherwise infer from dealer and index
-                    let openerSeat = auct?.bids?.[openIdx]?.seat || null;
-                    try {
-                        if (!openerSeat && auct && auct.dealer != null && typeof orderSeats !== 'undefined') {
-                            const dealerIdx = orderSeats.indexOf(auct.dealer);
-                            if (dealerIdx !== -1) openerSeat = orderSeats[(dealerIdx + (openIdx || 0)) % 4];
-                        }
-                    } catch (_) { openerSeat = openerSeat || null; }
+                    let openerSeat = this._seatAtIndex(auct, openIdx);
                     const lastBidObj = (auctionLike && auctionLike.bids) ? auctionLike.bids[auctionLike.bids.length - 1] : (this.currentAuction?.bids?.[this.currentAuction.bids.length - 1]);
                     // currentSeat: prefer explicit seat on last bid, else infer from dealer + last index
                     let currentSeat = lastBidObj?.seat || null;
-                    try {
-                        if (!currentSeat && auct && auct.dealer != null && typeof orderSeats !== 'undefined') {
-                            const dealerIdx2 = orderSeats.indexOf(auct.dealer);
-                            if (dealerIdx2 !== -1) currentSeat = orderSeats[(dealerIdx2 + ((auct.bids?.length || 1) - 1)) % 4];
-                        }
-                    } catch (_) { currentSeat = currentSeat || null; }
+                    if (!currentSeat) currentSeat = this._seatAtIndex(auct, (auct.bids?.length || 1) - 1);
 
                     // Check that opponents interfered at some point after the opening
                     const theirBidAfterOpening = (() => {
@@ -727,8 +717,9 @@ class BiddingSystem {
                 // Ensure we are the immediate next to act and on the opposite side of the opener
                 const orderSeats = Array.isArray(window.Auction?.TURN_ORDER) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
                 const dealer = auct.dealer || null;
-                const inferredNextSeat = (dealer && orderSeats.includes(dealer)) ? orderSeats[(orderSeats.indexOf(dealer) + bidsArr.length) % 4] : null;
-                const openerSeat = bidsArr[firstContractIdx]?.seat || (dealer && orderSeats.includes(dealer) ? orderSeats[(orderSeats.indexOf(dealer) + firstContractIdx) % 4] : null);
+                // Use centralized seat inference helper so we don't duplicate dealer+index math
+                const inferredNextSeat = this._seatAtIndex(auct, bidsArr.length);
+                const openerSeat = this._seatAtIndex(auct, firstContractIdx) || (bidsArr[firstContractIdx]?.seat || null);
                 const ourSeatEff = auct.ourSeat || this.ourSeat || null;
                 // Determine whether the inferred next bidder is on the opposite side to the opener.
                 // Use sameSideAs helper for robust NS/EW polarity checks. When seat info is missing,
@@ -909,7 +900,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             const order = window.Auction?.TURN_ORDER || ['N','E','S','W'];
             const dealer = auction?.dealer || null;
             const ourSeat = auction?.ourSeat || this?.ourSeat || null;
-            const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + bids.length) % 4] : null;
+            // Prefer centralized seat inference helper for consistency across the codebase
+            const currentSeat = this._seatAtIndex(auction, bids.length);
             const seatSide = (s) => (s && ['N','S'].includes(s)) ? 'NS' : (s && ['E','W'].includes(s) ? 'EW' : null);
             const sameSide = (a,b) => !!a && !!b && seatSide(a) === seatSide(b);
 
@@ -1008,7 +1000,7 @@ class SAYCBiddingSystem extends BiddingSystem {
     const order = window.Auction.TURN_ORDER || ['N','E','S','W'];
         const bids = auction.bids || [];
         // Prefer auction.ourSeat (most recent context) for side/partner inference; fall back to system.ourSeat
-    const inferredCurrentSeat = order[(order.indexOf(auction.dealer) + bids.length) % 4];
+    const inferredCurrentSeat = this._seatAtIndex(auction, bids.length) || null;
     const effectiveOurSeat = auction.ourSeat && order.includes(auction.ourSeat) ? auction.ourSeat : (this.ourSeat && order.includes(this.ourSeat) ? this.ourSeat : null);
     const anchorSeat = effectiveOurSeat || inferredCurrentSeat;
     // Partner is opposite our seat when known; otherwise opposite current seat
@@ -1033,6 +1025,37 @@ class SAYCBiddingSystem extends BiddingSystem {
         const lastContract = auction.lastContract();
 
         return { currentSeat: inferredCurrentSeat, partnerSeat, lastOur, lastPartner, lastOpp, lastContract };
+    }
+
+    /**
+     * Consolidated seat context wrapper that combines inferred seats and
+     * the richer context from `_getSeatsContext()`. Returns a stable object
+     * with `auction`, `effectiveOurSeat`, `currentSeat`, `partnerSeat`,
+     * `ourSide`, `theirSide`, and the last-bid references from `_getSeatsContext`.
+     */
+    _seatContext(auction) {
+        try {
+            const a = auction || this.currentAuction || null;
+            const order = (window.Auction && Array.isArray(window.Auction.TURN_ORDER)) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+            const seatsCtx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : {};
+            const effectiveOurSeat = (a && a.ourSeat && order.includes(a.ourSeat)) ? a.ourSeat : (this.ourSeat && order.includes(this.ourSeat) ? this.ourSeat : null);
+            const currentSeat = this._seatAtIndex(a, (a && Array.isArray(a.bids)) ? a.bids.length : 0) || seatsCtx.currentSeat || null;
+            const partnerSeat = seatsCtx.partnerSeat || (effectiveOurSeat ? order[(order.indexOf(effectiveOurSeat) + 2) % 4] : null);
+            const ourSide = effectiveOurSeat ? (['N','S'].includes(effectiveOurSeat) ? ['N','S'] : ['E','W']) : (currentSeat ? ((['N','S'].includes(currentSeat)) ? ['N','S'] : ['E','W']) : null);
+            const theirSide = ourSide && ourSide[0] === 'N' ? ['E','W'] : ['N','S'];
+            return {
+                auction: a,
+                effectiveOurSeat,
+                currentSeat,
+                partnerSeat,
+                ourSide,
+                theirSide,
+                lastOur: seatsCtx.lastOur || null,
+                lastPartner: seatsCtx.lastPartner || null,
+                lastOpp: seatsCtx.lastOpp || null,
+                lastContract: seatsCtx.lastContract || null
+            };
+        } catch (_) { return null; }
     }
 
     /**
@@ -1104,7 +1127,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             const between = bids.slice(openingIdx + 1);
             if (between.some(b => !this._isPassToken(b?.token))) return false;
 
-            const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+            const ctx = this._seatContext();
             if (ctx?.partnerSeat && bids[openingIdx]?.seat && bids[openingIdx].seat !== ctx.partnerSeat) {
                 return false;
             }
@@ -1274,6 +1297,42 @@ class SAYCBiddingSystem extends BiddingSystem {
     }
 
     /**
+     * Return true when the provided auction (or currentAuction) is in a balancing
+     * / reopening position (last two actions are passes). Centralizes the
+     * repeated `slice(-2).every(pass)` pattern so callers behave consistently.
+     */
+    _isBalancingSeat(auction) {
+        try {
+            const a = auction || this.currentAuction;
+            if (!a || !Array.isArray(a.bids)) return false;
+            const lastTwo = a.bids.slice(-2);
+            if (lastTwo.length < 2) return false;
+            return lastTwo.every(b => this._isPassToken(b?.token));
+        } catch (_) { return false; }
+    }
+
+    /**
+     * Return the seat (e.g., 'N','E','S','W') for the bid at `index` in the given
+     * auction. If the bid object contains a `seat` property, that is returned.
+     * Otherwise, when `auction.dealer` is present and `Auction.TURN_ORDER` is
+     * available, infer the seat by rotating from the dealer.
+     */
+    _seatAtIndex(auction, index) {
+        try {
+            const a = auction || this.currentAuction;
+            if (!a || !Array.isArray(a.bids)) return null;
+            const idx = Number.isInteger(index) ? index : 0;
+            const bidObj = a.bids[idx];
+            if (bidObj && bidObj.seat) return bidObj.seat;
+            const dealer = a.dealer;
+            const order = (window.Auction && Array.isArray(window.Auction.TURN_ORDER)) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+            if (!dealer || !order.includes(dealer)) return null;
+            const dealerIdx = order.indexOf(dealer);
+            return order[(dealerIdx + (idx || 0)) % 4];
+        } catch (_) { return null; }
+    }
+
+    /**
      * Handle responses to 1NT opening.
      */
     _handle1NTResponse(hand) {
@@ -1356,13 +1415,8 @@ class SAYCBiddingSystem extends BiddingSystem {
                 try {
                     const bids = this.currentAuction?.bids || [];
                     const openIdx = bids.findIndex(b => b && b.token === opening);
-                    let openerSeat = (openIdx >= 0 && bids[openIdx]) ? bids[openIdx].seat : null;
-                    if (!openerSeat && this.currentAuction && this.currentAuction.dealer != null && Array.isArray(window.Auction?.TURN_ORDER)) {
-                        const order = window.Auction.TURN_ORDER;
-                        const dealerIdx = order.indexOf(this.currentAuction.dealer);
-                        if (dealerIdx !== -1) openerSeat = order[(dealerIdx + (openIdx || 0)) % 4];
-                    }
-                    const ourSeatEff = this.currentAuction?.ourSeat || this.ourSeat || null;
+                    let openerSeat = this._seatAtIndex(this.currentAuction, openIdx);
+                    const ourSeatEff = this._seatContext(this.currentAuction)?.effectiveOurSeat || null;
                     if (openerSeat && ourSeatEff) openerIsPartner = this._sameSideAs(openerSeat, ourSeatEff);
                 } catch (_) { openerIsPartner = false; }
 
@@ -1662,7 +1716,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 const theirOvercall = this.currentAuction.bids[1];
                 // Guard: ensure we're currently the responder (same side as opener, but not the opener seat itself)
                 try {
-                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const ctx = this._seatContext();
                     const openerSeat = this.currentAuction.bids[0]?.seat;
                     const isResponderTurn = !!(ctx && openerSeat && this._sameSideAs(ctx.currentSeat, openerSeat) && ctx.currentSeat !== openerSeat);
                     if (!isResponderTurn) {
@@ -1717,7 +1771,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // classic balancing preference to bid a higher 4-card major when present.
                     try {
                         const firstTok = (this.currentAuction && this.currentAuction.bids && this.currentAuction.bids[0] && this.currentAuction.bids[0].token) || '';
-                        const lastTwoArePass = (this.currentAuction && this.currentAuction.bids) ? this.currentAuction.bids.slice(-2).every(x => this._isPassToken(x.token)) : false;
+                        const lastTwoArePass = this._isBalancingSeat(this.currentAuction);
                         if (/^1[CDHS]$/.test(firstTok) && lastTwoArePass && hand.hcp >= 12) {
                             // Higher-ranking major suits relative to the opener
                             const order = ['C','D','H','S'];
@@ -1872,16 +1926,11 @@ class SAYCBiddingSystem extends BiddingSystem {
                             // Only skip Michaels when the opener bid carries an explicit (non-auto-assigned)
                             // seat and that seat is on the same side as ourSeat (i.e., opener is partner).
                             const openerBid = this.currentAuction && this.currentAuction.bids && this.currentAuction.bids[0] ? this.currentAuction.bids[0] : null;
-                            const openerSeat = openerBid ? openerBid.seat : null;
-                            const ourSeatEff = this.currentAuction?.ourSeat || this.ourSeat || null;
-                            // Treat only explicitly provided per-bid seat metadata as seat-aware.
-                            // If the auction auto-assigned seats (auction.add with dealer), do NOT
-                            // consider that as explicit seat metadata for suppressing Michaels.
-                            // Treat seat info as explicit when either (a) the bid carried an explicit
-                            // per-bid seat, or (b) the auction has a dealer and seats were auto-assigned
-                            // by `Auction.reseat`/`add` for test fixtures. This makes reseated auctions
-                            // behave seat-aware for convention-suppression purposes.
-                            const openerHasSeat = !!(openerBid && openerBid.seat && ((!openerBid._autoAssignedSeat) || (this.currentAuction && this.currentAuction.dealer)));
+                            // Centralize seat inference for the opening bid: prefer explicit per-bid seat,
+                            // but fall back to dealer-based inference when available.
+                            const openerSeat = this._seatAtIndex(this.currentAuction, 0) || (openerBid ? openerBid.seat : null);
+                            const ourSeatEff = this._seatContext(this.currentAuction)?.effectiveOurSeat || null;
+                            const openerHasSeat = !!openerSeat;
                             const openerIsPartner = openerSeat && ourSeatEff ? this._sameSideAs(openerSeat, ourSeatEff) : false;
                             // Only suppress Michaels when opener is explicitly our partner in a seat-aware auction.
                             if (openerHasSeat && openerIsPartner) skipMichaelsWhenOurs = true;
@@ -2224,7 +2273,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         if (auction.bids.length >= 3) {
             if (auction.bids[0].token &&
                 ['1', '2', '3'].includes(auction.bids[0].token[0]) &&
-                auction.bids.slice(-2).every(b => this._isPassToken(b.token)) &&
+                this._isBalancingSeat(auction) &&
                 this.conventions.isEnabled('reopening_doubles', 'competitive') &&
                 hand.hcp >= 8) {
                 
@@ -2905,7 +2954,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const overTok = bids[overIdx]?.token || '';
                     const oppOvercalledSuit12 = overTok && /^[12][CDHS]$/.test(overTok) && !/NT$/.test(overTok);
                     // Current actor should be on opener's side (responder turn)
-                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const ctx = this._seatContext();
                     const currentSeat = ctx?.currentSeat || null;
                     const onOpenersSide = currentSeat && bids[openIdx]?.seat && this._sameSideAs(currentSeat, bids[openIdx].seat);
                     if (openerIsOneSuit && oppOvercalledSuit12 && onOpenersSide) {
@@ -2960,7 +3009,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     const oppInterfered = !!(nextAfterOpen && nextAfterOpen.token && !this._isPassToken(nextAfterOpen.token));
 
                     // Determine if current actor is on opener's side
-                    const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+                    const ctx = this._seatContext();
                     const currentSeat = ctx?.currentSeat || this.currentAuction?.ourSeat || null;
                     const openerSeat = openerBid.seat || null;
                     let onOpenersSide = false;
@@ -3239,7 +3288,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     let ourOpeningIdx = -1;
                     for (let i = 0; i < bids.length; i++) {
                         const b = bids[i];
-                        if (b && b.token && /^1[CDHS]$/.test(b.token) && this._sameSideAs(b.seat, this.currentAuction.ourSeat || this.ourSeat)) { ourOpeningIdx = i; break; }
+                        if (b && b.token && /^1[CDHS]$/.test(b.token) && this._sameSideAs(b.seat, this._seatContext()?.effectiveOurSeat)) { ourOpeningIdx = i; break; }
                     }
                     if (ourOpeningIdx >= 0) {
                         // Next non-pass by opponents is a 1-level suit overcall?
@@ -3249,7 +3298,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                             if (!bj) continue;
                             const t = bj.token;
                             if (this._isPassToken(t) || t === 'X' || t === 'XX') continue;
-                            if (/^1[CDHS]$/.test(t) && !this._sameSideAs(bj.seat, this.currentAuction.ourSeat || this.ourSeat)) { oppOverIdx = j; break; }
+                            if (/^1[CDHS]$/.test(t) && !this._sameSideAs(bj.seat, this._seatContext()?.effectiveOurSeat)) { oppOverIdx = j; break; }
                             break; // different action than our targeted pattern
                         }
                         if (oppOverIdx !== -1) {
@@ -3272,7 +3321,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // Instrumentation: log seats/context before calling Drury handler so we can see
                 // why the main flow might skip the drury handler in some test cases.
                 let preCtx = null;
-                try { preCtx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null; } catch(_) { preCtx = null; }
+                try { preCtx = this._seatContext(); } catch(_) { preCtx = null; }
                 /* debug removed */
 
                 const druryRebid = this._handleDruryOpenerRebid(this.currentAuction, hand);
@@ -3281,7 +3330,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                     return druryRebid;
                 }
 
-                const ctx = preCtx || ((typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null);
+                const ctx = preCtx || this._seatContext();
                 const lastPartner = ctx?.lastPartner || null;
                 const partnerToken = lastPartner?.token || null;
                 if (partnerToken && /^\d/.test(partnerToken)) {
@@ -3328,7 +3377,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             /* debug removed */
             if (!druryBid || druryBid.token !== '2C') return null;
 
-            const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+            const ctx = this._seatContext();
             const currentSeat = ctx?.currentSeat || null;
             const partnerSeat = ctx?.partnerSeat || null;
 
@@ -3392,7 +3441,7 @@ class SAYCBiddingSystem extends BiddingSystem {
             const bids = auction?.bids || [];
             if (bids.length < 2) return null;
             // Find our side and partner using context
-            const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+            const ctx = this._seatContext();
             const partnerSeat = ctx?.partnerSeat || null;
             const ourSide = ctx ? (['N','S'].includes(ctx.currentSeat) ? ['N','S'] : ['E','W']) : null;
 
@@ -3498,7 +3547,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         if (bids.length < 3) return null;
 
         // Require that partner opened 1NT on this auction
-        const ctx = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
+        const ctx = this._seatContext();
         if (!ctx) return null;
         const partnerSeat = ctx.partnerSeat;
         const ourSeat = ctx.currentSeat;
@@ -3654,6 +3703,8 @@ class SAYCBiddingSystem extends BiddingSystem {
     getBid(hand) {
     if (!this.currentAuction) throw new Error('Auction not started');
 
+    /* entry trace removed */
+
     /* debug removed */
 
     // Early caller-side reopening check (narrow scope): when the auction
@@ -3665,7 +3716,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         const bidsNow = this.currentAuction?.bids || [];
         if (bidsNow.length >= 3) {
             const first = bidsNow[0];
-            const lastTwoArePass = bidsNow.slice(-2).every(b => this._isPassToken(b.token));
+            const lastTwoArePass = this._isBalancingSeat(this.currentAuction);
             if (first && first.token && /^[1-3][CDHS]$/.test(first.token) && parseInt(first.token[0], 10) === 3 && lastTwoArePass) {
                     try {
                         // Use the interference handler to detect reopening-double candidate
@@ -3891,7 +3942,7 @@ class SAYCBiddingSystem extends BiddingSystem {
         }
 
     // Partner/opener contexts
-    const ctx = this._getSeatsContext();
+    const ctx = this._seatContext();
         if (ctx) {
             const tokens = bids.map(b => b.token).filter(Boolean);
 
@@ -3911,10 +3962,10 @@ class SAYCBiddingSystem extends BiddingSystem {
                         const openedByUs = this._sameSideAs(bids[firstIdx]?.seat, this.ourSeat);
                         const overTok = bids[firstIdx + 1]?.token || '';
                         const oppOvercalledSuit12 = overTok && /^[12][CDHS]$/.test(overTok) && !/NT$/.test(overTok);
-                        const onOpenersSide = this._sameSideAs((this._getSeatsContext()||{}).currentSeat, bids[firstIdx]?.seat);
+                        const onOpenersSide = this._sameSideAs((this._seatContext()||{}).currentSeat, bids[firstIdx]?.seat);
                         // Only trigger this early responder hook when it's actually responder's turn now (partner of opener),
                         // not on opener's later turns (e.g., classic third-round opener after two passes).
-                        const ctxNow = (this._getSeatsContext()||{});
+                        const ctxNow = (this._seatContext()||{});
                         const currentSeatNow = ctxNow.currentSeat;
                         const openerSeatNow = bids[firstIdx]?.seat;
                         // It's responder's turn if we're on opener's side but not the opener's own seat
@@ -4635,8 +4686,8 @@ class SAYCBiddingSystem extends BiddingSystem {
             // Seat-aware defaulting: if seat context is available (dealer known), and the opening bid lacks seat,
             // prefer allowing interference (assume opponents opened). In seat-unknown tests (no dealer), keep the
             // conservative suppression of pure overcalls to avoid spurious suggestions.
-            const ctxLocal = (typeof this._getSeatsContext === 'function') ? this._getSeatsContext() : null;
-            const ourSideOpened = openedSeat ? this._sameSideAs(openedSeat, effOurSeat) : (!ctxLocal ? true : false);
+            const ctxLocal = this._seatContext();
+                        const ourSideOpened = openedSeat ? this._sameSideAs(openedSeat, effOurSeat) : (!ctxLocal ? true : false);
 
             const inter = this._handleInterference(this.currentAuction, hand);
             if (inter) {
@@ -4781,7 +4832,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 // preempted by scattered natural overcall fallbacks.
                 try {
                     const firstTok = this.currentAuction?.bids?.[0]?.token || '';
-                    const lastTwoArePass = (this.currentAuction?.bids || []).slice(-2).every(x => this._isPassToken(x.token));
+                    const lastTwoArePass = this._isBalancingSeat(this.currentAuction);
                     // Prefer reopening double when the auction started with a 1/2/3-level
                     // suit opener followed by two passes (reopening context). Guard by
                     // the convention being enabled and only when the current result

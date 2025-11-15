@@ -4288,6 +4288,9 @@ let playState = {
     tricksNS: 0,
     tricksEW: 0
 };
+// Declarer planning state (two-step): { phase: 'draw'|'establish' }
+playState.declarerPlan = null;
+
 
 function renderPlayTab() {
     try {
@@ -4382,6 +4385,8 @@ function renderPlayTab() {
     playState.tricksEW = 0;
     // Snapshot original hands for replay
     playState.originalHands = cloneHands(currentHands);
+    // Initialize remaining counts for plan decisions
+    try { computeRemainingCounts(); } catch(_) {}
 
     // Update Play titles to reflect declarer and dummy roles
     try {
@@ -4429,16 +4434,17 @@ function renderPlayTab() {
             try { appendPlayDebug('renderPlayTab: rendering South hand (clickable)'); } catch(_) {}
             renderPlayHand('playSouthHand', 'S', true);
         }
-        // North's cards are clickable only when declarer is South (North is dummy)
-        // or when declarer is North (North is declarer) — i.e., clickable when
-        // the contract involves the N/S side as declarer or dummy.
-        const northClickable = (playState.declarer === 'S' || playState.declarer === 'N');
+        // North's cards should only be visible when North is declarer or North is dummy.
+        // When N-S are defenders (contractSide === 'EW'), North's hand should be hidden
+        // but the engine will play for North automatically. If North is visible, make it clickable.
+        const showNorth = (playState.declarer === 'N' || playState.dummy === 'N');
+        const northClickable = !!showNorth;
         if (currentHands && currentHands.N) {
-            try { appendPlayDebug('renderPlayTab: northClickable=' + northClickable + ' dummy=' + playState.dummy); } catch(_) {}
-            // If dummy is not yet revealed and North is dummy but not clickable, hide content
-            if (playState.dummy === 'N' && !northClickable && northRow) {
+            try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch(_) {}
+            if (!showNorth && northRow) {
+                // Hide North entirely when not appropriate (e.g., N/S are defending)
                 northRow.innerHTML = '';
-            } else {
+            } else if (showNorth) {
                 renderPlayHand('playNorthHand', 'N', !!northClickable);
             }
         }
@@ -4691,8 +4697,14 @@ function onCardClick(ev) {
 
 function autoPlayIfNeeded() {
     try {
-        // Play until it's South or North again, or trick is complete
-        while (playState.nextSeat && !['S','N'].includes(playState.nextSeat) && playState.trick.length < 4) {
+        // Play while it's an automated seat (E/W always; N when N-S are defenders)
+        const isAutomatedSeat = (seat) => {
+            if (!seat) return false;
+            if (seat === 'E' || seat === 'W') return true;
+            if (seat === 'N') return (playState.contractSide === 'EW'); // North automated when N-S are defenders
+            return false;
+        };
+        while (playState.nextSeat && isAutomatedSeat(playState.nextSeat) && playState.trick.length < 4) {
             const seat = playState.nextSeat;
             const code = pickAutoCardFor(seat);
             if (!code) break;
@@ -4705,6 +4717,203 @@ function autoPlayIfNeeded() {
 }
 
 function pickAutoCardFor(seat) {
+    // --- Lookahead helpers (depth=2 simulation) ---
+    const _rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    function _seatSide(s) { return (['N','S'].includes(s) ? 'NS' : 'EW'); }
+    function _cloneHandsMap() {
+        const map = {};
+        ['N','E','S','W'].forEach(st => {
+            const h = currentHands?.[st];
+            map[st] = { S:[], H:[], D:[], C:[] };
+            if (!h || !h.suitBuckets) return;
+            ['S','H','D','C'].forEach(s => {
+                (h.suitBuckets[s] || []).forEach(c => map[st][s].push(`${c.rank}${s}`));
+            });
+        });
+        return map;
+    }
+
+    function _removeCodeFromMap(map, seat, code) {
+        const s = code.slice(-1);
+        const arr = map[seat][s] || [];
+        const idx = arr.indexOf(code);
+        if (idx >= 0) arr.splice(idx,1);
+    }
+
+    function _highestInSuit(arr) {
+        if (!arr || !arr.length) return null;
+        let best = arr[0];
+        for (const c of arr) {
+            if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(best[0])) best = c;
+        }
+        return best;
+    }
+
+    function _lowestInSuit(arr) {
+        if (!arr || !arr.length) return null;
+        let best = arr[0];
+        for (const c of arr) {
+            if (_rankOrder.indexOf(c[0]) > _rankOrder.indexOf(best[0])) best = c;
+        }
+        return best;
+    }
+
+    // Simulate two tricks starting with `startSeat` playing `firstCode`.
+    // Returns heuristic score: number of tricks (0..2) won by declarer's side in those two tricks.
+    function _simulateTwoTricks(startSeat, firstCode) {
+        try {
+            const map = _cloneHandsMap();
+            const trump = playState.trump || null;
+            const declarer = playState.declarer || null;
+            const declarerSide = declarer ? _seatSide(declarer) : null;
+            // Remove firstCode from startSeat
+            _removeCodeFromMap(map, startSeat, firstCode);
+            const leadSuit = firstCode.slice(-1);
+            const seats = [startSeat, leftOf(startSeat), leftOf(leftOf(startSeat)), leftOf(leftOf(leftOf(startSeat)))];
+            const trick1 = [{ seat: startSeat, code: firstCode }];
+            // Play remaining three
+            for (let i=1;i<4;i++) {
+                const s = seats[i];
+                const bucket = map[s][leadSuit] || [];
+                let play = null;
+                if (bucket.length) {
+                    // If can beat current highest in lead suit, defenders try to beat
+                    const currentHigh = _highestInSuit(trick1.filter(t=>t.code.slice(-1)===leadSuit).map(t=>t.code));
+                    // find minimal card that beats currentHigh
+                    let candidate = null;
+                    for (const c of bucket) {
+                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
+                            if (!candidate || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(candidate[0])) candidate = c;
+                        }
+                    }
+                    if (candidate) play = candidate; else play = _lowestInSuit(bucket);
+                    // remove
+                    _removeCodeFromMap(map, s, play);
+                } else {
+                    // no card in suit: if have trump, play lowest trump if attempting to win, else discard lowest
+                    if (trump && (map[s][trump]||[]).length) {
+                        play = _lowestInSuit(map[s][trump]);
+                        _removeCodeFromMap(map, s, play);
+                    } else {
+                        // discard lowest across suits
+                        let chosen=null; let chosenSuit=null;
+                        for (const su of ['S','H','D','C']) {
+                            const a = map[s][su] || [];
+                            if (a.length) {
+                                const low = _lowestInSuit(a);
+                                if (!chosen || _rankOrder.indexOf(low[0]) > _rankOrder.indexOf(chosen[0])) { chosen = low; chosenSuit = su; }
+                            }
+                        }
+                        if (chosen) { play = chosen; _removeCodeFromMap(map, s, play); }
+                    }
+                }
+                if (!play) play = null;
+                trick1.push({ seat: s, code: play });
+            }
+            // Determine trick winner
+            let trick1Winner = null;
+            // any trumps?
+            const trumpsPlayed = trick1.filter(t => t.code && t.code.slice(-1) === trump);
+            if (trumpsPlayed && trumpsPlayed.length) {
+                // highest trump wins
+                let best = trumpsPlayed[0];
+                for (const t of trumpsPlayed) {
+                    if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t;
+                }
+                trick1Winner = best.seat;
+            } else {
+                // highest in lead suit
+                const leadPlayed = trick1.filter(t=>t.code && t.code.slice(-1)===leadSuit);
+                let best = leadPlayed[0];
+                for (const t of leadPlayed) {
+                    if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t;
+                }
+                trick1Winner = best.seat;
+            }
+            let score = 0;
+            if (_seatSide(trick1Winner) === declarerSide) score++;
+
+            // --- simulate second trick: leader = trick1Winner. Build a plausible lead: if declarer side leads, lead highest remaining honor from declarer/dummy; opponents lead highest to try to win.
+            const leader2 = trick1Winner;
+            // choose first card for trick2
+            let first2 = null;
+            if (_seatSide(leader2) === declarerSide) {
+                // try to lead a suit where declarer/dummy have honors
+                let chosenSuit=null, chosenCode=null, bestScore=-1;
+                ['S','H','D','C'].forEach(su => {
+                    if (su === trump) return;
+                    const myCards = (map[leader2][su] || []);
+                    if (!myCards || !myCards.length) return;
+                    const honors = myCards.filter(c=>['A','K','Q'].includes(c[0])).length;
+                    if (honors > bestScore) { bestScore = honors; chosenSuit = su; }
+                });
+                if (!chosenSuit) {
+                    // fallback any suit
+                    for (const su of ['S','H','D','C']) { if ((map[leader2][su]||[]).length) { chosenSuit=su; break; } }
+                }
+                if (chosenSuit) first2 = _highestInSuit(map[leader2][chosenSuit]) || map[leader2][chosenSuit][0];
+                if (first2) _removeCodeFromMap(map, leader2, first2);
+            } else {
+                // opponents lead: lead highest to try to win
+                let chosen=null; for (const su of ['S','H','D','C']) { const h = _highestInSuit(map[leader2][su]||[]); if (h) { chosen=h; break; } }
+                if (chosen) { first2 = chosen; _removeCodeFromMap(map, leader2, first2); }
+            }
+            if (!first2) return score;
+            const seats2 = [leader2, leftOf(leader2), leftOf(leftOf(leader2)), leftOf(leftOf(leftOf(leader2)))];
+            const trick2 = [{ seat: leader2, code: first2 }];
+            const lead2Suit = first2.slice(-1);
+            for (let i=1;i<4;i++) {
+                const s = seats2[i];
+                let play = null;
+                if ((map[s][lead2Suit]||[]).length) {
+                    // follow: if can beat current highest, try minimal win, else play lowest
+                    const currentHigh = _highestInSuit(trick2.filter(t=>t.code && t.code.slice(-1)===lead2Suit).map(t=>t.code));
+                    let candidate = null;
+                    for (const c of map[s][lead2Suit]) {
+                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
+                            if (!candidate || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(candidate[0])) candidate = c;
+                        }
+                    }
+                    if (candidate) { play = candidate; _removeCodeFromMap(map, s, play); }
+                    else { play = _lowestInSuit(map[s][lead2Suit]); _removeCodeFromMap(map, s, play); }
+                } else {
+                    // no follow: trump if possible
+                    if (trump && (map[s][trump]||[]).length) { play = _lowestInSuit(map[s][trump]); _removeCodeFromMap(map, s, play); }
+                    else { // discard lowest
+                        let chosen=null; for (const su of ['S','H','D','C']) { const low=_lowestInSuit(map[s][su]||[]); if (low && (!chosen || _rankOrder.indexOf(low[0])>_rankOrder.indexOf(chosen[0]))) chosen=low; }
+                        if (chosen) { play = chosen; _removeCodeFromMap(map, s, play); }
+                    }
+                }
+                trick2.push({ seat: s, code: play });
+            }
+            // determine trick2 winner
+            let trick2Winner = null;
+            const trumps2 = trick2.filter(t=>t.code && t.code.slice(-1)===trump);
+            if (trumps2 && trumps2.length) {
+                let best = trumps2[0]; for (const t of trumps2) { if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t; } trick2Winner = best.seat;
+            } else {
+                const leadPlayed2 = trick2.filter(t=>t.code && t.code.slice(-1)===lead2Suit);
+                let best = leadPlayed2[0]; for (const t of leadPlayed2) { if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t; } trick2Winner = best.seat;
+            }
+            if (_seatSide(trick2Winner) === declarerSide) score++;
+            return score;
+        } catch (_) { return 0; }
+    }
+
+    // Evaluate whether to finesse (lead low) vs cash (lead high) by simulating two tricks and comparing heuristic scores.
+    function _evaluateFinesseVsCash(declarerSeat, suit, arr) {
+        try {
+            if (!arr || arr.length < 1) return null;
+            // arr is local list of this seat's suit codes high->low; cash = highest, finesse = lowest
+            const cash = arr[0];
+            const finesse = arr[arr.length-1] || cash;
+            const cashScore = _simulateTwoTricks(declarerSeat, cash);
+            const finScore = _simulateTwoTricks(declarerSeat, finesse);
+            if (finScore > cashScore) return finesse;
+            // tie or cash better -> return cash (conservative)
+            return cash;
+        } catch (_) { return arr[0]; }
+    }
     const hand = currentHands?.[seat];
     if (!hand) return null;
     // Build list of codes by suit
@@ -4717,16 +4926,240 @@ function pickAutoCardFor(seat) {
     // Determine lead suit for current trick
     const leadSuit = playState.trick.length ? playState.trick[0].code.slice(-1) : null;
     let pick = null;
-    if (leadSuit && suitMap[leadSuit] && suitMap[leadSuit].length) {
-        pick = suitMap[leadSuit].pop();
+    // Helper: seat side
+    const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
+
+    // Initialize or update declarer plan: two-step (draw trumps -> establish winners)
+    try {
+        const declarer = playState.declarer;
+        const dummySeat = playState.dummy;
+        const trump = playState.trump || null;
+        if (declarer && dummySeat && playState.dummyRevealed) {
+            const myTrumps = trump ? (currentHands?.[declarer]?.suitBuckets?.[trump] || []).length : 0;
+            const dummyTrumps = trump ? (currentHands?.[dummySeat]?.suitBuckets?.[trump] || []).length : 0;
+            const combinedTrumps = myTrumps + dummyTrumps;
+            const declarerEntries = (playState.entries && typeof playState.entries[declarer] === 'number') ? playState.entries[declarer] : null;
+            const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
+            // Prefer drawing trumps only when enough combined trumps AND preserving dummy entries
+            const needed = (typeof playState.dummyEntryNeeds === 'number') ? playState.dummyEntryNeeds : 0;
+            // Want to draw if combined trumps >=4 and after drawing we would still preserve at least 'needed' dummy entries,
+            // or if combined trumps are large enough (>=5) to be safe.
+            const wantDraw = (trump && combinedTrumps >= 4 && ((combinedTrumps - needed) >= 1 || combinedTrumps >= 5));
+            if (!playState.declarerPlan) {
+                playState.declarerPlan = { phase: (wantDraw ? 'draw' : 'establish') };
+            } else {
+                // If in draw phase but trumps largely drawn, move to establish
+                if (playState.declarerPlan.phase === 'draw' && combinedTrumps <= 1) {
+                    playState.declarerPlan.phase = 'establish';
+                }
+            }
+        } else if (!trump) {
+            // No trump contract: go straight to establish
+            if (!playState.declarerPlan) playState.declarerPlan = { phase: 'establish' };
+        }
+    } catch (_) { /* ignore */ }
+
+    // Advanced declarer heuristics: try to finesse or extract winners when leading
+    try {
+        const declarer = playState.declarer;
+        const dummySeat = playState.dummy;
+        const isDeclarerToPlay = (seat === declarer);
+        // If declarer plan requests drawing trumps, prioritize that
+        if (isDeclarerToPlay && playState.declarerPlan && playState.declarerPlan.phase === 'draw') {
+            const trump = playState.trump || null;
+            if (trump) {
+                const myTrumpsArr = (currentHands[seat]?.suitBuckets?.[trump] || []).slice().map(c => `${c.rank}${trump}`);
+                const dummySeat = playState.dummy;
+                const dummyTrumps = (currentHands?.[dummySeat]?.suitBuckets?.[trump] || []).length || 0;
+                const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
+                // Avoid drawing trumps if doing so would eliminate dummy entries needed to cash winners
+                const needed = (typeof playState.dummyEntryNeeds === 'number') ? playState.dummyEntryNeeds : 0;
+                if (myTrumpsArr.length) {
+                    // Ensure that after playing one trump we would still have at least 'needed' entries available in dummy+remaining trumps
+                    if (((myTrumpsArr.length - 1) + dummyTrumps) >= needed) {
+                        pick = myTrumpsArr.shift();
+                    } else {
+                        // skip forcing a trump-draw now; prefer to establish side suits
+                    }
+                }
+            }
+        }
+        if (!pick && isDeclarerToPlay && playState.trick.length === 0 && playState.dummyRevealed && dummySeat && currentHands?.[dummySeat]) {
+            // Look for finesse opportunity: declarer has K (or Q) and dummy has Q (or J)
+            for (const s of ['S','H','D','C']) {
+                if (s === (playState.trump || null)) continue; // avoid trump finesses here
+                const myCards = (currentHands[seat]?.suitBuckets?.[s] || []).map(c => c.rank);
+                const dummyCards = (currentHands[dummySeat]?.suitBuckets?.[s] || []).map(c => c.rank);
+                if (!myCards.length || !dummyCards.length) continue;
+                // Finesse: I have K and dummy has Q (or I have Q and dummy has J)
+                if ((myCards.includes('K') && dummyCards.includes('Q')) || (myCards.includes('Q') && dummyCards.includes('J'))) {
+                    // Use remaining-counts to decide if finesse is sensible: inspect opponents combined counts
+                    const oppCount = (playState.opponentsCombined && typeof playState.opponentsCombined[s] === 'number')
+                        ? playState.opponentsCombined[s]
+                        : ((currentHands?.E?.suitBuckets?.[s]?.length || 0) + (currentHands?.W?.suitBuckets?.[s]?.length || 0));
+                    const arr = suitMap[s];
+                    if (arr && arr.length) {
+                        // Avoid trying a finesse while still in trump-draw phase
+                        if (playState.declarerPlan && playState.declarerPlan.phase === 'draw') {
+                            // Prefer to draw trumps first
+                            continue;
+                        }
+                        // If dummy has no entries (cannot win the trick), prefer cashing instead of finesse
+                        const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
+                        if (dummyEntries !== null && dummyEntries <= 0) {
+                            pick = arr.shift();
+                        } else {
+                            // Use a simple depth-2 lookahead to choose between finesse (lead low) and cash (lead high)
+                            try {
+                                const chosen = _evaluateFinesseVsCash(seat, s, arr.slice());
+                                if (chosen) pick = chosen;
+                                else pick = arr.shift();
+                            } catch (_) {
+                                // fallback conservative: cash high
+                                pick = arr.shift();
+                            }
+                        }
+                        break;
+                    }
+                }
+                // Extraction: if combined honors indicate we can cash winners, lead highest
+                const honors = ['A','K','Q'];
+                const combinedHonors = myCards.filter(r=>honors.includes(r)).length + dummyCards.filter(r=>honors.includes(r)).length;
+                if (combinedHonors >= 2 && (myCards.includes('A') || dummyCards.includes('A'))) {
+                    const arr = suitMap[s];
+                    if (arr && arr.length) { pick = arr.shift(); break; }
+                }
+            }
+        }
+    } catch (_) { /* non-fatal */ }
+
+    if (!pick && leadSuit && suitMap[leadSuit] && suitMap[leadSuit].length) {
+        // When following suit, apply simple strategy:
+        // - Declarer-side: play lowest to preserve winners
+        // - Defender-side: play second-highest to signal and possibly force out honors
+        const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
+        const declarerSide = playState.contractSide === 'NS' ? 'NS' : 'EW';
+        const isDefender = seatSide(seat) !== declarerSide;
+        const arr = suitMap[leadSuit];
+        // arr sorted ascending by rank (A high at front?) We stored as order index earlier; ensure we pick correctly
+        // Our suitMap entries were created using order.indexOf so they are from high->low; adapt accordingly
+        // For simplicity, compute rank order mapping
+        const rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+        const sortByRankDesc = (a,b) => rankOrder.indexOf(a[0]) - rankOrder.indexOf(b[0]);
+        // Ensure arr is sorted by rank descending
+        arr.sort(sortByRankDesc);
+        if (isDefender) {
+            // Defender signaling: prefer attitude signal to partner when partner led the trick.
+            const partner = partnerOf(seat);
+            const trickPlayed = (playState.trick || []).filter(t => t && t.code && t.code.slice(-1) === leadSuit);
+            const currentHigh = trickPlayed.length ? trickPlayed.reduce((best,t)=> {
+                return (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best[0])) ? t.code : best;
+            }, trickPlayed[0].code) : null;
+            const partnerLed = (playState.trick && playState.trick.length && playState.trick[0].seat === partner);
+            if (partnerLed && currentHigh) {
+                // If we can beat current high, play minimal winning card to encourage;
+                // otherwise play lowest to discourage.
+                let winning = null;
+                for (const c of arr) {
+                    if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
+                        if (!winning || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(winning[0])) winning = c;
+                    }
+                }
+                if (winning) {
+                    // remove that specific card from arr
+                    const idx = arr.indexOf(winning);
+                    if (idx >= 0) pick = arr.splice(idx,1)[0]; else pick = winning;
+                } else {
+                    // discourage: play lowest to show lack of support
+                    pick = arr.pop();
+                }
+            } else {
+                // Default defender behavior: count signal (third-highest preferred)
+                if (arr.length >= 3) pick = arr.splice(2,1)[0];
+                else if (arr.length >= 2) pick = arr.splice(1,1)[0];
+                else pick = arr.shift();
+            }
+        } else {
+            // Declarer-side: play lowest (preserve winners)
+            pick = arr.pop();
+        }
     } else {
-        // Otherwise any card; prefer small
-        for (const s of suits) {
-            if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].pop(); break; }
+        // No follow-suit available: choose a discard or ruff depending on trump and shape
+        // If void in many suits and have trumps, consider ruff (play lowest trump)
+        const trump = playState.trump || null;
+        // If have trump and short in non-trump suits, ruff if that is the defender's strategy
+        if (trump && suitMap[trump] && suitMap[trump].length) {
+            // If this seat is a defender (opposite declarer's side) and has no cards in lead suit,
+            // prefer to ruff with a low trump when useful
+            const declarerSide = playState.contractSide === 'NS' ? 'NS' : 'EW';
+            const isDefender = seatSide(seat) !== declarerSide;
+            // Only ruff if we have fewer cards overall in non-trump suits
+            const nonTrumpCount = suits.filter(s => s !== trump).reduce((acc, s) => acc + (suitMap[s]?.length || 0), 0);
+            if (isDefender && nonTrumpCount <= 1) {
+                pick = suitMap[trump].shift();
+            }
+        }
+
+        // If still no pick, consider declarer leading strategy: draw trumps when appropriate
+        // If declarer is leading and dummy is revealed and both have trumps, lead highest trump to draw
+        if (!pick) {
+            const declarer = playState.declarer;
+            const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
+            const isDeclarer = (seat === declarer);
+            const dummySeat = playState.dummy;
+            const trump = playState.trump || null;
+            if (isDeclarer && playState.trick.length === 0 && trump && currentHands?.[dummySeat] && playState.dummyRevealed) {
+                const myTrumps = suitMap[trump] || [];
+                const dummyTrumps = (currentHands[dummySeat]?.suitBuckets?.[trump] || []);
+                if ((myTrumps.length + (dummyTrumps.length || 0)) >= 4 && myTrumps.length >= 2) {
+                    // Lead highest trump to begin drawing
+                    pick = myTrumps.shift();
+                }
+            }
+            // If we're in 'establish' phase and declarer is to play, prioritize suits with most combined honors
+            try {
+                if (!pick && isDeclarer && playState.declarerPlan && playState.declarerPlan.phase === 'establish') {
+                    const suitsRank = ['S','H','D','C'];
+                    let bestSuit = null;
+                    let bestScore = -1;
+                    const honors = ['A','K','Q'];
+                    for (const s of suitsRank) {
+                        if (s === trump) continue;
+                        const myCards = (currentHands[seat]?.suitBuckets?.[s] || []).map(c=>c.rank);
+                        const dummyCards = (currentHands[dummySeat]?.suitBuckets?.[s] || []).map(c=>c.rank);
+                        const score = myCards.filter(r=>honors.includes(r)).length + dummyCards.filter(r=>honors.includes(r)).length;
+                        if (score > bestScore && (myCards.length > 0)) { bestScore = score; bestSuit = s; }
+                    }
+                    if (bestSuit) {
+                        // Lead highest in that suit to cash winners
+                        const arr = suitMap[bestSuit];
+                        if (arr && arr.length) pick = arr.shift();
+                    }
+                }
+            } catch(_) {}
+        }
+
+        // If still no pick, discard the lowest card from the shortest non-empty suit (safe throw)
+        if (!pick) {
+            // Find shortest non-empty suit
+            let shortest = null;
+            let shortestLen = 99;
+            for (const s of suits) {
+                const ln = suitMap[s].length || 0;
+                if (ln > 0 && ln < shortestLen) { shortestLen = ln; shortest = s; }
+            }
+            if (shortest) {
+                pick = suitMap[shortest].shift();
+            } else {
+                // Fallback: any card (lowest available)
+                for (const s of suits) {
+                    if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].shift(); break; }
+                }
+            }
         }
     }
     if (!pick) return null;
-    // Remove from underlying hand bucket
+    // Remove from underlying hand bucket (already shifted from local map but update source)
     removeCodeFromHand(hand, pick);
     return pick;
 }
@@ -4757,10 +5190,61 @@ function playCardToTrick(seat, code) {
     if (!playState.dummyRevealed && playState.trick.length === 1 && playState.dummy) {
         revealDummy();
     }
+    // Update remaining counts after a card is played
+    try { computeRemainingCounts(); } catch(_) {}
     // If trick complete, evaluate winner and set up next trick
     if (playState.trick.length === 4) {
         setTimeout(() => finishTrick(), 350);
     }
+}
+
+/**
+ * Compute simple remaining counts for each seat and store into playState.remainingCounts
+ * Format: { N: {S:2,H:3,D:1,C:7}, E: {...}, S: {...}, W: {...} }
+ */
+function computeRemainingCounts() {
+    const suits = ['S','H','D','C'];
+    const counts = { N: {}, E: {}, S: {}, W: {} };
+    for (const seat of ['N','E','S','W']) {
+        const hand = currentHands?.[seat];
+        for (const s of suits) counts[seat][s] = (hand?.suitBuckets?.[s]?.length) || 0;
+    }
+    playState.remainingCounts = counts;
+    // Also compute opponents combined counts helper
+    playState.opponentsCombined = {};
+    for (const s of suits) {
+        const east = counts['E'][s] || 0;
+        const west = counts['W'][s] || 0;
+        playState.opponentsCombined[s] = east + west;
+    }
+    // Compute simple entries: number of non-trump suits with at least one card
+    try {
+        const trump = playState.trump || null;
+        playState.entries = { N:0, E:0, S:0, W:0 };
+        for (const seat of ['N','E','S','W']) {
+            let c = 0;
+            for (const s of suits) {
+                if (s === trump) continue;
+                if ((counts[seat][s] || 0) > 0) c++;
+            }
+            playState.entries[seat] = c;
+        }
+    } catch (_) { playState.entries = null; }
+    // Compute dummy entry needs (number of side-suit entry points dummy likely requires to cash winners)
+    try {
+        const dummy = playState.dummy;
+        let need = 0;
+        if (dummy && currentHands?.[dummy]) {
+            const trump = playState.trump || null;
+            const honors = ['A','K','Q'];
+            for (const s of suits) {
+                if (s === trump) continue;
+                const arr = currentHands[dummy]?.suitBuckets?.[s] || [];
+                if (arr.length > 0 && arr.some(c => honors.includes(c.rank))) need++;
+            }
+        }
+        playState.dummyEntryNeeds = Math.min(2, need);
+    } catch (_) { playState.dummyEntryNeeds = 0; }
 }
 
 function finishTrick() {

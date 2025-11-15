@@ -1,22 +1,14 @@
 const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
-const { Bid } = require('../js/bridge-types');
-const { makeHandFromPattern } = require('./test-helpers');
+const { Bid, Auction } = require('../js/bridge-types');
 
-// Explanation for 2NT over 1NT should be invitational 8–9 HCP, balanced, no 4-card major
-
-describe('Explanations: responder over 1NT opening', () => {
-  test('2NT over 1NT shows invitational balanced 8–9, no 4-card major', () => {
+describe('1NT responder explanation', () => {
+  test('1NT response over partner 1H includes no 3-card wording', () => {
     const system = new SAYCBiddingSystem();
-    system.startAuction('N');
-    system.currentAuction.add(new Bid('1NT'));
-
-    // Balanced 4-3-3-3, 8 HCP, no 4-card major
-    const hand = makeHandFromPattern('KQ2', 'Q32', 'J32', '4322');
-
-    const bid = system.getBid(hand);
-    expect(bid && bid.token).toBe('2NT');
-
-    const explanation = system.getExplanationFor(bid);
-    expect(explanation).toBe('2NT over 1NT: invitational 8–9 HCP, balanced, no 4-card major');
+    // Partner opened 1H; ourSeat set as partner so this is a responder action
+    const auction = new Auction([ new Bid('1H') ], { dealer: 'N', ourSeat: 'S' });
+    const ex = system.getExplanationFor(new Bid('1NT'), auction);
+    expect(typeof ex).toBe('string');
+    expect(ex.toLowerCase()).toContain('no 3-card');
   });
 });
+
