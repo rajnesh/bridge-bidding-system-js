@@ -1,3 +1,68 @@
+# Bridge Bidding System (SAYC) — v0.3
+
+Lightweight browser-based implementation of the Standard American Yellow Card (SAYC) bidding system with a small play-tab for card play and a Jest test-suite for the bidding engine.
+
+This repository bundles:
+
+- A compact SAYC bidding engine (`js/combined-bidding-system.js`) with convention-driven decision-making.
+- A browser UI (`index.html`, `js/app.js`, `css/`) that allows entering hands, running auctions, and playing out tricks.
+- SVG-based card rendering (`js/cards-svg.js`) with follow-suit enforcement and trick scoring.
+- A comprehensive Jest test-suite under `tests/` used during development.
+
+Version: 0.3
+
+Highlights in v0.3
+
+- Centralized reopening-double detection and tighter balancing heuristics.
+- Play tab improvements: dummy rendering without large rank glyphs, reduced trick-area height, and edge-flush trick-slot placement.
+- UX touches: concise continue hint, lead highlighting (purple), and prevention of playing cards before acknowledging a completed trick.
+- Various small bugfixes: Drury seat guard, auction seat compatibility, and improved diagnostic instrumentation (temporary traces to aid debugging).
+
+Quick start
+
+1. Open the app in a browser:
+
+   - Open `index.html` in Chrome/Firefox/Edge for a quick local run.
+
+2. Or run a simple local server (recommended):
+
+```powershell
+# If you have http-server installed:
+npx http-server -p 8000 -o
+
+# Or using Python:
+python -m http.server 8000
+
+# Then open http://localhost:8000
+```
+
+Running tests
+
+```powershell
+npm install
+npm test
+```
+
+Where to look
+
+- Main UI & play flow: `js/app.js`
+- Bidding engine + SAYC: `js/combined-bidding-system.js`
+- Card SVG generator: `js/cards-svg.js`
+- Convention configuration: `js/convention-manager.js`
+- Tests: `tests/`
+
+Contributing
+
+Contributions are welcome. If you'd like me to open a PR for further changes (for example, fixing the remaining reopening-doubles failing case), tell me and I will prepare a small, focused patch and tests.
+
+License
+
+See repository LICENSE or ask the maintainer.
+
+---
+
+This README was updated as part of the v0.3 release preparation.
+
 # Bridge Bidding System (SAYC)
 
 A comprehensive, test-backed implementation of the Standard American Yellow Card (SAYC) bidding system for contract bridge, featuring a modern browser UI and a Node/Jest test suite.
