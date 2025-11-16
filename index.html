@@ -485,8 +485,16 @@
                                         <div class="hand-title">North (Dummy)</div>
                                         <div id="playNorthHand" class="card-button-row"></div>
                                     </div>
+                                    <div class="play-seat play-seat-west" id="playWestArea">
+                                        <div class="hand-title">West</div>
+                                        <div id="playWestHand" class="card-button-row"></div>
+                                    </div>
                                     <div class="play-center" id="playTableArea">
                                         <div class="trick-area" id="trickArea">
+                                            <div class="trick-slot trick-slot-north" data-seat="N"></div>
+                                            <div class="trick-slot trick-slot-east" data-seat="E"></div>
+                                            <div class="trick-slot trick-slot-south" data-seat="S"></div>
+                                            <div class="trick-slot trick-slot-west" data-seat="W"></div>
                                             <div class="trick-hint">Click a card to play</div>
                                         </div>
                                         <div class="play-metrics">
@@ -497,6 +505,10 @@
                                             <div id="playResultSummary" class="play-result"></div>
                                             <ul id="playScoreBreakdown" class="score-breakdown"></ul>
                                         </div>
+                                    </div>
+                                    <div class="play-seat play-seat-east" id="playEastArea">
+                                        <div class="hand-title">East</div>
+                                        <div id="playEastHand" class="card-button-row"></div>
                                     </div>
                                     <div class="play-seat play-seat-south" id="playSouthArea">
                                         <div class="hand-title">South (You)</div>

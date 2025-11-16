@@ -4170,6 +4170,15 @@ function switchTab(tabName) {
     const activeBtn = document.getElementById(tabName + 'Tab');
     if (activeBtn) activeBtn.classList.add('active');
 
+    // Toggle play-specific content style: hide outer tab border when Play is active
+    try {
+        const tabContent = document.querySelector('.tab-content');
+        if (tabContent) {
+            if (tabName === 'play') tabContent.classList.add('play-active');
+            else tabContent.classList.remove('play-active');
+        }
+    } catch (e) { /* non-fatal */ }
+
     // Update tab progress underline (1..5 based on position among buttons)
     try {
         const nav = document.querySelector('.tab-nav');
@@ -4187,9 +4196,163 @@ function switchTab(tabName) {
     try {
         if (tabName === 'play') {
             renderPlayTab();
+                // Only run debug overlays when explicitly enabled (avoid UI noise)
+                try { if (window && window.__debugPlayLayout) { debugPlayLayout(); } } catch (_) { /* ignore debug failures */ }
         }
     } catch (e) {
         console.warn('Failed to render Play tab:', e?.message || e);
+    }
+}
+
+// Debug helper: draw temporary overlays around play-area elements and log computed styles.
+function debugPlayLayout() {
+    try {
+        const ids = ['playNorthArea','playWestArea','playTableArea','playEastArea','playSouthArea','trickArea'];
+        const colors = ['#ff7f7f','#ffd07f','#7fffd4','#7fb3ff','#c87fff','#ffdf7f'];
+        const overlays = [];
+        ids.forEach((id, i) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const r = el.getBoundingClientRect();
+            const ov = document.createElement('div');
+            ov.style.position = 'fixed';
+            ov.style.left = r.left + 'px';
+            ov.style.top = r.top + 'px';
+            ov.style.width = Math.max(2, r.width) + 'px';
+            ov.style.height = Math.max(2, r.height) + 'px';
+            ov.style.border = '3px dashed ' + colors[i % colors.length];
+            ov.style.zIndex = 99999;
+            ov.style.pointerEvents = 'none';
+            ov.setAttribute('data-debug-for', id);
+            const label = document.createElement('div');
+            label.textContent = id;
+            label.style.position = 'absolute';
+            label.style.left = '4px';
+            label.style.top = '4px';
+            label.style.background = colors[i % colors.length];
+            label.style.color = '#111';
+            label.style.padding = '2px 6px';
+            label.style.fontSize = '12px';
+            label.style.fontWeight = '700';
+            label.style.borderRadius = '4px';
+            ov.appendChild(label);
+            document.body.appendChild(ov);
+            overlays.push(ov);
+        });
+
+        // Log computed style for trickArea
+        const trick = document.getElementById('trickArea');
+        if (trick) {
+            const cs = window.getComputedStyle(trick);
+            console.group('DEBUG: #trickArea computed styles');
+            console.log('width:', trick.offsetWidth, 'height:', trick.offsetHeight);
+            console.log('background-color:', cs.backgroundColor);
+            console.log('border-style:', cs.borderStyle, 'border-width:', cs.borderWidth, 'border-color:', cs.borderColor);
+            console.log('z-index:', cs.zIndex, 'position:', cs.position);
+            console.log('display:', cs.display, 'visibility:', cs.visibility, 'opacity:', cs.opacity);
+            console.groupEnd();
+        }
+
+        // Log bounding rects and computed styles for play areas and CSS vars
+        const playBoard = document.querySelector('.play-board');
+        if (playBoard) {
+            const pbCS = window.getComputedStyle(playBoard);
+            console.group('DEBUG: .play-board and related values');
+            console.log('.play-board rect:', playBoard.getBoundingClientRect());
+            console.log('--trick-w:', pbCS.getPropertyValue('--trick-w'));
+            console.log('--play-card-width:', pbCS.getPropertyValue('--play-card-width'));
+            console.groupEnd();
+        }
+
+        ['playWestArea','playEastArea','playTableArea'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            const cs = window.getComputedStyle(el);
+            console.group(`DEBUG: ${id}`);
+            console.log('rect:', el.getBoundingClientRect());
+            console.log('position:', cs.position, 'left:', cs.left, 'right:', cs.right, 'width:', cs.width);
+            console.groupEnd();
+        });
+
+        // Make overlays removable by click (persist until user removes)
+        const remover = (ev) => { overlays.forEach(o => o.remove()); document.removeEventListener('click', remover); };
+        document.addEventListener('click', remover, { once: true });
+    } catch (e) {
+        console.warn('debugPlayLayout failed', e);
+    }
+}
+
+// Position East and West play-seat containers adjacent to the trick-area.
+function positionEWSeats() {
+    // Do nothing unless explicitly enabled for debugging purposes.
+    try {
+        if (!(window && window.__enablePositionEWSeats)) return;
+        const trick = document.getElementById('trickArea');
+        const board = document.querySelector('.play-board');
+        const west = document.getElementById('playWestArea');
+        const east = document.getElementById('playEastArea');
+        if (!trick || !board || (!west && !east)) return;
+
+        // Force trick-area to a visible, square green table using inline styles
+        try {
+            const vw = Math.max(320, Math.min(520, Math.round(window.innerWidth * 0.48)));
+            trick.style.width = vw + 'px';
+            trick.style.height = vw + 'px';
+            trick.style.backgroundColor = '#e6ffed';
+            trick.style.border = '3px solid #86e59f';
+            trick.style.borderRadius = '14px';
+            trick.style.boxShadow = '0 8px 30px rgba(34,90,50,0.06)';
+            trick.style.overflow = 'visible';
+            // Position the trick area absolutely and center it within the play board
+            trick.style.position = 'absolute';
+            trick.style.left = '50%';
+            trick.style.top = '50%';
+            trick.style.transform = 'translate(-50%, -50%)';
+            trick.style.zIndex = 1200;
+        } catch (e) { /* ignore */ }
+
+        // Clear any previous inline positioning so natural sizes can be measured
+        [west, east].forEach(el => { if (el) { el.style.position = ''; el.style.left = ''; el.style.top = ''; el.style.transform = ''; } });
+
+        const boardRect = board.getBoundingClientRect();
+        const trickRect = trick.getBoundingClientRect();
+
+        const gap = 8; // px gap between trick-area and seat
+
+        if (west) {
+            // Measure the inner card row if present (the play-seat container may be full-width)
+            const westRow = west.querySelector('.card-button-row') || west;
+            const wRectInner = westRow.getBoundingClientRect();
+            const wWidth = Math.min(wRectInner.width || 0, boardRect.width * 0.6) || (wRectInner.width || 180);
+            const wHeight = wRectInner.height || 40;
+            const left = Math.max(0, (trickRect.left - boardRect.left) - wWidth - gap);
+            const top = (trickRect.top - boardRect.top) + ((trickRect.height - wHeight) / 2);
+            west.style.position = 'absolute';
+            west.style.left = left + 'px';
+            west.style.top = top + 'px';
+            west.style.width = wWidth + 'px';
+            west.style.transform = 'none';
+            west.style.zIndex = 1100;
+        }
+
+        if (east) {
+            const eastRow = east.querySelector('.card-button-row') || east;
+            const eRectInner = eastRow.getBoundingClientRect();
+            const eWidth = Math.min(eRectInner.width || 0, boardRect.width * 0.6) || (eRectInner.width || 180);
+            const eHeight = eRectInner.height || 40;
+            const left = Math.min(boardRect.width - eWidth, (trickRect.right - boardRect.left) + gap);
+            const top = (trickRect.top - boardRect.top) + ((trickRect.height - eHeight) / 2);
+            east.style.position = 'absolute';
+            east.style.left = left + 'px';
+            east.style.top = top + 'px';
+            east.style.width = eWidth + 'px';
+            east.style.transform = 'none';
+            east.style.zIndex = 1100;
+        }
+
+        console.log('positionEWSeats: positioned E/W relative to trickArea', { boardRect, trickRect });
+    } catch (e) {
+        console.warn('positionEWSeats failed', e);
     }
 }
 
@@ -4392,6 +4555,8 @@ function renderPlayTab() {
     try {
         const northTitleEl = document.querySelector('#playNorthArea .hand-title');
         const southTitleEl = document.querySelector('#playSouthArea .hand-title');
+        const westTitleEl = document.querySelector('#playWestArea .hand-title');
+        const eastTitleEl = document.querySelector('#playEastArea .hand-title');
         if (northTitleEl && southTitleEl) {
             const decl = playState.declarer;
             const dum = playState.dummy;
@@ -4401,6 +4566,19 @@ function renderPlayTab() {
             const southIsDeclarer = decl === 'S';
             northTitleEl.textContent = northIsDummy ? 'North (Dummy)' : (northIsDeclarer ? 'North (Declarer)' : 'North');
             southTitleEl.textContent = southIsDummy ? 'South (Dummy)' : (southIsDeclarer ? 'South (Declarer)' : 'South (You)');
+            // Also set East/West labels to indicate dummy if applicable
+            try {
+                if (westTitleEl) {
+                    const westIsDummy = dum === 'W';
+                    const westIsDeclarer = decl === 'W';
+                    westTitleEl.textContent = westIsDummy ? 'West (Dummy)' : (westIsDeclarer ? 'West (Declarer)' : 'West');
+                }
+                if (eastTitleEl) {
+                    const eastIsDummy = dum === 'E';
+                    const eastIsDeclarer = decl === 'E';
+                    eastTitleEl.textContent = eastIsDummy ? 'East (Dummy)' : (eastIsDeclarer ? 'East (Declarer)' : 'East');
+                }
+            } catch(_) {}
         }
     } catch (_) {}
 
@@ -4419,6 +4597,8 @@ function renderPlayTab() {
 
     // Render hands (South and Dummy if dummy is North)
     try {
+        // Remove any lingering debug overlay elements left by earlier debug runs
+        try { document.querySelectorAll('[data-debug-for]').forEach(el => el.remove()); } catch(_) {}
         appendPlayDebug('renderPlayTab: start rendering hands');
         const southRow = document.getElementById('playSouthHand');
         const northRow = document.getElementById('playNorthHand');
@@ -4442,12 +4622,33 @@ function renderPlayTab() {
         if (currentHands && currentHands.N) {
             try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch(_) {}
             if (!showNorth && northRow) {
-                // Hide North entirely when not appropriate (e.g., N/S are defending)
+                // Show card backs when North is not visible (no blank oval)
                 northRow.innerHTML = '';
+                renderCardBacks('playNorthHand', 'N');
             } else if (showNorth) {
                 renderPlayHand('playNorthHand', 'N', !!northClickable);
             }
         }
+        // East/West: show backs unless that seat is the dummy (then reveal its hand)
+        const eastRow = document.getElementById('playEastHand');
+        const westRow = document.getElementById('playWestHand');
+        try {
+                if (currentHands && currentHands.E) {
+                    if (playState.dummy === 'E') {
+                        // Reveal dummy East (non-clickable, SVG rows)
+                        if (eastRow) { eastRow.innerHTML = ''; renderPlayHand('playEastHand', 'E', false); }
+                    } else {
+                        if (eastRow) { eastRow.innerHTML = ''; renderCardBacks('playEastHand', 'E'); }
+                    }
+            }
+                if (currentHands && currentHands.W) {
+                    if (playState.dummy === 'W') {
+                        if (westRow) { westRow.innerHTML = ''; renderPlayHand('playWestHand', 'W', false); }
+                    } else {
+                        if (westRow) { westRow.innerHTML = ''; renderCardBacks('playWestHand', 'W'); }
+                    }
+            }
+        } catch(_) {}
     } catch (_) {}
 
     // Provide immediate DOM counts for diagnosis (south/north child counts)
@@ -4458,10 +4659,23 @@ function renderPlayTab() {
     // prevent Play area collapse across browsers. This keeps DOM untouched
     // and avoids transient inline style changes.
 
-    // Reset trick area
+    // Reset trick area: ensure per-seat slots are present and empty
     const trickArea = document.getElementById('trickArea');
     if (trickArea) {
-        trickArea.innerHTML = '<div class="trick-hint">Click a card to play</div>';
+        // Clear any previous inline styles (e.g., left/top/width) so CSS grid drives layout
+        try { trickArea.removeAttribute('style'); } catch(_) {}
+        trickArea.innerHTML = '';
+        const slots = ['N','E','S','W'];
+        slots.forEach(s => {
+            const slot = document.createElement('div');
+            slot.className = `trick-slot trick-slot-${s === 'N' ? 'north' : s === 'S' ? 'south' : s === 'E' ? 'east' : 'west'}`;
+            slot.dataset.seat = s;
+            trickArea.appendChild(slot);
+        });
+        const hint = document.createElement('div');
+        hint.className = 'trick-hint';
+        hint.textContent = 'Click a card to play';
+        trickArea.appendChild(hint);
     }
 
     // Reset counts and status/result
@@ -4477,8 +4691,13 @@ function renderPlayTab() {
     }
 
     // If next to play is E/W, auto-play to keep the trick moving
+    try { if (typeof updateLeadHighlight === 'function') updateLeadHighlight(); } catch(_) {}
     setTimeout(() => autoPlayIfNeeded(), 200);
     try { appendPlayDebug('renderPlayTab: finished'); } catch(_) {}
+        // Position East/West seats deterministically so they sit flush to the trick area
+        // NOTE: layout should be handled by CSS grid; avoid runtime inline positioning
+        // which causes a visual 'shift' after render. Leave `positionEWSeats` defined
+        // for debugging, but do not call it here.
     } catch (e) {
         // Ensure user sees an error instead of a blank Play tab
         try { showPlayStatus('Failed to render Play view: ' + (e?.message || e), 'danger'); } catch(_) {}
@@ -4559,7 +4778,9 @@ function renderHandCards(containerId, seat) {
     if (!container) return;
     const hand = currentHands?.[seat];
     if (!hand || !hand.suitBuckets) return;
-    const suits = ['S','H','D','C'];
+    // Determine suit display order: start with trump suit and keep Black suits first
+    const trump = (typeof playState !== 'undefined' && playState?.trump) ? playState.trump : null;
+    const suits = getSuitOrder(trump);
     const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
     suits.forEach(s => {
         const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
@@ -4591,54 +4812,200 @@ function renderPlayHand(containerId, seat, clickable) {
     const hand = currentHands?.[seat];
     if (!hand || !hand.suitBuckets) return;
     container.innerHTML = '';
-    const suits = ['S','H','D','C'];
-    const suitSymbols = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
-    const suitColors = { 'S': '#000', 'H': '#d63031', 'D': '#d63031', 'C': '#000' };
+    const trump = (typeof playState !== 'undefined' && playState?.trump) ? playState.trump : null;
+    const suits = getSuitOrder(trump);
     const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
 
-    suits.forEach(s => {
-        const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
-        if (!cards.length) return;
-        try { appendPlayDebug(`renderPlayHand: ${seat} processing suit ${s} (${cards.map(c=>c.rank).join('')}) clickable=${!!clickable}`); } catch(_) {}
-        const suitGroup = document.createElement('div');
-        suitGroup.className = 'hand-suit';
-        const sym = document.createElement('span');
-        sym.className = 'suit-symbol';
-        sym.style.color = suitColors[s];
-        sym.textContent = suitSymbols[s];
-        suitGroup.appendChild(sym);
-        const cardsSpan = document.createElement('span');
-        cardsSpan.className = 'suit-cards';
-        // Create a button for each card (clickable if allowed)
-        cards.forEach(c => {
-            const code = `${c.rank}${s}`;
-            if (clickable) {
-                const btn = document.createElement('button');
-                btn.type = 'button';
-                btn.className = 'card-button';
-                btn.dataset.code = code;
-                btn.dataset.seat = seat;
-                btn.innerHTML = `<span class="suit-symbol" style="color:${suitColors[s]}">${suitSymbols[s]}</span> <span class="card-rank">${c.rank}</span>`;
-                    // Inline defensive sizing to avoid collapsed-zero boxes in some layouts
+    // Decide whether to render this seat as a single overlapping row (like N/S).
+    const treatAsSingleRow = (seat === 'S' || seat === 'N' || (typeof playState !== 'undefined' && playState?.dummy === seat));
+
+    // Render as SVG cards so visible hands match played card visuals.
+    if (treatAsSingleRow) {
+        // Render all cards in a single row for South/North
+        const row = document.createElement('div');
+        row.className = 'ns-cards-row';
+        // Force inline layout so CSS caching or specificity can't prevent overlap
+        try {
+            row.style.display = 'flex';
+            row.style.gap = '0px';
+            row.style.flexWrap = 'nowrap';
+            row.style.justifyContent = 'center';
+            row.style.alignItems = 'center';
+            row.style.padding = '0';
+        } catch (_) {}
+        suits.forEach(s => {
+            const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+            let idx = row.childElementCount || 0;
+            cards.forEach(c => {
+                const code = `${c.rank}${s}`;
+                // For dummy (non-clickable) hands prefer showing the suit symbol in the
+                // center rather than the large rank letter to avoid 'ghost' rank letters
+                // overlaying the UI when dummy is rendered non-interactively.
+                const svgOpts = { width: 120, height: 170 };
+                try {
+                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat) svgOpts.centerAsSuit = true;
+                } catch(_) {}
+                const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
+                if (svgEl) {
+                    // shrink by 20% vertically (and scale width proportionally)
                     try {
-                        btn.style.display = 'inline-flex';
-                        btn.style.minWidth = '44px';
-                        btn.style.minHeight = '28px';
-                        btn.style.alignItems = 'center';
-                        btn.style.justifyContent = 'center';
-                    } catch (_) {}
-                btn.addEventListener('click', onCardClick);
-                cardsSpan.appendChild(btn);
-            } else {
-                const span = document.createElement('span');
-                span.className = 'suit-card-text';
-                span.textContent = c.rank;
-                cardsSpan.appendChild(span);
-            }
+                        const origW = parseInt(svgEl.getAttribute('width') || '120', 10) || 120;
+                        const origH = parseInt(svgEl.getAttribute('height') || '170', 10) || 170;
+                        const newW = Math.round(origW * 0.8);
+                        const newH = Math.round(origH * 0.8);
+                        svgEl.setAttribute('width', String(newW));
+                        svgEl.setAttribute('height', String(newH));
+                        svgEl.style.width = newW + 'px';
+                        svgEl.style.height = newH + 'px';
+                        // Prevent any SVG text from overflowing the card bounds
+                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch(_) {}
+                    } catch(_) {}
+                    const btn = wrapCardWithSeat(svgEl, code, seat);
+                    if (btn) {
+                        if (!clickable) {
+                            try { btn.removeEventListener('click', onCardClick); } catch (_) {}
+                            btn.disabled = true;
+                            btn.classList.add('non-clickable');
+                        }
+                        // Apply overlap via inline margin so CSS precedence is irrelevant
+                        try {
+                            if (idx === 0) btn.style.marginLeft = '0px';
+                            else {
+                                const overlap = Math.round((parseInt(svgEl.getAttribute('width') || '96', 10) || 96) * 0.75);
+                                btn.style.marginLeft = `-${overlap}px`;
+                            }
+                            // ensure stacking order
+                            btn.style.position = 'relative';
+                            btn.style.zIndex = String(idx + 1);
+                        } catch(_) {}
+                        row.appendChild(btn);
+                        idx++;
+                    }
+                }
+            });
         });
-        suitGroup.appendChild(cardsSpan);
-        container.appendChild(suitGroup);
-    });
+        container.appendChild(row);
+    } else {
+        // East/West: preserve 4 suit rows (one per suit)
+        suits.forEach(s => {
+            const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+            if (!cards.length) return;
+            const suitGroup = document.createElement('div');
+            suitGroup.className = 'hand-suit';
+            const cardsRow = document.createElement('div');
+            cardsRow.className = 'suit-cards-row';
+            // make suit rows non-wrapping and overlapping too
+            try { cardsRow.style.display = 'flex'; cardsRow.style.gap = '0px'; cardsRow.style.flexWrap = 'nowrap'; cardsRow.style.alignItems = 'center'; } catch(_) {}
+            cards.forEach(c => {
+                const code = `${c.rank}${s}`;
+                // For East/West suit rows, if this seat is the dummy and cards are non-clickable
+                // render the center as suit glyphs to avoid prominent rank letters lingering.
+                const svgOpts = { width: 120, height: 170 };
+                try {
+                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat) svgOpts.centerAsSuit = true;
+                } catch(_) {}
+                const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
+                if (svgEl) {
+                    try {
+                        const origW = parseInt(svgEl.getAttribute('width') || '120', 10) || 120;
+                        const origH = parseInt(svgEl.getAttribute('height') || '170', 10) || 170;
+                        const newW = Math.round(origW * 0.8);
+                        const newH = Math.round(origH * 0.8);
+                        svgEl.setAttribute('width', String(newW));
+                        svgEl.setAttribute('height', String(newH));
+                        svgEl.style.width = newW + 'px';
+                        svgEl.style.height = newH + 'px';
+                        // Prevent any SVG text from overflowing the card bounds
+                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch(_) {}
+                    } catch(_) {}
+                    const btn = wrapCardWithSeat(svgEl, code, seat);
+                    if (btn) {
+                        if (!clickable) {
+                            try { btn.removeEventListener('click', onCardClick); } catch (_) {}
+                            btn.disabled = true;
+                            btn.classList.add('non-clickable');
+                        }
+                        try {
+                            // overlap suit rows slightly
+                            if (cardsRow.childElementCount > 0) {
+                                const overlap = Math.round((parseInt(svgEl.getAttribute('width') || '96', 10) || 96) * 0.75);
+                                btn.style.marginLeft = `-${overlap}px`;
+                            } else { btn.style.marginLeft = '0px'; }
+                            btn.style.position = 'relative';
+                            btn.style.zIndex = String(cardsRow.childElementCount + 1);
+                        } catch(_) {}
+                        cardsRow.appendChild(btn);
+                    }
+                }
+            });
+            suitGroup.appendChild(cardsRow);
+            container.appendChild(suitGroup);
+        });
+    }
+}
+
+// Helper: returns suit rendering order. Keeps Black suits first then Red suits,
+// but rotates the order so the trump suit (if provided) appears first.
+function getSuitOrder(trump) {
+    // For No Trump, explicit order per spec: S,H,C,D
+    if (!trump) return ['S','H','C','D'];
+    // Ensure visual alternation of colors while keeping trump first.
+    // Colors: black = [S,C], red = [H,D]. We'll start with trump, then pick a
+    // suit of the opposite color, then the remaining black, then remaining red.
+    const blacks = ['S','C'];
+    const reds = ['H','D'];
+    const up = (s) => (blacks.includes(s) ? 'black' : (reds.includes(s) ? 'red' : null));
+    const trumpColor = up(trump);
+    // Build order starting with trump
+    const order = [trump];
+    // choose a suit from opposite color (prefer conventional order H then D for reds, S then C for blacks)
+    if (trumpColor === 'black') {
+        // pick a red suit (prefer H then D)
+        for (const r of reds) if (!order.includes(r)) { order.push(r); break; }
+        // then remaining black (non-trump)
+        for (const b of blacks) if (!order.includes(b)) order.push(b);
+        // then remaining red
+        for (const r of reds) if (!order.includes(r)) order.push(r);
+    } else if (trumpColor === 'red') {
+        // pick a black suit (prefer S then C)
+        for (const b of blacks) if (!order.includes(b)) { order.push(b); break; }
+        // then remaining red (non-trump)
+        for (const r of reds) if (!order.includes(r)) order.push(r);
+        // then remaining black
+        for (const b of blacks) if (!order.includes(b)) order.push(b);
+    } else {
+        // Fallback: default alternating sequence
+        return ['S','H','C','D'];
+    }
+    return order;
+}
+
+/**
+ * Render a compact card-back stack into a container for a hidden hand.
+ * Shows a small stacked visual plus a count badge.
+ */
+function renderCardBacks(containerId, seat) {
+    try {
+        const container = document.getElementById(containerId);
+        if (!container) return;
+        container.innerHTML = '';
+        const hand = currentHands?.[seat];
+        const count = hand ? (hand.suitBuckets?.S?.length || 0) + (hand.suitBuckets?.H?.length || 0) + (hand.suitBuckets?.D?.length || 0) + (hand.suitBuckets?.C?.length || 0) : 0;
+        const stack = document.createElement('div');
+        stack.className = 'card-back-stack';
+        // Create up to 3 visible backs for a nice stacked look
+        const layers = Math.min(3, Math.max(1, Math.ceil(count / 5)));
+        for (let i = 0; i < layers; i++) {
+            const b = document.createElement('div');
+            b.className = 'card-back';
+            stack.appendChild(b);
+        }
+        const wrapper = document.createElement('div');
+        wrapper.className = 'card-backs';
+        wrapper.appendChild(stack);
+        // Do not show numeric count badge - removed per UX request
+        container.appendChild(wrapper);
+    } catch (_) {}
 }
 
 function wrapCardWithSeat(svgEl, code, seat) {
@@ -4667,6 +5034,9 @@ function onCardClick(ev) {
         const code = el?.dataset?.code;
         const seat = el?.dataset?.seat;
         if (!code || !seat) return;
+            // Prevent playing cards for the next trick until the user has
+            // acknowledged the previous trick by clicking the table (awaitingContinue).
+            if (playState && playState.awaitingContinue) return;
         // Only allow clicks for South or North, and only when it’s their turn
         if (!['S','N'].includes(seat)) return;
         if (seat !== playState.nextSeat) return;
@@ -4697,6 +5067,8 @@ function onCardClick(ev) {
 
 function autoPlayIfNeeded() {
     try {
+        // Do not auto-play while awaiting user to acknowledge completed trick
+        if (playState && playState.awaitingContinue) return;
         // Play while it's an automated seat (E/W always; N when N-S are defenders)
         const isAutomatedSeat = (seat) => {
             if (!seat) return false;
@@ -5174,7 +5546,9 @@ function playCardToTrick(seat, code) {
         // Remove hint on first card
         const hint = area.querySelector('.trick-hint');
         if (hint) hint.remove();
-        const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 76, height: 112 }) : null;
+        // Render trick-card at reduced size so multiple played cards remain visible
+        // For trick-area cards: remove corner suit glyphs and show suit in center
+        const el = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 60, height: 85, noCornerSuit: true, centerAsSuit: true }) : null;
         if (el) {
             const wrap = document.createElement('div');
             wrap.className = 'trick-card';
@@ -5183,7 +5557,29 @@ function playCardToTrick(seat, code) {
             label.textContent = seatName(seat);
             wrap.appendChild(el);
             wrap.appendChild(label);
-            area.appendChild(wrap);
+            // Place into the appropriate slot if available
+            const slot = area.querySelector(`.trick-slot[data-seat="${seat}"]`);
+            // Prepare entry animation: start slightly scaled down and animate up
+            let baseTranslate = '';
+            if (slot && slot.classList.contains('trick-slot-north')) baseTranslate = 'translateY(12%)';
+            else if (slot && slot.classList.contains('trick-slot-south')) baseTranslate = 'translateY(-12%)';
+            else if (slot && slot.classList.contains('trick-slot-east')) baseTranslate = 'translateX(-12%)';
+            else if (slot && slot.classList.contains('trick-slot-west')) baseTranslate = 'translateX(12%)';
+            try {
+                // Start slightly smaller and fade in (subtle animation)
+                wrap.style.transform = (baseTranslate ? baseTranslate + ' ' : '') + 'scale(0.85)';
+                wrap.style.opacity = '0';
+            } catch (_) {}
+            if (slot) {
+                slot.appendChild(wrap);
+            } else {
+                // Fallback: append into area
+                area.appendChild(wrap);
+            }
+            // Trigger transition to full size
+            setTimeout(() => {
+                try { wrap.style.transform = (baseTranslate ? baseTranslate + ' ' : '') + 'scale(1)'; wrap.style.opacity = '1'; } catch(_) {}
+            }, 20);
         }
     }
     // If this is the first card of the hand (or of the trick), reveal dummy if not revealed yet
@@ -5194,7 +5590,8 @@ function playCardToTrick(seat, code) {
     try { computeRemainingCounts(); } catch(_) {}
     // If trick complete, evaluate winner and set up next trick
     if (playState.trick.length === 4) {
-        setTimeout(() => finishTrick(), 350);
+        // compute winner and then pause; user must click to continue to next trick
+        setTimeout(() => finishTrick(), 200);
     }
 }
 
@@ -5256,21 +5653,90 @@ function finishTrick() {
         // Increment trick counts
         if (['N','S'].includes(winner)) playState.tricksNS += 1; else playState.tricksEW += 1;
         updateTrickCountsUI();
+        // Leave the played cards visible in their slots and prompt user to continue
         playState.trick = [];
-        // Clear trick area but keep a subtle note of who leads
+        playState.awaitingContinue = true;
         const area = document.getElementById('trickArea');
         if (area) {
-            area.innerHTML = `<div class="trick-hint">${seatName(winner)} to lead</div>`;
+            // Remove any previous hint and show click-to-continue hint
+            const prev = area.querySelector('.trick-hint');
+            if (prev) prev.remove();
+            const hint = document.createElement('div');
+            hint.className = 'trick-hint';
+            // Keep the hint concise; indicate click-to-continue only.
+            hint.textContent = 'Click table to continue';
+            area.appendChild(hint);
+            // We no longer apply the lead highlight here. The highlight is applied
+            // after the user continues (and initially when the play view renders)
+            // so that it reflects the active lead for the upcoming trick.
+            // Ensure click advances the trick only while awaitingContinue
+            const handler = function onceHandler(evt) {
+                try {
+                    if (!playState.awaitingContinue) return;
+                    continueAfterTrick();
+                } catch (_) {}
+            };
+            // Use a delegated listener that checks the awaiting flag
+            area.addEventListener('click', handler, { once: true });
         }
-        // If all tricks completed, compute result; else continue
+        // If all tricks completed, compute result after user continues; otherwise wait for click
         if (playState.tricksNS + playState.tricksEW >= 13) {
-            summarizeResult();
-        } else {
-            setTimeout(() => autoPlayIfNeeded(), 250);
+            // We'll call summarizeResult after the user clicks to acknowledge final trick
         }
     } catch (e) {
         console.warn('finishTrick failed:', e?.message || e);
     }
+}
+
+function continueAfterTrick() {
+    try {
+        playState.awaitingContinue = false;
+        // Clear trick slots (but keep history if you later want to show it)
+        const area = document.getElementById('trickArea');
+        if (area) {
+            // Remove all children from trick-slot elements, keep hint appended later
+            const slots = area.querySelectorAll('.trick-slot');
+            slots.forEach(s => { try { s.innerHTML = ''; } catch(_) {} });
+            // Replace hint for next trick or done message
+            const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
+            const hint = document.createElement('div'); hint.className = 'trick-hint'; hint.textContent = 'Click a card to play'; area.appendChild(hint);
+        }
+        // Update the lead highlight for the upcoming trick: remove any existing
+        // highlight and then add it to the current leader/nextSeat so the UI
+        // reflects who is on lead once the player has continued.
+        try {
+            document.querySelectorAll('.hand-title.lead').forEach(el => el.classList.remove('lead'));
+        } catch (_) {}
+        // If all tricks completed, finalize result
+        if (playState.tricksNS + playState.tricksEW >= 13) {
+            summarizeResult();
+            return;
+        }
+        // Ensure next to play is leader and resume automated play if needed
+        playState.nextSeat = playState.leader;
+        try {
+            // Apply the lead highlight to the updated nextSeat
+            if (typeof updateLeadHighlight === 'function') updateLeadHighlight();
+        } catch (_) {}
+        setTimeout(() => autoPlayIfNeeded(), 200);
+    } catch (e) { console.warn('continueAfterTrick failed:', e?.message || e); }
+}
+
+// Update the UI highlight for the current lead. Adds the `.lead` class to the
+// relevant `.hand-title` element based on `playState.nextSeat` or `playState.leader`.
+function updateLeadHighlight() {
+    try {
+        const seat = (playState && playState.nextSeat) ? playState.nextSeat : (playState && playState.leader) ? playState.leader : null;
+        if (!seat) return;
+        // Clear any existing
+        document.querySelectorAll('.hand-title.lead').forEach(el => el.classList.remove('lead'));
+        const sideMap = { N: 'north', S: 'south', E: 'east', W: 'west' };
+        const cls = sideMap[seat] ? `.play-seat-${sideMap[seat]} .hand-title` : null;
+        if (cls) {
+            const el = document.querySelector(cls);
+            if (el) el.classList.add('lead');
+        }
+    } catch (_) {}
 }
 
 function computeTrickWinner(trick, trump) {
@@ -5499,12 +5965,20 @@ function undoLastPlay() {
         // Remove last trick card UI
         try {
             const area = document.getElementById('trickArea');
-            if (area && area.lastElementChild) area.removeChild(area.lastElementChild);
-            if (!area.querySelector('.trick-card')) {
-                const hint = document.createElement('div');
-                hint.className = 'trick-hint';
-                hint.textContent = 'Click a card to play';
-                area.appendChild(hint);
+            if (area) {
+                // Find last .trick-card across all slots
+                const cards = area.querySelectorAll('.trick-card');
+                if (cards && cards.length) {
+                    const lastCard = cards[cards.length - 1];
+                    lastCard.parentElement?.removeChild(lastCard);
+                }
+                // If no trick cards remain, show hint
+                if (!area.querySelector('.trick-card')) {
+                    const hint = document.createElement('div');
+                    hint.className = 'trick-hint';
+                    hint.textContent = 'Click a card to play';
+                    area.appendChild(hint);
+                }
             }
         } catch(_) {}
         // Return the card to hand state and UI
@@ -5523,7 +5997,14 @@ function clearCurrentTrick() {
         // Clear trick UI
         try {
             const area = document.getElementById('trickArea');
-            if (area) area.innerHTML = '<div class="trick-hint">Click a card to play</div>';
+            if (area) {
+                // Clear slot contents
+                const slots = area.querySelectorAll('.trick-slot');
+                slots.forEach(s => { try { s.innerHTML = ''; } catch(_) {} });
+                // Reset hint
+                const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
+                const hint = document.createElement('div'); hint.className = 'trick-hint'; hint.textContent = 'Click a card to play'; area.appendChild(hint);
+            }
         } catch(_) {}
         // Return cards to hands (reverse to approximate order)
         for (let i = items.length - 1; i >= 0; i--) {
@@ -5550,7 +6031,18 @@ function returnCodeToHand(seat, code) {
         if (containerId) {
             const container = document.getElementById(containerId);
             if (container) {
-                const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 72, height: 108 }) : null;
+                // Decide rendering opts: if this container represents a non-clickable
+                // dummy hand, prefer `centerAsSuit: true` to avoid large rank glyphs
+                // overlapping the UI (the 'ghost letters').
+                const svgOpts = { width: 72, height: 108 };
+                try {
+                    const isDummySeat = (playState && playState.dummy === seat);
+                    const hasNonClickable = container.querySelector('.non-clickable') !== null;
+                    // If this container already contains non-clickable cards, or
+                    // the seat is a dummy (and not South), render center as suit.
+                    if (hasNonClickable || (isDummySeat && seat !== 'S')) svgOpts.centerAsSuit = true;
+                } catch (_) {}
+                const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
                 if (svgEl) {
                     const button = wrapCardWithSeat(svgEl, code, seat);
                     if (button) {

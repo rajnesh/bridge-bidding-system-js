@@ -28,6 +28,8 @@ try {
 } catch (_) { /* ignore if in browser */ }
 /* eslint-enable no-var */
 
+
+
 /**
  * Base bidding system implementing SAYC with configurable conventions.
  */
@@ -2290,6 +2292,7 @@ class SAYCBiddingSystem extends BiddingSystem {
                 if (shortOpp && unbidSuits.length >= 2) {
                     const bid = new window.Bid(null, { isDouble: true });
                     bid.conventionUsed = 'Reopening Double';
+                    // (diagnostics removed)
                     return bid;
                 }
             }
@@ -3718,11 +3721,9 @@ class SAYCBiddingSystem extends BiddingSystem {
             const first = bidsNow[0];
             const lastTwoArePass = this._isBalancingSeat(this.currentAuction);
             if (first && first.token && /^[1-3][CDHS]$/.test(first.token) && parseInt(first.token[0], 10) === 3 && lastTwoArePass) {
-                    try {
-                        // Use the interference handler to detect reopening-double candidate
-                        const candidate = (typeof this._handleInterference === 'function') ? this._handleInterference(this.currentAuction, hand) : null;
-                        if (candidate && candidate.isDouble) return candidate;
-                    } catch (_) { /* ignore helper failures */ }
+                    // Use the interference handler to detect reopening-double candidate
+                    const candidate = (typeof this._handleInterference === 'function') ? this._handleInterference(this.currentAuction, hand) : null;
+                    if (candidate && candidate.isDouble) return candidate;
             }
         }
     } catch (_) { /* ignore safety */ }
@@ -4739,6 +4740,13 @@ class SAYCBiddingSystem extends BiddingSystem {
         } catch (_) { /* ignore */ }
 
         // Default: pass
+        try {
+            // Diagnostic: if auction looks like a 3-level opener followed by two passes
+            // and reopening doubles are enabled, ask the helper and log if it suggests
+            // a double while we're about to pass. This helps catch caller-side
+            // suppressions in edge-case test fixtures.
+                    // (diagnostics removed)
+        } catch (_) {}
         return new window.Bid('PASS');
     }
 }
@@ -4838,13 +4846,11 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // the convention being enabled and only when the current result
                     // is a non-double so we don't replace intentional doubles/redoubles.
                     if (/^[1-3][CDHS]$/.test(firstTok) && lastTwoArePass && b && b.token && !b.isDouble && !b.isRedouble && this.conventions?.isEnabled('reopening_doubles', 'competitive')) {
-                        try {
-                            const candidate = (typeof this._handleInterference === 'function') ? this._handleInterference(this.currentAuction, hand) : null;
-                            if (candidate && candidate.isDouble) {
-                                // Prefer reopening double candidate when present
-                                b = candidate;
-                            }
-                        } catch (_) {}
+                        const candidate = (typeof this._handleInterference === 'function') ? this._handleInterference(this.currentAuction, hand) : null;
+                        if (candidate && candidate.isDouble) {
+                            // Prefer reopening double candidate when present
+                            b = candidate;
+                        }
                     }
                 } catch (_) {}
 

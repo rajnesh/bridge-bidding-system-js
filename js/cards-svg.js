@@ -42,13 +42,16 @@
     tl.textContent = label;
     svg.appendChild(tl);
 
-    const tl2 = document.createElementNS(svgNS, 'text');
-    tl2.setAttribute('x', '8'); tl2.setAttribute('y', '36');
-    tl2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-    tl2.setAttribute('font-size', '16');
-    tl2.setAttribute('fill', color);
-    tl2.textContent = SUIT_SYMBOL[suit] || '';
-    svg.appendChild(tl2);
+    // Optionally suppress the small corner suit glyphs (used for trick-area compact cards)
+    if (!opts.noCornerSuit) {
+      const tl2 = document.createElementNS(svgNS, 'text');
+      tl2.setAttribute('x', '8'); tl2.setAttribute('y', '36');
+      tl2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
+      tl2.setAttribute('font-size', '16');
+      tl2.setAttribute('fill', color);
+      tl2.textContent = SUIT_SYMBOL[suit] || '';
+      svg.appendChild(tl2);
+    }
 
     // Bottom-right rotated corner
     const br = document.createElementNS(svgNS, 'g');
@@ -61,13 +64,15 @@
     br1.setAttribute('fill', color);
     br1.textContent = label;
     br.appendChild(br1);
-    const br2 = document.createElementNS(svgNS, 'text');
-    br2.setAttribute('x', String(w-20)); br2.setAttribute('y', String(h-8));
-    br2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-    br2.setAttribute('font-size', '16');
-    br2.setAttribute('fill', color);
-    br2.textContent = SUIT_SYMBOL[suit] || '';
-    br.appendChild(br2);
+    if (!opts.noCornerSuit) {
+      const br2 = document.createElementNS(svgNS, 'text');
+      br2.setAttribute('x', String(w-20)); br2.setAttribute('y', String(h-8));
+      br2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
+      br2.setAttribute('font-size', '16');
+      br2.setAttribute('fill', color);
+      br2.textContent = SUIT_SYMBOL[suit] || '';
+      br.appendChild(br2);
+    }
     svg.appendChild(br);
 
     // Center pip or rank artwork
@@ -75,14 +80,23 @@
     center.setAttribute('x', String(w/2));
     center.setAttribute('y', String(h/2 + 14));
     center.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-    center.setAttribute('font-size', (rank==='A' ? '64' : (rank==='K'||rank==='Q'||rank==='J' ? '56' : '44')));
+    // Allow callers to force the center to be the suit symbol instead of the rank
+    if (opts.centerAsSuit) {
+      center.setAttribute('font-size', (rank==='A' ? '64' : '56'));
+    } else {
+      center.setAttribute('font-size', (rank==='A' ? '64' : (rank==='K'||rank==='Q'||rank==='J' ? '56' : '44')));
+    }
     center.setAttribute('text-anchor', 'middle');
     center.setAttribute('fill', color);
     // For 2..10 show big suit pip, for face/Ace show the rank letter
-    if (rank==='A' || rank==='K' || rank==='Q' || rank==='J') {
-      center.textContent = rank;
-    } else {
+    if (opts.centerAsSuit) {
       center.textContent = SUIT_SYMBOL[suit] || '';
+    } else {
+      if (rank==='A' || rank==='K' || rank==='Q' || rank==='J') {
+        center.textContent = rank;
+      } else {
+        center.textContent = SUIT_SYMBOL[suit] || '';
+      }
     }
     svg.appendChild(center);
 
