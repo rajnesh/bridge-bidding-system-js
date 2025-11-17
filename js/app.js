@@ -4764,8 +4764,9 @@ function renderPlayTab() {
     // Reset counts and status/result
     try { document.getElementById('trickCountNS').textContent = '0'; } catch(_) {}
     try { document.getElementById('trickCountEW').textContent = '0'; } catch(_) {}
-    try { const rs = document.getElementById('playResultSummary'); if (rs) rs.textContent = ''; } catch(_) {}
-    try { const ul = document.getElementById('playScoreBreakdown'); if (ul) ul.innerHTML = ''; } catch(_) {}
+    try { const scoreEl = document.getElementById('playInlineScore'); if (scoreEl) scoreEl.textContent = ''; } catch(_) {}
+    try { const rs = document.getElementById('playResultSummary'); if (rs) { rs.textContent = ''; rs.style.display = 'none'; } } catch(_) {}
+    try { const ul = document.getElementById('playScoreBreakdown'); if (ul) { ul.innerHTML = ''; ul.style.display = 'none'; } } catch(_) {}
     // Status line: opening lead prompt or all-pass message
     if (!details.contract) {
         showPlayStatus('All Pass — no play.', 'light');
@@ -6004,7 +6005,6 @@ function revealDummy() {
             if (row && row.childElementCount === 0) renderHandCards('playSouthHand', 'S');
         }
         playState.dummyRevealed = true;
-        showPlayStatus('Dummy is now revealed.', 'light');
     } catch (_) {}
 }
 
@@ -6047,44 +6047,17 @@ function summarizeResult() {
     const side = playState.contractSide; // 'NS' or 'EW'
     if (!contract || !declarer || !side) return;
     const tricksDecl = (side === 'NS') ? playState.tricksNS : playState.tricksEW;
-    const required = 6 + (contract.level || 0);
-    const diff = tricksDecl - required;
-    const outcome = diff >= 0 ? (diff === 0 ? 'just made' : `made ${diff}`) : `${-diff} down`;
     const result = computeDuplicateScore(contract, side, tricksDecl, vulnerabilityForSide(side));
-    const denom = contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[contract.strain] || contract.strain);
-    const dblTxt = contract.dbl === 1 ? ' x' : (contract.dbl === 2 ? ' xx' : '');
     const total = result.total;
-    const txt = `Result: ${contract.level}${denom}${dblTxt} by ${seatName(declarer)} (${side}). Tricks: ${tricksDecl}. ${outcome}. Score: ${total >= 0 ? '+'+total : total}`;
-    try { const rs = document.getElementById('playResultSummary'); if (rs) rs.textContent = txt; } catch(_) {}
-    // Render bulleted breakdown
+    // Update inline score for N/S on the trick-counts line. We show the score from N/S perspective.
     try {
-        const ul = document.getElementById('playScoreBreakdown');
-        if (ul) {
-            ul.innerHTML = '';
-            const add = (label, val, sign='+') => {
-                if (!val) return;
-                const li = document.createElement('li');
-                li.textContent = `${label}: ${sign}${val}`;
-                ul.appendChild(li);
-            };
-            if (result.breakdown.trickPoints) {
-                const li = document.createElement('li');
-                li.textContent = `Trick points: +${result.breakdown.trickPoints}`;
-                ul.appendChild(li);
-            }
-            if (result.breakdown.insult) add('Insult', result.breakdown.insult);
-            if (result.breakdown.gameBonus) add('Game bonus', result.breakdown.gameBonus);
-            if (result.breakdown.partScoreBonus) add('Part-score bonus', result.breakdown.partScoreBonus);
-            if (result.breakdown.slamBonus) add('Slam bonus', result.breakdown.slamBonus);
-            if (result.breakdown.overtricks) add('Overtricks', result.breakdown.overtricks);
-            if (result.breakdown.penalties) {
-                const li = document.createElement('li');
-                li.textContent = `Penalty: -${result.breakdown.penalties}`;
-                ul.appendChild(li);
-            }
+        const scoreEl = document.getElementById('playInlineScore');
+        if (scoreEl) {
+            // result.total is score for the declarer side. Convert to N/S perspective.
+            const nsScore = (side === 'NS') ? total : -total;
+            scoreEl.textContent = (nsScore >= 0 ? '+' + nsScore : String(nsScore));
         }
     } catch (_) {}
-    showPlayStatus('Hand complete.', 'success');
 }
 
 function vulnerabilityForSide(side) {

@@ -61,7 +61,7 @@ function buildDOM() {
         <button id="playReplayBtn" class="main-btn compact">Replay Hand</button>
         <button id="playNewDealBtn" class="main-btn danger compact">New Deal</button>
         <div style="margin-left:auto; font-weight:700; color:#2c3e50;">
-          Tricks — N/S: <span id="trickCountNS">0</span> | E/W: <span id="trickCountEW">0</span>
+          Tricks — N/S: <span id="trickCountNS">0</span> | E/W: <span id="trickCountEW">0</span> | Score for N/S: <span id="playInlineScore">0</span>
         </div>
       </div>
       <div class="play-layout">
@@ -299,9 +299,8 @@ describe('Score summary', () => {
   claimBtn.click();
     window.prompt = prevPrompt;
 
-    const summary = document.getElementById('playResultSummary').textContent;
-    expect(summary).toMatch(/Result:/);
-    expect(summary).toMatch(/Score:/);
+    const scoreText = document.getElementById('playInlineScore').textContent;
+    expect(scoreText).toMatch(/[+-]?\d+/);
   });
 });
  

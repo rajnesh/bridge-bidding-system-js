@@ -477,7 +477,6 @@
                     <div class="tab-panel" id="playPanel">
                         <div class="play-tab">
                             <div class="play-topbar">
-                                <div id="playContractInfo" class="play-contract" aria-live="polite">Contract: —</div>
                                 <div id="playStatus" class="play-status alert alert-light" style="display:none;"></div>
                             </div>
                             <div class="play-main">
@@ -500,11 +499,12 @@
                                         </div>
                                         <div class="play-metrics">
                                             <div class="trick-counts">
-                                                <span class="trick-count">N/S Tricks: <span id="trickCountNS">0</span></span>
-                                                <span class="trick-count">E/W Tricks: <span id="trickCountEW">0</span></span>
-                                            </div>
-                                            <div id="playResultSummary" class="play-result"></div>
-                                            <ul id="playScoreBreakdown" class="score-breakdown"></ul>
+                                                    <span class="trick-count">N/S Tricks: <span id="trickCountNS">0</span></span>
+                                                    <span class="trick-count">E/W Tricks: <span id="trickCountEW">0</span></span>
+                                                    <span class="trick-count">Score for N/S: <span id="playInlineScore">0</span></span>
+                                                </div>
+                                                <div id="playResultSummary" class="play-result" style="display:none;"></div>
+                                                <ul id="playScoreBreakdown" class="score-breakdown" style="display:none;"></ul>
                                         </div>
                                     </div>
                                     <div class="play-seat play-seat-east" id="playEastArea">
@@ -523,6 +523,7 @@
                                     <button id="playReplayBtn" class="main-btn compact" type="button">Replay Hand</button>
                                     <button id="playNewDealBtn" class="main-btn danger compact" type="button">New Deal</button>
                                     <button id="playDownloadLogBtn" class="main-btn compact" type="button">Download Log</button>
+                                    <div id="playContractInfo" class="play-contract" aria-live="polite" style="margin-top:6px;">Contract: —</div>
                                 </div>
                             </div>
                         </div>
