@@ -55,9 +55,6 @@ function buildDOM() {
       <div id="playContractInfo"></div>
       <div id="playStatus" style="display:none"></div>
       <div class="play-controls">
-        <button id="playUndoBtn" class="main-btn secondary compact">Undo</button>
-        <button id="playClearTrickBtn" class="main-btn warning compact">Clear Trick</button>
-        <button id="playClaimBtn" class="main-btn success compact">Claim</button>
         <button id="playReplayBtn" class="main-btn compact">Replay Hand</button>
         <button id="playNewDealBtn" class="main-btn danger compact">New Deal</button>
         <div style="margin-left:auto; font-weight:700; color:#2c3e50;">
@@ -291,14 +288,15 @@ describe('Score summary', () => {
     window.endAuction();
     window.goToPlay();
 
-    // Mock prompt to claim all 13 tricks
-    const prevPrompt = window.prompt;
-    window.prompt = () => '13';
-  const claimBtn = document.getElementById('playClaimBtn');
-  expect(claimBtn).not.toBeNull();
-  claimBtn.click();
-    window.prompt = prevPrompt;
-
+    // Simulate claiming all remaining tricks by adjusting playState directly
+    // Adjust internal playState via evaluated code in the test window (playState is a top-level let)
+    const remaining = 13 - (Number(document.getElementById('trickCountNS').textContent) + Number(document.getElementById('trickCountEW').textContent));
+    if (remaining > 0) {
+      // Use window.eval to modify the module-scoped `playState` binding inside the test VM.
+      window.eval(`if (typeof playState !== 'undefined') { const rem = ${remaining}; if (playState.contractSide === 'NS') playState.tricksNS += rem; else playState.tricksEW += rem; }`);
+    }
+    window.eval(`if (typeof updateTrickCountsUI === 'function') updateTrickCountsUI();`);
+    window.eval(`if (typeof summarizeResult === 'function') summarizeResult();`);
     const scoreText = document.getElementById('playInlineScore').textContent;
     expect(scoreText).toMatch(/[+-]?\d+/);
   });

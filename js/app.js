@@ -6058,6 +6058,31 @@ function summarizeResult() {
             scoreEl.textContent = (nsScore >= 0 ? '+' + nsScore : String(nsScore));
         }
     } catch (_) {}
+
+    // Reveal all hands now that the play is complete.
+    try {
+        // Remove any trick hint from the table area so the green area no longer prompts play.
+        const area = document.getElementById('trickArea');
+        if (area) {
+            const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
+        }
+        // Render all hands visibly (non-interactive)
+        try { const containers = { N: 'playNorthHand', E: 'playEastHand', S: 'playSouthHand', W: 'playWestHand' };
+            ['N','E','S','W'].forEach(seat => {
+                try {
+                    const cid = containers[seat];
+                    const el = document.getElementById(cid);
+                    if (el) el.innerHTML = '';
+                    // Use renderHandCards so all seats' full cards are shown (not backs)
+                    renderHandCards(cid, seat);
+                    // Disable any interactive handlers on rendered buttons
+                    const buttons = Array.from(document.querySelectorAll('#' + cid + ' .card-button'));
+                    buttons.forEach(b => {
+                        try { b.disabled = true; b.classList.add('non-clickable'); if (typeof onCardClick === 'function') b.removeEventListener('click', onCardClick); } catch(_) {}
+                    });
+                } catch(_) {}
+            }); } catch(_) {}
+    } catch (_) {}
 }
 
 function vulnerabilityForSide(side) {
@@ -6138,79 +6163,14 @@ function computeDuplicateScore(contract, side, tricksWon, vul) {
 
 // Controls: Undo and Clear Trick
 document.addEventListener('click', (e) => {
-    if (e.target && e.target.id === 'playUndoBtn') {
-        undoLastPlay();
-    } else if (e.target && e.target.id === 'playClearTrickBtn') {
-        clearCurrentTrick();
-    } else if (e.target && e.target.id === 'playClaimBtn') {
-        promptClaim();
-    } else if (e.target && e.target.id === 'playReplayBtn') {
+    if (e.target && e.target.id === 'playReplayBtn') {
         replayHand();
     } else if (e.target && e.target.id === 'playNewDealBtn') {
         newDealFromPlay();
     }
 });
 
-function undoLastPlay() {
-    try {
-        if (!playState.trick.length) return;
-        const last = playState.trick.pop();
-        playState.played.delete(last.code);
-        // Remove last trick card UI
-        try {
-            const area = document.getElementById('trickArea');
-            if (area) {
-                // Find last .trick-card across all slots
-                const cards = area.querySelectorAll('.trick-card');
-                if (cards && cards.length) {
-                    const lastCard = cards[cards.length - 1];
-                    lastCard.parentElement?.removeChild(lastCard);
-                }
-                // If no trick cards remain, show hint
-                if (!area.querySelector('.trick-card')) {
-                    const hint = document.createElement('div');
-                    hint.className = 'trick-hint';
-                    hint.textContent = 'Click a card to play';
-                    area.appendChild(hint);
-                }
-            }
-        } catch(_) {}
-        // Return the card to hand state and UI
-        const seat = last.seat;
-        returnCodeToHand(seat, last.code);
-        // Turn moves back to that seat
-        playState.nextSeat = seat;
-        showPlayStatus('Undid last play.', 'light');
-    } catch (e) { console.warn('undoLastPlay failed:', e?.message || e); }
-}
-
-function clearCurrentTrick() {
-    try {
-        if (!playState.trick.length) return;
-        const items = playState.trick.slice();
-        // Clear trick UI
-        try {
-            const area = document.getElementById('trickArea');
-            if (area) {
-                // Clear slot contents
-                const slots = area.querySelectorAll('.trick-slot');
-                slots.forEach(s => { try { s.innerHTML = ''; } catch(_) {} });
-                // Reset hint
-                const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
-                const hint = document.createElement('div'); hint.className = 'trick-hint'; hint.textContent = 'Click a card to play'; area.appendChild(hint);
-            }
-        } catch(_) {}
-        // Return cards to hands (reverse to approximate order)
-        for (let i = items.length - 1; i >= 0; i--) {
-            const t = items[i];
-            playState.played.delete(t.code);
-            returnCodeToHand(t.seat, t.code);
-        }
-        playState.trick = [];
-        playState.nextSeat = playState.leader; // reset to trick leader
-        showPlayStatus('Cleared current trick.', 'light');
-    } catch (e) { console.warn('clearCurrentTrick failed:', e?.message || e); }
-}
+/* Removed: undoLastPlay and clearCurrentTrick. These features were removed from the Play tab per UX decision. */
 
 function returnCodeToHand(seat, code) {
     try {
@@ -6244,26 +6204,9 @@ function returnCodeToHand(seat, code) {
 }
 
 // Claim, Replay, New Deal
-function promptClaim() {
-    try {
-        if (!playState.contract) return;
-        const side = playState.contractSide; // NS or EW
-        const remaining = 13 - (playState.tricksNS + playState.tricksEW);
-        const declarerSide = side;
-        const msg = `Claim for ${declarerSide} side. Remaining tricks: ${remaining}. Enter tricks to claim:`;
-        const input = window.prompt(msg, String(remaining));
-        if (input == null) return;
-        const toClaim = Math.max(0, Math.min(remaining, parseInt(input, 10) || 0));
-        if (declarerSide === 'NS') playState.tricksNS += toClaim; else playState.tricksEW += toClaim;
-        // The rest go to defenders
-        const toDef = remaining - toClaim;
-        if (declarerSide === 'NS') playState.tricksEW += toDef; else playState.tricksNS += toDef;
-        updateTrickCountsUI();
-        summarizeResult();
-        // Lock further play by clearing nextSeat
-        playState.nextSeat = null;
-    } catch (e) { console.warn('promptClaim failed:', e?.message || e); }
-}
+/* Removed: promptClaim() - claiming via button removed. Claiming can still be simulated in tests
+   by directly adjusting `playState.tricksNS` / `playState.tricksEW` and calling
+   `updateTrickCountsUI()` followed by `summarizeResult()` if needed. */
 
 function replayHand() {
     try {
