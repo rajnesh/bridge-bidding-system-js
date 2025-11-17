@@ -1284,27 +1284,49 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
     z-index: 4000;
     justify-content: flex-end;
 }
+
+/* When `.play-controls` is used inside `.play-main`, present items in a
+   vertical stack: button row, contract line, then trick counts. This
+   keeps the contract left-aligned directly under the buttons and avoids
+   overlap with the rest of the Play panel. */
+.play-main .play-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+}
+.play-main .play-controls .play-controls-row {
+    display: flex;
+    gap: 6px;
+}
+.play-main .play-controls .play-controls-meta {
+    margin-left: 0;
+}
 /* Position contract info and play metrics (result/score) into the top-right column
    near the action buttons so the result summary appears in the boxed area shown
    in the screenshot. Fall back to centered layout on small screens. */
-.play-main #playContractInfo {
-    position: absolute;
-    top: 8px;
-    right: 12px; /* align right edge with the control buttons (which are at right:12px) */
+.play-main .play-controls #playContractInfo {
+    /* Keep the contract line left-aligned under the controls when placed inside .play-controls */
+    position: static;
+    top: auto;
+    right: auto;
     z-index: 4000;
-    text-align: right;
+    text-align: left;
     background: transparent;
     width: auto;
-    max-width: calc(min(34vw, 360px));
+    max-width: none;
 }
 .play-main .play-metrics {
-    position: absolute;
-    top: 56px; /* below the controls */
-    right: 12px; /* align right edge with the New Deal button */
-    align-items: flex-end;
-    text-align: right;
-    width: 320px;
-    max-width: calc(min(34vw, 360px));
+    /* Default centered metrics in the play center area; when metric elements are placed
+       inside .play-controls they will follow the controls' layout and not rely on
+       absolute positioning which caused overlap. */
+    position: static;
+    top: auto;
+    right: auto;
+    align-items: center;
+    text-align: center;
+    width: auto;
+    max-width: none;
 }
 @media (max-width: 800px) {
     .play-main #playContractInfo { position: static; right: auto; text-align: center; }

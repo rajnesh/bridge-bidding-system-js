@@ -498,13 +498,8 @@
                                             <div class="trick-hint">Click a card to play</div>
                                         </div>
                                         <div class="play-metrics">
-                                            <div class="trick-counts">
-                                                    <span class="trick-count">N/S Tricks: <span id="trickCountNS">0</span></span>
-                                                    <span class="trick-count">E/W Tricks: <span id="trickCountEW">0</span></span>
-                                                    <span class="trick-count">Score for N/S: <span id="playInlineScore">0</span></span>
-                                                </div>
-                                                <div id="playResultSummary" class="play-result" style="display:none;"></div>
-                                                <ul id="playScoreBreakdown" class="score-breakdown" style="display:none;"></ul>
+                                            <div id="playResultSummary" class="play-result" style="display:none;"></div>
+                                            <ul id="playScoreBreakdown" class="score-breakdown" style="display:none;"></ul>
                                         </div>
                                     </div>
                                     <div class="play-seat play-seat-east" id="playEastArea">
@@ -517,13 +512,22 @@
                                     </div>
                                 </div>
                                 <div class="play-controls">
-                                    <button id="playUndoBtn" class="main-btn secondary compact" type="button">Undo</button>
-                                    <button id="playClearTrickBtn" class="main-btn warning compact" type="button">Clear Trick</button>
-                                    <button id="playClaimBtn" class="main-btn success compact" type="button">Claim</button>
-                                    <button id="playReplayBtn" class="main-btn compact" type="button">Replay Hand</button>
-                                    <button id="playNewDealBtn" class="main-btn danger compact" type="button">New Deal</button>
-                                    <button id="playDownloadLogBtn" class="main-btn compact" type="button">Download Log</button>
+                                    <div class="play-controls-row">
+                                        <button id="playUndoBtn" class="main-btn secondary compact" type="button">Undo</button>
+                                        <button id="playClearTrickBtn" class="main-btn warning compact" type="button">Clear Trick</button>
+                                        <button id="playClaimBtn" class="main-btn success compact" type="button">Claim</button>
+                                        <button id="playReplayBtn" class="main-btn compact" type="button">Replay Hand</button>
+                                        <button id="playNewDealBtn" class="main-btn danger compact" type="button">New Deal</button>
+                                        <button id="playDownloadLogBtn" class="main-btn compact" type="button">Download Log</button>
+                                    </div>
                                     <div id="playContractInfo" class="play-contract" aria-live="polite" style="margin-top:6px;">Contract: —</div>
+                                    <div class="play-controls-meta">
+                                        <div class="trick-counts">
+                                            <span class="trick-count">N/S Tricks: <span id="trickCountNS">0</span></span>
+                                            <span class="trick-count">E/W Tricks: <span id="trickCountEW">0</span></span>
+                                            <span class="trick-count">Score for N/S: <span id="playInlineScore">0</span></span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         </div>
