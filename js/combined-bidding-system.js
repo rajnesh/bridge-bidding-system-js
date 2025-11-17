@@ -2198,6 +2198,43 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         } catch (_) {}
 
+            // Natural overcall vs Weak Two opener: if opponents opened a Weak Two (2H/2S/2D)
+            // and we are the immediate next to act (direct overcall seat), prefer a natural
+            // 2-level overcall when we hold a 5+ suit (prefer majors) and reasonable HCP.
+            try {
+                // find first non-pass contract
+                let firstIdx = -1;
+                for (let i = 0; i < auction.bids.length; i++) {
+                    const t = auction.bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { firstIdx = i; break; }
+                }
+                if (firstIdx !== -1) {
+                    const firstTok = auction.bids[firstIdx]?.token || '';
+                    // Only consider true Weak Two openings (not 2C)
+                    if (/^2[HDS]$/.test(firstTok)) {
+                        const openedByUs = this._sameSideAs(auction.bids[firstIdx]?.seat, this.ourSeat);
+                        const weAreNext = (auction.bids.length - 1) === firstIdx; // immediate overcall seat
+                        if (!openedByUs && weAreNext) {
+                            // prefer majors first for overcall candidates
+                            const candidates = ['S','H','D','C'];
+                            const hcp = hand.hcp || 0;
+                            const minHcp = 10; // conservative threshold for 2-level overcall
+                            if (hcp >= minHcp) {
+                                for (const s of candidates) {
+                                    if (s === firstTok[1]) continue; // don't bid their suit
+                                    if ((hand.lengths?.[s] || 0) >= 5) {
+                                        const tok = `2${s}`;
+                                        const b = new window.Bid(tok);
+                                        b.conventionUsed = `Natural overcall vs Weak Two (${tok})`;
+                                        return b;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (_) { /* non-fatal; fall through */ }
+
         // Handle support doubles first
         if (auction.bids.length === 3) {
             const supportBid = this._handleSupportDouble(auction, hand);
@@ -4143,7 +4180,17 @@ class SAYCBiddingSystem extends BiddingSystem {
                         if (interFirst) return interFirst;
                     }
                     const r = this._handle1NTResponse(hand);
-                    if (r) { r.conventionUsed = r.conventionUsed || (r.token==='2C' ? 'Stayman' : (r.token==='2D'||r.token==='2H'?'Jacoby Transfer':'Texas Transfer')); return r; }
+                    if (r) {
+                        // Map responder tokens to named conventions where appropriate.
+                        // Stayman: 2C. Jacoby Transfers: 2D/2H. Texas Transfers: 4D/4H.
+                        if (!r.conventionUsed) {
+                            if (r.token === '2C') r.conventionUsed = 'Stayman';
+                            else if (r.token === '2D' || r.token === '2H') r.conventionUsed = 'Jacoby Transfer';
+                            else if (r.token === '4D' || r.token === '4H') r.conventionUsed = 'Texas Transfer';
+                            else r.conventionUsed = '';
+                        }
+                        return r;
+                    }
                 } else {
                     // Second round (responder rebid) after transfer acceptance
                     const cont = this._handle1NTResponderRebidAfterTransfer(hand);
@@ -4152,7 +4199,14 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
             if (partnerOpened2NT) {
                 const r2 = this._handle2NTResponse(hand);
-                if (r2) { r2.conventionUsed = r2.conventionUsed || ((r2.token==='3D'||r2.token==='3H')?'Jacoby Transfer':'Texas Transfer'); return r2; }
+                if (r2) {
+                    if (!r2.conventionUsed) {
+                        if (r2.token === '3D' || r2.token === '3H') r2.conventionUsed = 'Jacoby Transfer';
+                        else if (r2.token === '4D' || r2.token === '4H') r2.conventionUsed = 'Texas Transfer';
+                        else r2.conventionUsed = '';
+                    }
+                    return r2;
+                }
             }
 
             // If we opened 1NT/2NT and partner asked/transfered, accept
@@ -4553,7 +4607,11 @@ class SAYCBiddingSystem extends BiddingSystem {
                     // Partner opened 2NT in no-seat context: apply responder logic
                     const r2 = this._handle2NTResponse(hand);
                     if (r2) {
-                        r2.conventionUsed = r2.conventionUsed || ((r2.token==='3D'||r2.token==='3H')?'Jacoby Transfer':(r2.token==='4D'||r2.token==='4H')?'Texas Transfer':'');
+                        if (!r2.conventionUsed) {
+                            if (r2.token === '3D' || r2.token === '3H') r2.conventionUsed = 'Jacoby Transfer';
+                            else if (r2.token === '4D' || r2.token === '4H') r2.conventionUsed = 'Texas Transfer';
+                            else r2.conventionUsed = '';
+                        }
                         return r2;
                     }
                     return new window.Bid('PASS');

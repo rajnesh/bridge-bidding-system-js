@@ -16,6 +16,52 @@ let auctionHistory = [];
 let currentAuction = [];
 let currentTurn = null;
 let dealer = 'S';
+// Capture of console output scoped to the Auction tab
+let auctionConsoleLog = [];
+let __originalConsole = null;
+function startAuctionConsoleCapture() {
+    try {
+        if (__originalConsole) return; // already capturing
+        __originalConsole = {
+            log: console.log,
+            info: console.info,
+            warn: console.warn,
+            error: console.error,
+            debug: console.debug
+        };
+        auctionConsoleLog = [];
+        const pushMessage = (level, args) => {
+            try {
+                const ts = new Date().toISOString();
+                const text = args.map(a => {
+                    try { return (typeof a === 'string') ? a : (JSON.stringify(a)); } catch (_) { return String(a); }
+                }).join(' ');
+                auctionConsoleLog.push(`${ts} [${level.toUpperCase()}] ${text}`);
+            } catch (_) {}
+        };
+        console.log = function(...args) { pushMessage('log', args); __originalConsole.log.apply(console, args); };
+        console.info = function(...args) { pushMessage('info', args); __originalConsole.info.apply(console, args); };
+        console.warn = function(...args) { pushMessage('warn', args); __originalConsole.warn.apply(console, args); };
+        console.error = function(...args) { pushMessage('error', args); __originalConsole.error.apply(console, args); };
+        console.debug = function(...args) { pushMessage('debug', args); __originalConsole.debug.apply(console, args); };
+    } catch (e) {
+        try { __originalConsole?.warn('startAuctionConsoleCapture failed', e); } catch(_) {}
+    }
+}
+
+function stopAuctionConsoleCapture() {
+    try {
+        if (!__originalConsole) return;
+        console.log = __originalConsole.log;
+        console.info = __originalConsole.info;
+        console.warn = __originalConsole.warn;
+        console.error = __originalConsole.error;
+        console.debug = __originalConsole.debug;
+        __originalConsole = null;
+    } catch (e) {
+        try { console.warn('stopAuctionConsoleCapture failed', e); } catch(_) {}
+    }
+}
 // Vulnerability defaults: None (ns=false, ew=false)
 let vulnerability = { ns: false, ew: false };
 
@@ -91,6 +137,24 @@ function initializeSystem() {
                 if (li) {
                     li.classList.add('fade-out');
                     setTimeout(() => { try { li.style.display = 'none'; } catch(_) {} }, 280);
+                }
+            } catch (_) {}
+            // Attach Download Log button handler if present
+            try {
+                const dl = document.getElementById('playDownloadLogBtn');
+                if (dl) {
+                    dl.addEventListener('click', () => {
+                        try { downloadPlayLog(); } catch (e) { console.warn('downloadPlayLog failed', e); }
+                    });
+                }
+            } catch (_) {}
+            // Attach Auction download button handler if present
+            try {
+                const ad = document.getElementById('auctionDownloadBtn');
+                if (ad) {
+                    ad.addEventListener('click', () => {
+                        try { downloadAuctionLog(); } catch (e) { console.warn('downloadAuctionLog failed', e); }
+                    });
                 }
             } catch (_) {}
         } catch (e) {
@@ -858,6 +922,8 @@ function startNewAuction() {
         auctionHistory = [];
         currentAuction = [];
         auctionActive = true;
+        // Start capturing console output for Auction tab
+        try { startAuctionConsoleCapture(); } catch (_) {}
     // Lock Dealer/Vulnerability controls while auction is active
     setDealerVulnerabilityDisabled(true);
         
@@ -1848,6 +1914,9 @@ function endAuction() {
         if (auctionContent) auctionContent.style.display = 'block';
     } catch (_) {}
 
+    // Stop capturing auction console output (we capture while auction is active)
+    try { stopAuctionConsoleCapture(); } catch (_) {}
+
     // Update auction status if it exists (preserve flex layout)
     const auctionStatus = document.getElementById('auctionStatus');
     if (auctionStatus) {
@@ -2227,11 +2296,17 @@ function getLastNonPassBid() {
 
 function isAuctionComplete() {
     // Auction is complete when there are three consecutive PASSes at the end
-    // (this also covers the case of four initial passes — the last three will be PASS).
+    // Normal rule: auction ends when there are three consecutive PASSes after a non-pass bid.
+    // Special-case: when there have been no non-pass bids at all (i.e., everyone passing),
+    // require four initial passes to end the auction so the last player also gets to act.
     if (!Array.isArray(currentAuction) || currentAuction.length === 0) return false;
     const tokens = currentAuction.map(b => (b && b.token) ? b.token : 'PASS');
-    if (tokens.length >= 3 && tokens.slice(-3).every(t => t === 'PASS')) return true;
-    return false;
+    const hasNonPass = tokens.some(t => t && t.toUpperCase() !== 'PASS');
+    if (hasNonPass) {
+        return (tokens.length >= 3 && tokens.slice(-3).every(t => t === 'PASS'));
+    }
+    // No non-pass bids yet: require four passes to conclude the auction
+    return (tokens.length >= 4 && tokens.slice(-4).every(t => t === 'PASS'));
 }
 
 function isValidBid(bidString, lastBid) {
@@ -4454,6 +4529,10 @@ let playState = {
 // Declarer planning state (two-step): { phase: 'draw'|'establish' }
 playState.declarerPlan = null;
 
+// In-memory play trace log (browser-only). Each entry is a short text line.
+let playLog = [];
+try { if (typeof window !== 'undefined') window.playLog = playLog; } catch(_) {}
+
 
 function renderPlayTab() {
     try {
@@ -4617,14 +4696,18 @@ function renderPlayTab() {
         // North's cards should only be visible when North is declarer or North is dummy.
         // When N-S are defenders (contractSide === 'EW'), North's hand should be hidden
         // but the engine will play for North automatically. If North is visible, make it clickable.
+        // Additionally, when East or West is the dummy, do NOT show the North hand at all
+        // (no card backs) so the layout matches E/W-dummy conventions.
         const showNorth = (playState.declarer === 'N' || playState.dummy === 'N');
         const northClickable = !!showNorth;
         if (currentHands && currentHands.N) {
             try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch(_) {}
             if (!showNorth && northRow) {
-                // Show card backs when North is not visible (no blank oval)
+                // If dummy is E or W, hide North entirely (no card backs). Otherwise show backs.
                 northRow.innerHTML = '';
-                renderCardBacks('playNorthHand', 'N');
+                if (playState.dummy !== 'E' && playState.dummy !== 'W') {
+                    renderCardBacks('playNorthHand', 'N');
+                }
             } else if (showNorth) {
                 renderPlayHand('playNorthHand', 'N', !!northClickable);
             }
@@ -4812,6 +4895,15 @@ function renderPlayHand(containerId, seat, clickable) {
     const hand = currentHands?.[seat];
     if (!hand || !hand.suitBuckets) return;
     container.innerHTML = '';
+    // Safety guard: East/West should only display full hands when they are the dummy.
+    // If this function is mistakenly invoked for E/W when they are not dummy, render
+    // compact card-backs instead and exit early to avoid showing center 'ghost' glyphs.
+    try {
+        if ((seat === 'E' || seat === 'W') && !(playState && playState.dummy === seat)) {
+            renderCardBacks(containerId, seat);
+            return;
+        }
+    } catch(_) {}
     const trump = (typeof playState !== 'undefined' && playState?.trump) ? playState.trump : null;
     const suits = getSuitOrder(trump);
     const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
@@ -4842,10 +4934,14 @@ function renderPlayHand(containerId, seat, clickable) {
                 // center rather than the large rank letter to avoid 'ghost' rank letters
                 // overlaying the UI when dummy is rendered non-interactively.
                 const svgOpts = { width: 120, height: 170 };
-                try {
-                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat) svgOpts.centerAsSuit = true;
-                } catch(_) {}
+                // Do not force center-as-suit for dummy E/W — dummy should look identical
+                // to N/S single-row rendering (i.e., show ranks in center where appropriate).
                 const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
+                try {
+                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat && svgEl) {
+                        svgEl.setAttribute('data-dummy-card', 'true');
+                    }
+                } catch(_) {}
                 if (svgEl) {
                     // shrink by 20% vertically (and scale width proportionally)
                     try {
@@ -4901,10 +4997,12 @@ function renderPlayHand(containerId, seat, clickable) {
                 // For East/West suit rows, if this seat is the dummy and cards are non-clickable
                 // render the center as suit glyphs to avoid prominent rank letters lingering.
                 const svgOpts = { width: 120, height: 170 };
-                try {
-                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat) svgOpts.centerAsSuit = true;
-                } catch(_) {}
                 const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
+                try {
+                    if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat && svgEl) {
+                        svgEl.setAttribute('data-dummy-card', 'true');
+                    }
+                } catch(_) {}
                 if (svgEl) {
                     try {
                         const origW = parseInt(svgEl.getAttribute('width') || '120', 10) || 120;
@@ -5537,6 +5635,26 @@ function pickAutoCardFor(seat) {
 }
 
 function playCardToTrick(seat, code) {
+    // Log play event and current hands for diagnostics
+    try {
+        const summarizeHands = () => {
+            const out = {};
+            ['N','E','S','W'].forEach(s => {
+                const h = currentHands?.[s];
+                if (!h || !h.suitBuckets) { out[s] = []; return; }
+                const list = [];
+                ['S','H','D','C'].forEach(su => {
+                    (h.suitBuckets[su] || []).forEach(c => list.push(c.rank + su));
+                });
+                out[s] = list;
+            });
+            return out;
+        };
+        const entry = `[BEFORE] ${new Date().toISOString()} seat=${seat} code=${code} next=${playState.nextSeat} trick=${JSON.stringify((playState.trick||[]).slice())} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
+        console.log('[PLAY-LOG]', entry);
+        try { playLog.push(entry); } catch (_) {}
+    } catch (_) {}
+
     // Record
     playState.trick.push({ seat, code });
     playState.played.add(code);
@@ -5582,12 +5700,45 @@ function playCardToTrick(seat, code) {
             }, 20);
         }
     }
+    // Remove the card from the underlying hand state for automated plays
+    try {
+        try { removeCodeFromHand(currentHands?.[seat], code); } catch(_) {}
+        // If the hand is currently rendered (e.g., dummy revealed), re-render it so the UI no longer shows the played card
+        try {
+            const containerIdMap = { N: 'playNorthHand', E: 'playEastHand', S: 'playSouthHand', W: 'playWestHand' };
+            const cid = containerIdMap[seat];
+            const el = cid ? document.getElementById(cid) : null;
+            if (el && el.childElementCount > 0) {
+                const clickable = (seat === 'N' || seat === 'S');
+                try { renderPlayHand(cid, seat, clickable); } catch(_) {}
+            }
+        } catch(_) {}
+    } catch (_) {}
     // If this is the first card of the hand (or of the trick), reveal dummy if not revealed yet
     if (!playState.dummyRevealed && playState.trick.length === 1 && playState.dummy) {
         revealDummy();
     }
     // Update remaining counts after a card is played
     try { computeRemainingCounts(); } catch(_) {}
+    // Log post-play snapshot so we can trace play sequence
+    try {
+        const summarizeHands = () => {
+            const out = {};
+            ['N','E','S','W'].forEach(s => {
+                const h = currentHands?.[s];
+                if (!h || !h.suitBuckets) { out[s] = []; return; }
+                const list = [];
+                ['S','H','D','C'].forEach(su => {
+                    (h.suitBuckets[su] || []).forEach(c => list.push(c.rank + su));
+                });
+                out[s] = list;
+            });
+            return out;
+        };
+        const entry = `[AFTER] ${new Date().toISOString()} seat=${seat} code=${code} trick=${JSON.stringify(playState.trick.slice())} next=${playState.nextSeat} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
+        console.log('[PLAY-LOG]', entry);
+        try { playLog.push(entry); } catch (_) {}
+    } catch (_) {}
     // If trick complete, evaluate winner and set up next trick
     if (playState.trick.length === 4) {
         // compute winner and then pause; user must click to continue to next trick
@@ -5642,6 +5793,76 @@ function computeRemainingCounts() {
         }
         playState.dummyEntryNeeds = Math.min(2, need);
     } catch (_) { playState.dummyEntryNeeds = 0; }
+}
+
+/**
+ * Download the collected play log as a text file.
+ */
+function downloadPlayLog() {
+    try {
+        const header = 'Play log generated by PT Bridge Engine\n';
+        const body = (Array.isArray(playLog) ? playLog.join('\n') : String(playLog));
+        const blob = new Blob([header, '\n', body], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        a.download = `play-log-${ts}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch(_) {} }, 2000);
+    } catch (e) {
+        console.warn('downloadPlayLog failed', e);
+    }
+}
+
+/**
+ * Download the auction history as a text file for review.
+ */
+function downloadAuctionLog() {
+    try {
+        // Prefer the captured console output for the Auction tab if available
+        const lines = [];
+        lines.push('Auction log generated by PT Bridge Engine');
+        lines.push('');
+        if (Array.isArray(auctionConsoleLog) && auctionConsoleLog.length > 0) {
+            lines.push('--- Console output (Auction tab) ---');
+            lines.push(...auctionConsoleLog);
+            lines.push('');
+        }
+
+        if (!Array.isArray(auctionHistory) || auctionHistory.length === 0) {
+            lines.push('[no auction entries recorded in auctionHistory]');
+        } else {
+            lines.push('--- Auction history entries ---');
+            auctionHistory.forEach((entry, idx) => {
+                try {
+                    const pos = entry.position || entry.seat || '??';
+                    const bid = entry.bid || {};
+                    const token = bid && bid.token ? bid.token : (bid && bid.isDouble ? 'X' : (bid && bid.isRedouble ? 'XX' : (bid === null ? 'PASS' : String(bid))));
+                    const seat = bid && bid.seat ? bid.seat : '';
+                    const conv = (bid && bid.conventionUsed) ? bid.conventionUsed : (entry.explanation || '');
+                    lines.push(`${idx + 1}. pos=${pos}${seat ? ' seat=' + seat : ''} token=${token} ${conv ? ' // ' + conv : ''}`);
+                } catch (e) {
+                    lines.push(`${idx + 1}. [unserializable entry] ${String(entry)}`);
+                }
+            });
+        }
+
+        const blob = new Blob([lines.join('\n')], { type: 'text/plain;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        const ts = new Date().toISOString().replace(/[:.]/g, '-');
+        a.download = `auction-log-${ts}.txt`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 2000);
+    } catch (e) {
+        console.warn('downloadAuctionLog failed', e);
+    }
 }
 
 function finishTrick() {
@@ -6035,13 +6256,8 @@ function returnCodeToHand(seat, code) {
                 // dummy hand, prefer `centerAsSuit: true` to avoid large rank glyphs
                 // overlapping the UI (the 'ghost letters').
                 const svgOpts = { width: 72, height: 108 };
-                try {
-                    const isDummySeat = (playState && playState.dummy === seat);
-                    const hasNonClickable = container.querySelector('.non-clickable') !== null;
-                    // If this container already contains non-clickable cards, or
-                    // the seat is a dummy (and not South), render center as suit.
-                    if (hasNonClickable || (isDummySeat && seat !== 'S')) svgOpts.centerAsSuit = true;
-                } catch (_) {}
+                // Do not force center-as-suit when returning cards to hands; keep
+                // returned cards visually consistent with North/South single-row rendering.
                 const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, svgOpts) : null;
                 if (svgEl) {
                     const button = wrapCardWithSeat(svgEl, code, seat);

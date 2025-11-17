@@ -127,6 +127,22 @@ h6 { font-size: 16px; }
 /* Loading indicator fade-out support */
 #loadingIndicator { transition: opacity 250ms ease; }
 #loadingIndicator.fade-out { opacity: 0; pointer-events: none; }
+/* Keep the loading indicator out of normal flow so hiding it doesn't
+   cause the page to shift. Position it near the header but fixed so
+   removing it will not reflow the document. Responsive fallback
+   returns it to normal flow on very small screens. */
+#loadingIndicator {
+    position: fixed;
+    top: 80px;
+    left: 50%;
+    transform: translateX(-50%);
+    z-index: 3000;
+    width: auto;
+    max-width: 90%;
+}
+@media (max-width: 480px) {
+    #loadingIndicator { position: static; transform: none; width: auto; }
+}
 
 /* Content Grid */
 .content-grid {
@@ -345,6 +361,9 @@ h6 { font-size: 16px; }
 .hand-suit { display: flex; align-items: center; margin: 2px 0; font-size: 1.0em; gap: 6px; }
 
 .suit-symbol { font-size: 1.15em; margin-right: 4px; padding: 2px; }
+
+/* Hide corner rank/suit glyphs for dummy-exposed cards to avoid 'ghost' letters */
+/* (removed previous dummy corner-hiding rule) */
 
 .stats-grid {
     display: grid;
@@ -1148,7 +1167,7 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 .play-topbar { display: flex; flex-direction: column; gap: 8px; align-items: center; text-align: center; }
 .play-contract { font-weight: 700; color: #2c3e50; font-size: 1.1rem; }
 .play-status { max-width: 680px; width: 100%; }
-.play-main { display: flex; flex-direction: column; gap: 18px; align-items: center; }
+.play-main { display: flex; flex-direction: column; gap: 18px; align-items: center; position: relative; }
 .play-board { display: grid; /* stable 3-column layout: side | center | side */
     grid-template-columns: 1fr minmax(320px, 520px) 1fr;
     grid-template-rows: auto minmax(220px, 1fr) auto;
@@ -1187,6 +1206,12 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 .card-button:hover { transform: translateY(-3px); box-shadow: 0 10px 18px rgba(0,0,0,0.12); border-color: #2563eb; }
 .card-button[disabled] { cursor: default; opacity: 0.6; transform: none; box-shadow: none; border-color: #d1d5db; }
 .card-svg { width: 180px; height: 270px; border-radius: 8px; box-shadow: 0 6px 14px rgba(0,0,0,0.10); background: #fff; }
+
+/* Hide the large center rank on dummy-exposed cards (removes 'ghost' letters)
+   but keep corner rank and suit glyphs visible. */
+.card-svg[data-dummy-card="true"] .center-rank {
+    visibility: hidden;
+}
 
 /* Ensure Play panel has a real layout box when active. This is scoped to
    the active Play tab only so it doesn't affect other panels. Kept small
@@ -1248,6 +1273,46 @@ a:hover { color: #ff6b6b; text-decoration: underline; }
 .trick-counts { display: flex; gap: 16px; font-weight: 600; color: #334155; justify-content: center; flex-wrap: wrap; }
 .play-result { font-weight: 700; color: #1f2937; text-align: center; }
 .play-controls { display: flex; flex-wrap: wrap; gap: 10px; justify-content: center; }
+/* Reposition the Play action buttons to the top-right of the Play panel
+   so they appear in the header area (as requested). Use absolute
+   positioning anchored to .play-main; fall back to normal flow on
+   narrow screens. */
+.play-main .play-controls {
+    position: absolute;
+    top: 8px;
+    right: 12px;
+    z-index: 4000;
+    justify-content: flex-end;
+}
+/* Position contract info and play metrics (result/score) into the top-right column
+   near the action buttons so the result summary appears in the boxed area shown
+   in the screenshot. Fall back to centered layout on small screens. */
+.play-main #playContractInfo {
+    position: absolute;
+    top: 8px;
+    right: 12px; /* align right edge with the control buttons (which are at right:12px) */
+    z-index: 4000;
+    text-align: right;
+    background: transparent;
+    width: auto;
+    max-width: calc(min(34vw, 360px));
+}
+.play-main .play-metrics {
+    position: absolute;
+    top: 56px; /* below the controls */
+    right: 12px; /* align right edge with the New Deal button */
+    align-items: flex-end;
+    text-align: right;
+    width: 320px;
+    max-width: calc(min(34vw, 360px));
+}
+@media (max-width: 800px) {
+    .play-main #playContractInfo { position: static; right: auto; text-align: center; }
+    .play-main .play-metrics { position: static; width: auto; text-align: center; align-items: center; }
+}
+@media (max-width: 800px) {
+    .play-main .play-controls { position: static; margin-top: 8px; justify-content: center; }
+}
 
 @media (max-width: 800px) {
     .card-button .card-svg { width: 64px; height: 96px; }

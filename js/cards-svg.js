@@ -40,6 +40,7 @@
     tl.setAttribute('font-weight', '700');
     tl.setAttribute('fill', color);
     tl.textContent = label;
+    tl.setAttribute('class', 'corner-rank');
     svg.appendChild(tl);
 
     // Optionally suppress the small corner suit glyphs (used for trick-area compact cards)
@@ -50,6 +51,7 @@
       tl2.setAttribute('font-size', '16');
       tl2.setAttribute('fill', color);
       tl2.textContent = SUIT_SYMBOL[suit] || '';
+      tl2.setAttribute('class', 'corner-suit');
       svg.appendChild(tl2);
     }
 
@@ -63,6 +65,7 @@
     br1.setAttribute('font-weight', '700');
     br1.setAttribute('fill', color);
     br1.textContent = label;
+    br1.setAttribute('class', 'corner-rank');
     br.appendChild(br1);
     if (!opts.noCornerSuit) {
       const br2 = document.createElementNS(svgNS, 'text');
@@ -71,6 +74,7 @@
       br2.setAttribute('font-size', '16');
       br2.setAttribute('fill', color);
       br2.textContent = SUIT_SYMBOL[suit] || '';
+      br2.setAttribute('class', 'corner-suit');
       br.appendChild(br2);
     }
     svg.appendChild(br);
@@ -98,6 +102,7 @@
         center.textContent = SUIT_SYMBOL[suit] || '';
       }
     }
+    center.setAttribute('class', 'center-rank');
     svg.appendChild(center);
 
     return svg;
