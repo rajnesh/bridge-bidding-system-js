@@ -3061,7 +3061,9 @@ class SAYCBiddingSystem extends BiddingSystem {
                     if (oppInterfered && onOpenersSide && hand.lengths[openedSuit] >= 3) {
                         const totalPoints = (hand.hcp || 0) + (hand.distributionPoints || 0);
                         // Baseline intended level by TP
-                        const intendedLevel = (totalPoints >= 10) ? 3 : 2;
+                        // Adjust: treat strong HCP hands on opener's side as invitation to 3-level
+                        // and very strong hands with a long trump as candidates to go straight to game.
+                        const intendedLevel = ((totalPoints >= 10) || (hand.hcp >= 13)) ? 3 : 2;
                         // Compute last contract to ensure legality
                         let lastContractTok = null;
                         for (let i = bids.length - 1; i >= 0; i--) {
@@ -3084,6 +3086,22 @@ class SAYCBiddingSystem extends BiddingSystem {
                         while (targetLevel <= 7 && !isHigherThan(targetLevel, openedSuit, lastContractTok)) {
                             targetLevel++;
                         }
+                        // Special-case: very strong opener values with long trump should consider bidding game
+                        // (e.g., opener 16+ HCP and 5+ trumps). This makes aggressive game invitations/jumps
+                        // more likely where the opener has extra distributional value.
+                        if ((hand.hcp || 0) >= 16 && (hand.lengths[openedSuit] || 0) >= 5) {
+                            // pick the lowest game-level that is legal (4M or higher)
+                            let gameLevel = 4;
+                            while (gameLevel <= 7 && !isHigherThan(gameLevel, openedSuit, lastContractTok)) {
+                                gameLevel++;
+                            }
+                            if (gameLevel <= 7) {
+                                const gb = new window.Bid(`${gameLevel}${openedSuit}`);
+                                gb.conventionUsed = `Competitive raise (game, by strong opener: ${gameLevel}${openedSuit})`;
+                                return gb;
+                            }
+                        }
+
                         if (targetLevel <= 7) {
                             const b = new window.Bid(`${targetLevel}${openedSuit}`);
                             const labelLevel = targetLevel; // reflect the actual level chosen
