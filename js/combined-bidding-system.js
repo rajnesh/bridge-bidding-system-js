@@ -552,10 +552,45 @@ class BiddingSystem {
                 }
             } catch (_) {}
 
-            // Cue-bid raise (limit+ raise of partner's suit) — UI heuristic (seat-agnostic but turn-aware)
+            // Cue-bid raise — prefer a forcing label when the action was a responder's cue-raise,
+            // otherwise keep the limit+ raise opener-rebid wording (used in some timing/parity cases).
             try {
                 const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
-                if (this._isCueBidRaise(auct || this.currentAuction, bidToken)) return "Cue Bid Raise (limit+ raise of partner's suit)";
+                if (this._isCueBidRaise(auct || this.currentAuction, bidToken)) {
+                    try {
+                        // Find last occurrence of this bid token in the auction to determine who bid it
+                        const bidsArr = (auct && auct.bids) ? auct.bids : [];
+                        let lastIdx = -1;
+                        for (let i = bidsArr.length - 1; i >= 0; i--) {
+                            const t = bidsArr[i]?.token || (bidsArr[i]?.isDouble ? 'X' : bidsArr[i]?.isRedouble ? 'XX' : 'PASS');
+                            if (t === bidToken) { lastIdx = i; break; }
+                        }
+                        if (lastIdx !== -1) {
+                            const openerIdx = (function(){
+                                for (let i = 0; i < bidsArr.length; i++) {
+                                    const t = bidsArr[i]?.token || (bidsArr[i]?.isDouble ? 'X' : bidsArr[i]?.isRedouble ? 'XX' : 'PASS');
+                                    if (t && t !== 'PASS' && t !== 'X' && t !== 'XX' && /^[1-3][CDHS]$/.test(t)) return i;
+                                }
+                                return -1;
+                            })();
+                            const bidderSeat = bidsArr[lastIdx]?.seat || null;
+                            const openerSeat = (openerIdx === -1) ? null : bidsArr[openerIdx]?.seat || null;
+                            // If bidder is on same side as opener but is not the opener seat, treat as responder cue-raise (forcing)
+                            if (bidderSeat && openerSeat && this._sameSideAs(bidderSeat, openerSeat) && bidderSeat !== openerSeat) {
+                                // If bidder is on same side as opener but not the opener seat,
+                                // ensure this is not simply a natural raise of the opener's suit.
+                                const targetSuit = (bidToken || '').slice(-1);
+                                const openerSuitLocal = (openerIdx === -1) ? null : (bidsArr[openerIdx]?.token || '').slice(-1) || null;
+                                if (openerSuitLocal && targetSuit === openerSuitLocal) {
+                                    // Natural raise of partner's suit (responder raise), not a cue-raise
+                                    return `${bidToken}: Natural raise of partner's suit`;
+                                }
+                                return 'Cue Bid Raise (forcing)';
+                            }
+                        }
+                    } catch (_) { /* best-effort; fall back to generic label */ }
+                    return "Cue Bid Raise (limit+ raise of partner's suit)";
+                }
             } catch (_) {}
 
             // Reopening Double (balancing)

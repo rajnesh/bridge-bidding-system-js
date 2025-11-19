@@ -239,6 +239,14 @@ h6 { font-size: 16px; }
     transform: none;
 }
 
+/* Disabled tab button styling */
+.tab-button[disabled], .tab-button:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+    filter: grayscale(0.3);
+}
+
 .special-bid-button {
     background: linear-gradient(135deg, #28a745 0%, #20c997 100%);
     color: white;
@@ -760,9 +768,11 @@ h6 { font-size: 16px; }
     clip-path: polygon(0 0, calc(100% - 16px) 0, 100% 50%, calc(100% - 16px) 100%, 0 100%);
     margin-right: 8px;
     z-index: 1;
-    /* Equal width based on longest tab (set via --tab-width in JS) */
-    width: var(--tab-width, auto);
-    flex: 0 0 var(--tab-width, auto);
+     /* Make tab buttons share available width so chevrons span the viewport
+         Use flexible items so they grow/shrink equally. Keep negative overlap
+         so chevrons interlock visually. */
+     width: auto;
+     flex: 1 1 0;
     white-space: nowrap;
     overflow: hidden;
     text-overflow: ellipsis;
@@ -772,7 +782,7 @@ h6 { font-size: 16px; }
     counter-increment: tabstep;
     content: counter(tabstep);
     position: absolute;
-    left: 8px;
+    left: 24px;
     top: 50%;
     transform: translateY(-50%);
     width: 18px;

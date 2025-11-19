@@ -36,7 +36,7 @@
     const tl = document.createElementNS(svgNS, 'text');
     tl.setAttribute('x', '8'); tl.setAttribute('y', '18');
     tl.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-    tl.setAttribute('font-size', '16');
+    tl.setAttribute('font-size', '20');
     tl.setAttribute('font-weight', '700');
     tl.setAttribute('fill', color);
     tl.textContent = label;
@@ -48,7 +48,7 @@
       const tl2 = document.createElementNS(svgNS, 'text');
       tl2.setAttribute('x', '8'); tl2.setAttribute('y', '36');
       tl2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-      tl2.setAttribute('font-size', '16');
+      tl2.setAttribute('font-size', '20');
       tl2.setAttribute('fill', color);
       tl2.textContent = SUIT_SYMBOL[suit] || '';
       tl2.setAttribute('class', 'corner-suit');
@@ -61,7 +61,7 @@
     const br1 = document.createElementNS(svgNS, 'text');
     br1.setAttribute('x', String(w-20)); br1.setAttribute('y', String(h-8-18));
     br1.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-    br1.setAttribute('font-size', '16');
+    br1.setAttribute('font-size', '20');
     br1.setAttribute('font-weight', '700');
     br1.setAttribute('fill', color);
     br1.textContent = label;
@@ -71,7 +71,7 @@
       const br2 = document.createElementNS(svgNS, 'text');
       br2.setAttribute('x', String(w-20)); br2.setAttribute('y', String(h-8));
       br2.setAttribute('font-family', 'system-ui, Segoe UI, Roboto, Helvetica, Arial, sans-serif');
-      br2.setAttribute('font-size', '16');
+      br2.setAttribute('font-size', '20');
       br2.setAttribute('fill', color);
       br2.textContent = SUIT_SYMBOL[suit] || '';
       br2.setAttribute('class', 'corner-suit');

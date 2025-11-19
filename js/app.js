@@ -917,6 +917,8 @@ function startNewAuction() {
         // Set vulnerability
         vulnerability.ns = vulSetting === 'ns' || vulSetting === 'both';
         vulnerability.ew = vulSetting === 'ew' || vulSetting === 'both';
+        // Ensure Play tab is disabled at the start of a new auction
+        try { updatePlayTabState(); } catch (_) {}
         
         // Initialize auction
         auctionHistory = [];
@@ -1522,6 +1524,35 @@ function makeSystemBid() {
             } catch (_) {}
         }
 
+    // Opportunistic opener-game rule: if we were going to PASS but partner just made
+    // a forcing cue-bid raise and we hold strong opener values, continue to an appropriate
+    // game-level contract instead of passing. This is a narrow, low-risk heuristic that
+    // fixes cases where clear combined strength and shown support should force game.
+    try {
+        if (!forcedBid && recommendedBid && (recommendedBid.token === 'PASS' || !recommendedBid.token)) {
+            // Find last non-pass auction entry in history
+            const lastNonPass = auctionHistory.slice().reverse().find(e => e.bid && e.bid.token && e.bid.token !== 'PASS');
+            if (lastNonPass) {
+                // Check that the last non-pass was by our partner
+                const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
+                if (lastNonPass.position === partnerSeat) {
+                    // Was it a cue-bid raise? Prefer to use the system's convention explanation when present
+                    const cueLabel = (lastNonPass.explanation || '').toLowerCase();
+                    const isCueRaise = /cue bid raise|cue bid \(forcing\)|cue bid of opponents' suit/i.test(lastNonPass.explanation || '') || isCueBidOfOpponentsSuit(currentTurn, lastNonPass.bid, auctionHistory);
+                    if (isCueRaise && (hand.hcp || 0) >= 17) {
+                        // Choose a game: prefer 4M if partner cue-raised a major; else 3NT fallback
+                        const partnerBidTok = lastNonPass.bid.token || '';
+                        const suit = partnerBidTok.replace(/^[1-7]/, '');
+                        let gameTok = '3NT';
+                        if (suit === 'H' || suit === 'S') gameTok = `4${suit}`;
+                        recommendedBid = new window.Bid(gameTok);
+                        explanation = 'Game: combined strength and shown support';
+                    }
+                }
+            }
+        }
+    } catch (e) { /* non-fatal heuristic */ }
+
     // Log after finalizing legality and explanation so console reflects what will be recorded
     console.log('Final recommended bid:', recommendedBid.token || 'PASS');
     console.log(`${currentTurn} making bid:`);
@@ -2003,6 +2034,9 @@ function endAuction() {
     } catch (e) {
         console.warn('Failed to repurpose Hint button:', e?.message || e);
     }
+
+    // Update Play tab state now that auction ended
+    try { updatePlayTabState(); } catch (_) {}
 
     // Do not auto-switch to Play; user will click the repurposed Hint button ("Play the Hand")
     // Keeping the transition manual per UX requirement.
@@ -4228,6 +4262,16 @@ function addPracticeIndicator(targetConvention) {
 
 // Tab switching functionality
 function switchTab(tabName) {
+    // Prevent entering Play tab unless auction has a playable contract
+    if (tabName === 'play') {
+        try {
+            const playBtn = document.getElementById('playTab');
+            if (playBtn && playBtn.disabled) {
+                // Play is disabled — silently ignore the click (no modal alert)
+                return; // do not switch
+            }
+        } catch (_) { /* ignore and proceed defensively */ }
+    }
     // Hide all tab panels
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.classList.remove('active');
@@ -4277,6 +4321,31 @@ function switchTab(tabName) {
     } catch (e) {
         console.warn('Failed to render Play tab:', e?.message || e);
     }
+}
+
+// Determine whether Play tab may be entered: auction complete and not all-pass
+function canEnterPlay() {
+    try {
+        if (!isAuctionComplete()) return false;
+        const last = getLastNonPassBid();
+        return !!last; // if null => all pass
+    } catch (_) { return false; }
+}
+
+// Update Play tab button enabled/disabled state according to auction outcome
+function updatePlayTabState() {
+    try {
+        const btn = document.getElementById('playTab');
+        if (!btn) return;
+        const ok = canEnterPlay();
+        btn.disabled = !ok;
+        if (!ok) {
+            btn.title = 'Disabled until auction completes with a contract';
+            btn.classList.remove('active');
+        } else {
+            btn.title = 'Play the completed contract';
+        }
+    } catch (_) { /* no-op */ }
 }
 
 // Debug helper: draw temporary overlays around play-area elements and log computed styles.
@@ -4444,6 +4513,8 @@ function showTab(tabId) {
 document.addEventListener('DOMContentLoaded', function() {
     // Add delay to ensure all scripts are loaded
     setTimeout(initializeSystem, 500);
+    // Ensure Play tab button state is correct on load
+    try { updatePlayTabState(); } catch (_) {}
     // Enhance bid buttons to color suit icons only on the buttons (not in the auction grid)
     try {
         enhanceBidButtonsSuitIcons();
@@ -4796,6 +4867,14 @@ try {
         // Ensure callable from tests and inline handlers
         window.renderPlayTab = renderPlayTab;
         window.goToPlay = function() {
+            try {
+                const btn = document.getElementById('playTab');
+                if (btn) {
+                    btn.disabled = false;
+                    btn.title = 'Play the completed contract';
+                    try { btn.focus(); } catch (_) {}
+                }
+            } catch (_) {}
             try { switchTab('play'); } catch (_) {}
             try { renderPlayTab(); } catch (_) {}
         };
@@ -4806,6 +4885,14 @@ try {
 try { window.renderPlayTab = renderPlayTab; } catch (_) {}
 try {
     window.goToPlay = function() {
+        try {
+            const btn = document.getElementById('playTab');
+            if (btn) {
+                btn.disabled = false;
+                btn.title = 'Play the completed contract';
+                try { btn.focus(); } catch (_) {}
+            }
+        } catch (_) {}
         try { switchTab('play'); } catch (_) {}
         try { renderPlayTab(); } catch (_) {}
     };
@@ -5188,6 +5275,11 @@ function autoPlayIfNeeded() {
 }
 
 function pickAutoCardFor(seat) {
+    try {
+        if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
+            try { console.log('[DEBUG] pickAutoCardFor start for', seat, 'playState=', JSON.stringify(playState||{})); } catch(_) {}
+        }
+    } catch(_) {}
     // --- Lookahead helpers (depth=2 simulation) ---
     const _rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
     function _seatSide(s) { return (['N','S'].includes(s) ? 'NS' : 'EW'); }
@@ -5545,10 +5637,9 @@ function pickAutoCardFor(seat) {
                     pick = arr.pop();
                 }
             } else {
-                // Default defender behavior: count signal (third-highest preferred)
-                if (arr.length >= 3) pick = arr.splice(2,1)[0];
-                else if (arr.length >= 2) pick = arr.splice(1,1)[0];
-                else pick = arr.shift();
+                // Default defender behavior: prefer smallest discard unless partner led and signaling is desired.
+                // Honors (third-highest/count signals) are only used when partner led and we intend to signal.
+                pick = arr.pop();
             }
         } else {
             // Declarer-side: play lowest (preserve winners)
@@ -5567,7 +5658,8 @@ function pickAutoCardFor(seat) {
             // Only ruff if we have fewer cards overall in non-trump suits
             const nonTrumpCount = suits.filter(s => s !== trump).reduce((acc, s) => acc + (suitMap[s]?.length || 0), 0);
             if (isDefender && nonTrumpCount <= 1) {
-                pick = suitMap[trump].shift();
+                // Prefer to ruff with a low trump (small spot) rather than a high honor
+                pick = suitMap[trump].pop();
             }
         }
 
@@ -5620,17 +5712,23 @@ function pickAutoCardFor(seat) {
                 if (ln > 0 && ln < shortestLen) { shortestLen = ln; shortest = s; }
             }
             if (shortest) {
-                pick = suitMap[shortest].shift();
+                // Prefer discarding small spot cards from the shortest suit
+                pick = suitMap[shortest].pop();
             } else {
-                // Fallback: any card (lowest available)
+                // Fallback: any card (prefer lowest available)
                 for (const s of suits) {
-                    if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].shift(); break; }
+                    if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].pop(); break; }
                 }
             }
         }
     }
     if (!pick) return null;
     // Remove from underlying hand bucket (already shifted from local map but update source)
+    try {
+        if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
+            try { console.log('[DEBUG] pickAutoCardFor pick=', pick, 'suitMap=', JSON.stringify(suitMap)); } catch(_) {}
+        }
+    } catch(_) {}
     removeCodeFromHand(hand, pick);
     return pick;
 }
