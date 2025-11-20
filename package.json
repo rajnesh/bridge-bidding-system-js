@@ -8,7 +8,8 @@
     "test:verbose": "jest --verbose",
     "test:coverage": "jest --coverage",
     "start": "npx http-server -p 8000 -o",
-    "serve": "python -m http.server 8000"
+    "serve": "python -m http.server 8000",
+    "gen-bidding-tree": "node scripts/generate_bidding_tree.js"
   },
   "keywords": [
     "bridge",
@@ -34,5 +35,9 @@
   "bugs": {
     "url": "https://github.com/rajnesh/bridge-bidding-system/issues"
   },
-  "homepage": "https://github.com/rajnesh/bridge-bidding-system#readme"
+  "homepage": "https://github.com/rajnesh/bridge-bidding-system#readme",
+  "dependencies": {
+    "@viz-js/lang-dot": "^1.0.5",
+    
+  }
 }

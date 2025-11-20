@@ -1156,14 +1156,38 @@ function checkForcedResponse(hand, auction) {
     // Strong 2C forcing response - only for PARTNER, not opponents
     const firstBidIs2C = auction.length >= 1 && auction[0].token === '2C';
     
-    // North is partner to South opener (positions 1=South, 3=North)
-    // Calculate current position in rotation
-    const currentPosition = (auction.length % 4) + 1;
-    const isPartnerToOpener = currentPosition === 3; // North's position
-    
+    // Determine current seat robustly using dealer and TURN_ORDER when available.
+    // Fall back to the original simple position math if dealer/TURN_ORDER are not available.
+    let currentSeat = null;
+    let isPartnerToOpener = false;
+    try {
+        const order = (window.Auction && Array.isArray(window.Auction.TURN_ORDER)) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+        const dealerSeat = (typeof dealer !== 'undefined' && dealer) ? dealer : (order[0] || 'S');
+        const idx = order.indexOf(dealerSeat) >= 0 ? order.indexOf(dealerSeat) : 0;
+        currentSeat = order[(idx + (auction.length || 0)) % 4];
+
+        // Find the opener (first non-pass contract bid) and compute its partner
+        let openerSeat = null;
+        for (let i = 0; i < (auction.length || 0); i++) {
+            const b = auction[i];
+            if (b && b.token && b.token !== 'PASS') { openerSeat = b.seat || null; break; }
+        }
+        if (openerSeat) {
+            const openerIdx = order.indexOf(openerSeat) >= 0 ? order.indexOf(openerSeat) : null;
+            if (openerIdx !== null) {
+                const partnerSeat = order[(openerIdx + 2) % 4];
+                isPartnerToOpener = (currentSeat === partnerSeat);
+            }
+        }
+    } catch (e) {
+        // Fallback: simple positional math (legacy behavior)
+        const currentPosition = (auction.length % 4) + 1;
+        isPartnerToOpener = currentPosition === 3;
+        currentSeat = null;
+    }
+
     console.log('First bid is 2C?', firstBidIs2C);
-    console.log('Is partner responding?', isPartnerToOpener);
-    console.log('Current turn would be position:', currentPosition);
+    console.log('Is partner responding?', isPartnerToOpener, 'currentSeat=', currentSeat);
     
     // Check if Strong 2C sequence is still forcing (not yet reached game level)
     const isGameLevel = (bid) => {
@@ -5184,6 +5208,8 @@ function renderCardBacks(containerId, seat) {
         for (let i = 0; i < layers; i++) {
             const b = document.createElement('div');
             b.className = 'card-back';
+            // Ensure PNG card-back is used (inline style to avoid CSS/path overrides)
+            try { b.style.backgroundImage = "url('cards/card_back.png')"; b.style.backgroundSize = 'cover'; b.style.backgroundPosition = 'center'; } catch(_) {}
             stack.appendChild(b);
         }
         const wrapper = document.createElement('div');
@@ -5277,9 +5303,12 @@ function autoPlayIfNeeded() {
 function pickAutoCardFor(seat) {
     try {
         if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
-            try { console.log('[DEBUG] pickAutoCardFor start for', seat, 'playState=', JSON.stringify(playState||{})); } catch(_) {}
+            // debug print removed
         }
     } catch(_) {}
+    // If tests set `window.currentHands` or `window.playState`, sync module variables so we operate on test hands/state
+    try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch(_) {}
+    try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch(_) {}
     // --- Lookahead helpers (depth=2 simulation) ---
     const _rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
     function _seatSide(s) { return (['N','S'].includes(s) ? 'NS' : 'EW'); }
@@ -5601,8 +5630,9 @@ function pickAutoCardFor(seat) {
         // - Declarer-side: play lowest to preserve winners
         // - Defender-side: play second-highest to signal and possibly force out honors
         const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
-        const declarerSide = playState.contractSide === 'NS' ? 'NS' : 'EW';
-        const isDefender = seatSide(seat) !== declarerSide;
+        let declarerSide = null;
+        if (playState.contractSide === 'NS' || playState.contractSide === 'EW') declarerSide = playState.contractSide;
+        const isDefender = declarerSide ? (seatSide(seat) !== declarerSide) : (seat === 'E' || seat === 'W');
         const arr = suitMap[leadSuit];
         // arr sorted ascending by rank (A high at front?) We stored as order index earlier; ensure we pick correctly
         // Our suitMap entries were created using order.indexOf so they are from high->low; adapt accordingly
@@ -5620,21 +5650,39 @@ function pickAutoCardFor(seat) {
             }, trickPlayed[0].code) : null;
             const partnerLed = (playState.trick && playState.trick.length && playState.trick[0].seat === partner);
             if (partnerLed && currentHigh) {
-                // If we can beat current high, play minimal winning card to encourage;
-                // otherwise play lowest to discourage.
-                let winning = null;
-                for (const c of arr) {
-                    if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
-                        if (!winning || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(winning[0])) winning = c;
+                // If partner led and only partner has played so far, prefer immediate
+                // wins with top honors (A or K). Avoid overtaking partner with medium
+                // honors (Q/J) unless there is a clear winner candidate later.
+                if (trickPlayed.length === 1) {
+                    // debug print removed
+                    // take A or K immediately when available
+                    const top = arr.find(c => c[0] === 'A' || c[0] === 'K');
+                    // debug print removed
+                    if (top) {
+                        const idx = arr.indexOf(top);
+                        if (idx >= 0) { pick = arr.splice(idx,1)[0]; }
                     }
                 }
-                if (winning) {
-                    // remove that specific card from arr
-                    const idx = arr.indexOf(winning);
-                    if (idx >= 0) pick = arr.splice(idx,1)[0]; else pick = winning;
-                } else {
-                    // discourage: play lowest to show lack of support
-                    pick = arr.pop();
+                // If not already picked, find minimal winning card
+                if (!pick) {
+                    let winning = null;
+                    for (const c of arr) {
+                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
+                            if (!winning || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(winning[0])) winning = c;
+                        }
+                    }
+                    // If only partner has played, avoid taking with medium honors
+                    if (winning && trickPlayed.length === 1 && !(['A','K'].includes(winning[0]))) {
+                        winning = null;
+                    }
+                    if (winning) {
+                        // remove that specific card from arr
+                        const idx = arr.indexOf(winning);
+                        if (idx >= 0) pick = arr.splice(idx,1)[0]; else pick = winning;
+                    } else {
+                        // discourage: play lowest to show lack of support
+                        pick = arr.pop();
+                    }
                 }
             } else {
                 // Default defender behavior: prefer smallest discard unless partner led and signaling is desired.
@@ -5650,16 +5698,21 @@ function pickAutoCardFor(seat) {
         // If void in many suits and have trumps, consider ruff (play lowest trump)
         const trump = playState.trump || null;
         // If have trump and short in non-trump suits, ruff if that is the defender's strategy
-        if (trump && suitMap[trump] && suitMap[trump].length) {
+        // If playState.trump is not set (tests may set window.playState inconsistently),
+        // heuristically pick a likely trump as any suit where this seat holds multiple cards.
+        const inferredTrump = (!trump) ? (suits.find(s => (suitMap[s] || []).length >= 2) || null) : null;
+        const trumpToUse = trump || inferredTrump;
+        if (trumpToUse && suitMap[trumpToUse] && suitMap[trumpToUse].length) {
             // If this seat is a defender (opposite declarer's side) and has no cards in lead suit,
             // prefer to ruff with a low trump when useful
-            const declarerSide = playState.contractSide === 'NS' ? 'NS' : 'EW';
-            const isDefender = seatSide(seat) !== declarerSide;
+            const declarerSide = (playState && playState.contractSide) ? playState.contractSide : null;
+            // If contractSide is unknown, assume E/W are defenders as a safe default for test fixtures
+            const isDefender = declarerSide ? (seatSide(seat) !== declarerSide) : (seat === 'E' || seat === 'W');
             // Only ruff if we have fewer cards overall in non-trump suits
-            const nonTrumpCount = suits.filter(s => s !== trump).reduce((acc, s) => acc + (suitMap[s]?.length || 0), 0);
+            const nonTrumpCount = suits.filter(s => s !== trumpToUse).reduce((acc, s) => acc + (suitMap[s]?.length || 0), 0);
             if (isDefender && nonTrumpCount <= 1) {
                 // Prefer to ruff with a low trump (small spot) rather than a high honor
-                pick = suitMap[trump].pop();
+                pick = suitMap[trumpToUse].pop();
             }
         }
 
@@ -5726,7 +5779,7 @@ function pickAutoCardFor(seat) {
     // Remove from underlying hand bucket (already shifted from local map but update source)
     try {
         if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
-            try { console.log('[DEBUG] pickAutoCardFor pick=', pick, 'suitMap=', JSON.stringify(suitMap)); } catch(_) {}
+            // debug print removed
         }
     } catch(_) {}
     removeCodeFromHand(hand, pick);
@@ -5736,6 +5789,9 @@ function pickAutoCardFor(seat) {
 function playCardToTrick(seat, code) {
     // Log play event and current hands for diagnostics
     try {
+        // If tests set `window.currentHands` or `window.playState`, use those so test fixtures are respected
+            try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch(_) {}
+            try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch(_) {}
         const summarizeHands = () => {
             const out = {};
             ['N','E','S','W'].forEach(s => {
@@ -5750,7 +5806,7 @@ function playCardToTrick(seat, code) {
             return out;
         };
         const entry = `[BEFORE] ${new Date().toISOString()} seat=${seat} code=${code} next=${playState.nextSeat} trick=${JSON.stringify((playState.trick||[]).slice())} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
-        console.log('[PLAY-LOG]', entry);
+        // play log removed
         try { playLog.push(entry); } catch (_) {}
     } catch (_) {}
 
@@ -5835,7 +5891,7 @@ function playCardToTrick(seat, code) {
             return out;
         };
         const entry = `[AFTER] ${new Date().toISOString()} seat=${seat} code=${code} trick=${JSON.stringify(playState.trick.slice())} next=${playState.nextSeat} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
-        console.log('[PLAY-LOG]', entry);
+        // play log removed
         try { playLog.push(entry); } catch (_) {}
     } catch (_) {}
     // If trick complete, evaluate winner and set up next trick

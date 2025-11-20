@@ -756,7 +756,7 @@ h6 { font-size: 16px; }
 .tab-nav { display: flex; gap: 0; margin-bottom: 4px; border-bottom: none; align-items: stretch; overflow-x: auto; overflow-y: hidden; position: relative; counter-reset: tabstep; padding-bottom: 0; }
 .tab-button {
     position: relative;
-    padding: 6px 24px 6px 32px; /* reduce vertical padding to lower tab height */
+    padding: 8px 24px 8px 32px; /* reduce vertical padding to lower tab height */
     border: none;
     background: linear-gradient(135deg, #eaf4ff 0%, #d7ebff 100%);
     color: #1e6bb8;

@@ -26,6 +26,7 @@ describe('Responder after opener 2NT rebid prefers 3NT with only 5-card major', 
     // Example: S:KQJ32 H:A32 D:K32 C:Q2 (~14 HCP, 5-3-3-2)
     const north = makeHandFromPattern('KQJ32', 'A32', 'K32', 'Q2');
 
+    console.log('TEST-DBG ctx before getBid =', system._seatContext());
     const bid = system.getBid(north);
     expect(bid && bid.token).toBe('3NT');
     // Also ensure explanation is set in conventionUsed for UI clarity
