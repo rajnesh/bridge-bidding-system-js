@@ -72,6 +72,7 @@ class BiddingSystem {
 
         getExplanationFor(bid, auctionLike) {
         try {
+            try { console.log('[DEBUG-_handleInterference] entering Michaels-advancer check, bids=', auction.bids.length); } catch(_) {}
             const bidToken = bid?.token || null;
             const suitName = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
             const isSuit = /^[1-7][CDHS]$/.test(bidToken || '');
@@ -747,6 +748,49 @@ class BiddingSystem {
     try { console.log('[DEBUG-getBid] enter, bids=', (this.currentAuction && Array.isArray(this.currentAuction.bids)) ? this.currentAuction.bids.length : 0); } catch(_) {}
 
         
+        // Special-case: if opponents made a 2-level conventional overcall (Michaels)
+        // and the advancer has since doubled (Negative Double), the partner of the
+        // overcaller should respond (ask) even if their HCP are low. Detect that
+        // pattern early and return a 2NT ask from the partner-of-overcaller.
+        try {
+            const auct = this.currentAuction;
+            if (auct && Array.isArray(auct.bids) && auct.bids.length >= 3) {
+                // Find the opening contract (first non-pass contract) so we can detect
+                // a 2-level cue-bid that matches the opener's suit (Michaels style)
+                let openingToken = null;
+                for (let i = 0; i < auct.bids.length; i++) {
+                    const t = auct.bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { openingToken = t; break; }
+                }
+                let twoIdx = -1;
+                try { console.log('[DEBUG-_handleInterference] openingToken=', openingToken, 'tokens=', auct.bids.map(b=>b && b.token)); } catch(_) {}
+                for (let i = auct.bids.length - 1; i >= 0; i--) {
+                    const b = auct.bids[i];
+                    if (!b || !b.token) continue;
+                    if (/^[2][CDHS]$/.test(b.token) && openingToken && openingToken[0] === '1' && b.token[1] === openingToken[1]) { twoIdx = i; break; }
+                }
+                if (twoIdx !== -1) {
+                    const advDoubleRel = auct.bids.slice(twoIdx + 1).findIndex(x => x && x.isDouble);
+                    if (advDoubleRel !== -1) {
+                        const advIdx = twoIdx + 1 + advDoubleRel;
+                        const overBid = auct.bids[twoIdx];
+                        const advBid = auct.bids[advIdx];
+                        const order = (window.Auction && window.Auction.TURN_ORDER) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+                        const dealer = auct.dealer || null;
+                        const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + auct.bids.length) % 4] : null;
+                        const overSeat = overBid?.seat || null;
+                        const advSeat = advBid?.seat || null;
+                        if (overSeat && advSeat && currentSeat && !this._sameSideAs(overSeat, advSeat) && this._sameSideAs(currentSeat, overSeat) && currentSeat !== overSeat) {
+                            try { console.log('[DEBUG-MIC-ASK] twoIdx=', twoIdx, 'advIdx=', advIdx, 'overSeat=', overSeat, 'advSeat=', advSeat, 'currentSeat=', currentSeat); } catch(_) {}
+                            const ask = new window.Bid('2NT');
+                            ask.conventionUsed = 'Michaels Ask (advancer showed support)';
+                            return ask;
+                        }
+                    }
+                }
+            }
+        } catch (_) { /* ignore */ }
+
 
         // Opening bid
         if (this._isOpeningBid()) {
@@ -2329,6 +2373,7 @@ class SAYCBiddingSystem extends BiddingSystem {
      * Handle opponent's interference according to SAYC guidelines (complete implementation).
      */
     _handleInterference(auction, hand) {
+        try { console.log('[DEBUG-_handleInterference] enter, bids=', (auction && Array.isArray(auction.bids)) ? auction.bids.length : 0); } catch(_) {}
         // debug removed: targeted failing-scenario trace suppressed
         if (!auction.bids || auction.bids.length === 0) return null;
 
@@ -2373,6 +2418,45 @@ class SAYCBiddingSystem extends BiddingSystem {
                 }
             }
         } catch (_) {}
+
+            // If opponents made a 2-level conventional overcall (Michaels) and the advancer
+            // has since doubled, require partner-of-overcaller to reply with 2NT ask.
+            try {
+                const auct = auction;
+                if (auct && Array.isArray(auct.bids) && auct.bids.length >= 3) {
+                    // Use the first non-pass contract (the opening) rather than the
+                    // auction's lastContract(), which may be a later overcall. Relying
+                    // on the opening ensures we correctly recognise a 2-level cue-bid
+                    // that refers back to the original 1-level opener's suit.
+                    const firstContract = (auct.bids || []).find(b => b && b.token && /^[1-7](C|D|H|S|NT)$/.test(b.token))?.token || null;
+                    let twoIdx = -1;
+                    for (let i = auct.bids.length - 1; i >= 0; i--) {
+                        const b = auct.bids[i];
+                        if (!b || !b.token) continue;
+                        if (/^[2][CDHS]$/.test(b.token) && firstContract && firstContract[0] === '1' && b.token[1] === firstContract[1]) { twoIdx = i; break; }
+                    }
+                    if (twoIdx !== -1) {
+                        const advDoubleRel = auct.bids.slice(twoIdx + 1).findIndex(x => x && x.isDouble);
+                        try { console.log('[DEBUG-_handleInterference] twoIdx=', twoIdx, 'advDoubleRel=', advDoubleRel); } catch(_) {}
+                        if (advDoubleRel !== -1) {
+                            const advIdx = twoIdx + 1 + advDoubleRel;
+                            const overBid = auct.bids[twoIdx];
+                            const advBid = auct.bids[advIdx];
+                            const order = (window.Auction && window.Auction.TURN_ORDER) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+                            const dealer = auct.dealer || null;
+                            const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + auct.bids.length) % 4] : null;
+                            const overSeat = overBid?.seat || null;
+                            const advSeat = advBid?.seat || null;
+                            try { console.log('[DEBUG-_handleInterference] overSeat=', overSeat, 'advSeat=', advSeat, 'currentSeat=', currentSeat); } catch(_) {}
+                            if (overSeat && advSeat && currentSeat && !this._sameSideAs(overSeat, advSeat) && this._sameSideAs(currentSeat, overSeat) && currentSeat !== overSeat) {
+                                const ask = new window.Bid('2NT');
+                                ask.conventionUsed = 'Michaels Ask (advancer showed support)';
+                                return ask;
+                            }
+                        }
+                    }
+                }
+            } catch (_) { /* ignore */ }
 
             // Natural overcall vs Weak Two opener: if opponents opened a Weak Two (2H/2S/2D)
             // and we are the immediate next to act (direct overcall seat), prefer a natural
@@ -3170,6 +3254,58 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
             }
         }
+
+        // If opponents made a two-suited conventional overcall (e.g., Michaels)
+        // and the advancer has shown support via a Double (Negative Double),
+        // require partner-of-overcaller to respond with an asking 2NT when
+        // it's their turn. This ensures the advancer's double gets clarified
+        // even when partner has low HCP and would otherwise pass.
+        try {
+            // Find the last 2-level overcall that looks like a Michaels-style cue (2{theirSuit})
+            // We detect a candidate when the bid is a 2-level suit and the opening contract
+            // was at the 1-level in some suit; this mirrors the earlier Michaels detection logic
+            // used elsewhere in the engine but avoids relying on config-sensitive helpers.
+            let twoIdx = -1;
+            try {
+                // Locate the auction's opening (first non-pass contract) rather than
+                // relying on lastContract() which may reflect a later overcall.
+                const firstContract = (auction.bids || []).find(b => b && b.token && /^[1-7](C|D|H|S|NT)$/.test(b.token))?.token || null;
+                for (let i = auction.bids.length - 1; i >= 0; i--) {
+                    const b = auction.bids[i];
+                    if (!b || !b.token) continue;
+                    if (/^[2][CDHS]$/.test(b.token) && firstContract && firstContract[0] === '1' && b.token[1] === firstContract[1]) {
+                        twoIdx = i; break;
+                    }
+                }
+            } catch (_) { twoIdx = -1; }
+
+            if (twoIdx !== -1) {
+                // Did advancer double after the two-suit overcall?
+                const advancerDoubleIdx = auction.bids.slice(twoIdx + 1).findIndex(x => x && x.isDouble);
+                if (advancerDoubleIdx !== -1) {
+                    const realAdvIdx = twoIdx + 1 + advancerDoubleIdx;
+                    const advDouble = auction.bids[realAdvIdx];
+                    const overBid = auction.bids[twoIdx];
+
+                    // Determine current seat (actor) robustly using dealer/turn order
+                    const order = (window.Auction && window.Auction.TURN_ORDER) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+                    const dealer = auction.dealer || null;
+                    const currentSeat = (dealer && order.includes(dealer)) ? order[(order.indexOf(dealer) + auction.bids.length) % 4] : null;
+
+                    const overSeat = overBid?.seat || null;
+                    const advSeat = advDouble?.seat || null;
+
+                    // Only act when: advancer was by opponents of the overcaller, and
+                    // the current actor is the partner of the overcaller (i.e., should reply)
+                    if (overSeat && advSeat && currentSeat && !this._sameSideAs(overSeat, advSeat) && this._sameSideAs(currentSeat, overSeat) && currentSeat !== overSeat) {
+                        // Return a conventional asking bid 2NT to force clarification
+                        const ask = new window.Bid('2NT');
+                        ask.conventionUsed = 'Michaels Ask (advancer showed support)';
+                        return ask;
+                    }
+                }
+            }
+        } catch (_) { /* non-fatal; continue */ }
 
         // Responder natural NT and cue-bid values after opponents overcall our 1-level suit opening
         // Pattern: (We open 1x) – (They overcall at 1–2 level in a suit, not NT) – (? we, as responder)
