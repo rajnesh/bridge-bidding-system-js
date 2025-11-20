@@ -1818,8 +1818,36 @@ function getRecommendedBid() {
     if (!explanation) explanation = 'Standard bid';
     // suppressed noisy diagnostics in UI/tests
 
-        // Handle null token (which means Pass)
+        // Handle null token (which means Pass). If token is null (engine didn't
+        // find a path and is effectively forced to pass), attempt to use the
+        // trained model as a fallback. This is non-blocking: the UI will be
+        // updated when the prediction resolves. The model integration is
+        // defensive — if TF or the files are unavailable, nothing changes.
         const bidDisplay = recommendedBid.token || 'PASS';
+        if ((recommendedBid.token === null || recommendedBid.token === undefined) && !forcedBid) {
+            // Kick off async model prediction; update the UI when available.
+            predictBidFromModel(currentHands.S, system.currentAuction).then(predTok => {
+                if (!predTok) return; // no prediction available
+                try {
+                    // Clear convention explanation per your request so you can
+                    // later inspect why engine couldn't find a path.
+                    const modelBidDisplay = predTok;
+                    const modelExplanation = '';
+                    // Update legacy panel if present
+                    const panelBid = document.getElementById('recommendedBidDisplay');
+                    const panelReason = document.getElementById('recommendationReason');
+                    const panelWrap = document.getElementById('recommendationResult');
+                    if (panelBid && panelReason && panelWrap) {
+                        panelBid.innerHTML = `<span class="bid-level">${modelBidDisplay}</span>`;
+                        panelReason.textContent = modelExplanation;
+                        panelWrap.style.display = 'block';
+                    } else {
+                        // Update inline hint
+                        try { showInlineHintChip(modelBidDisplay, modelExplanation); } catch(_) {}
+                    }
+                } catch (_) { /* ignore UI update failures */ }
+            }).catch(()=>{/* ignore prediction errors */});
+        }
 
         // Display recommendation if the legacy panel exists; otherwise show an inline hint near the status
         const panelBid = document.getElementById('recommendedBidDisplay');
@@ -1894,6 +1922,99 @@ function createDeck() {
     });
     
     return deck;
+}
+
+/**
+ * Predict a fallback bid using the trained model in `models/bid_model.json`.
+ * Returns a Promise that resolves to a bid token (e.g., '1H','2NT','PASS') or
+ * null if prediction is unavailable. This helper is defensive: it will try to
+ * use an available TensorFlow runtime (browser `tf` or Node `@tensorflow/tfjs-node`).
+ */
+async function predictBidFromModel(hand, auction) {
+    try {
+        // Load tokens mapping
+        let tokens = null;
+        try {
+            // Try synchronous require for Node/CommonJS tests
+            const path = require('path');
+            const fs = require('fs');
+            const tokPath = path.join(process.cwd(), 'models', 'bid_tokens.json');
+            if (fs.existsSync(tokPath)) tokens = JSON.parse(fs.readFileSync(tokPath, 'utf8'));
+        } catch (e) {
+            // Browser/env fallback: fetch if available
+            try {
+                const resp = await fetch('/models/bid_tokens.json');
+                if (resp && resp.ok) tokens = await resp.json();
+            } catch (_) { tokens = null; }
+        }
+
+        if (!tokens || !Array.isArray(tokens)) return null;
+
+        // Try to obtain a TensorFlow runtime
+        let tf = null;
+        if (typeof window !== 'undefined' && window.tf) tf = window.tf;
+        else {
+            try {
+                // Try Node.js TF if available
+                tf = require('@tensorflow/tfjs-node');
+            } catch (_) {
+                try { tf = require('@tensorflow/tfjs'); } catch (_) { tf = null; }
+            }
+        }
+        if (!tf || typeof tf.loadLayersModel !== 'function') return null;
+
+        // Load the model. In Node, use file:// path; in browser try absolute path.
+        let model = null;
+        try {
+            if (typeof window !== 'undefined' && window.location && !window.location.protocol.startsWith('file')) {
+                model = await tf.loadLayersModel('/models/bid_model.json');
+            } else {
+                // Node environment: load from filesystem
+                const modelPath = 'file://' + (require('path').join(process.cwd(), 'models', 'bid_model.json'));
+                model = await tf.loadLayersModel(modelPath);
+            }
+        } catch (e) {
+            return null;
+        }
+
+        // Prepare input vector. The exact encoder used during training may vary;
+        // if an application-specific encoder exists (window.encodeHandAndAuction), use it.
+        let inputVec = null;
+        try {
+            if (typeof window !== 'undefined' && typeof window.encodeHandAndAuction === 'function') {
+                inputVec = window.encodeHandAndAuction(hand, auction);
+            } else if (typeof encodeHandAndAuction === 'function') {
+                inputVec = encodeHandAndAuction(hand, auction);
+            }
+        } catch (_) { inputVec = null; }
+
+        // Fallback: create a zero-vector with expected size if we can't encode.
+        // The model used during training has input shape 181; if different, try to
+        // adapt gracefully by inspecting model.input.shape.
+        let inputShape = 181;
+        try { if (model && model.inputs && model.inputs[0] && model.inputs[0].shape) inputShape = model.inputs[0].shape[1] || inputShape; } catch(_) {}
+        if (!inputVec || !Array.isArray(inputVec) || inputVec.length !== inputShape) {
+            inputVec = new Array(inputShape).fill(0);
+        }
+
+        // Run prediction
+        let tensor = tf.tensor([inputVec], [1, inputVec.length], 'float32');
+        let out = model.predict(tensor);
+        // Normalize output handling both tensor and array-like returns
+        let probs = null;
+        if (Array.isArray(out)) out = out[0];
+        if (out && typeof out.data === 'function') probs = await out.data();
+        else if (Array.isArray(out)) probs = out;
+        if (!probs) return null;
+
+        // Pick argmax
+        let maxIdx = 0; let maxV = -Infinity;
+        for (let i = 0; i < probs.length; i++) { if (probs[i] > maxV) { maxV = probs[i]; maxIdx = i; } }
+        const predToken = tokens[maxIdx] || null;
+        return predToken;
+    } catch (err) {
+        return null;
+    }
 }
 
 function shuffleDeck(deck) {
