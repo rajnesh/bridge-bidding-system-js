@@ -4,8 +4,8 @@
  */
 
 // Import the new model handlers
-import { loadModel as loadBiddingModel, getModelBid } from '../model.js';
-import { loadPlayModel, getModelPlay } from '../play_model.js';
+import { loadModel as loadBiddingModel, getModelBid } from './model.js';
+import { loadPlayModel, getModelPlay } from './play_model.js';
 
 // Minimum confidence required to accept a model fallback bid
 const MODEL_CONFIDENCE_THRESHOLD = 0.35;
