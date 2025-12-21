@@ -3,13 +3,20 @@
  * Enhanced version with hand generation, auction management, and automated bidding.
  */
 
+// Import the new model handlers
+import { loadModel as loadBiddingModel, getModelBid } from '../model.js';
+import { loadPlayModel, getModelPlay } from '../play_model.js';
+
+// Minimum confidence required to accept a model fallback bid
+const MODEL_CONFIDENCE_THRESHOLD = 0.35;
+
 let system = null;
 let systemReady = false;
 let generationMode = 'random';
 // Global state used across the UI (restored to avoid ReferenceErrors at runtime)
 let currentHands = { N: null, E: null, S: null, W: null };
 // Expose and keep a reference on window for jsdom/tests and cross-script access
-try { if (typeof window !== 'undefined') { window.currentHands = currentHands; } } catch (_) {}
+try { if (typeof window !== 'undefined') { window.currentHands = currentHands; } } catch (_) { }
 // Initialize auction state with safe defaults for tests and UI
 let auctionActive = false;
 let auctionHistory = [];
@@ -37,15 +44,15 @@ function startAuctionConsoleCapture() {
                     try { return (typeof a === 'string') ? a : (JSON.stringify(a)); } catch (_) { return String(a); }
                 }).join(' ');
                 auctionConsoleLog.push(`${ts} [${level.toUpperCase()}] ${text}`);
-            } catch (_) {}
+            } catch (_) { }
         };
-        console.log = function(...args) { pushMessage('log', args); __originalConsole.log.apply(console, args); };
-        console.info = function(...args) { pushMessage('info', args); __originalConsole.info.apply(console, args); };
-        console.warn = function(...args) { pushMessage('warn', args); __originalConsole.warn.apply(console, args); };
-        console.error = function(...args) { pushMessage('error', args); __originalConsole.error.apply(console, args); };
-        console.debug = function(...args) { pushMessage('debug', args); __originalConsole.debug.apply(console, args); };
+        console.log = function (...args) { pushMessage('log', args); __originalConsole.log.apply(console, args); };
+        console.info = function (...args) { pushMessage('info', args); __originalConsole.info.apply(console, args); };
+        console.warn = function (...args) { pushMessage('warn', args); __originalConsole.warn.apply(console, args); };
+        console.error = function (...args) { pushMessage('error', args); __originalConsole.error.apply(console, args); };
+        console.debug = function (...args) { pushMessage('debug', args); __originalConsole.debug.apply(console, args); };
     } catch (e) {
-        try { __originalConsole?.warn('startAuctionConsoleCapture failed', e); } catch(_) {}
+        try { __originalConsole?.warn('startAuctionConsoleCapture failed', e); } catch (_) { }
     }
 }
 
@@ -59,7 +66,7 @@ function stopAuctionConsoleCapture() {
         console.debug = __originalConsole.debug;
         __originalConsole = null;
     } catch (e) {
-        try { console.warn('stopAuctionConsoleCapture failed', e); } catch(_) {}
+        try { console.warn('stopAuctionConsoleCapture failed', e); } catch (_) { }
     }
 }
 // Vulnerability defaults: None (ns=false, ew=false)
@@ -76,7 +83,7 @@ let selectedPracticeConventions = {}; // map categoryKey -> selected convention 
 function initializeSystem() {
     try {
         // Render General Settings immediately so static notes are visible without waiting
-        try { createGeneralSettingsSection(); } catch (_) {}
+        try { createGeneralSettingsSection(); } catch (_) { }
 
         // Ensure engine is loaded; if not yet available, retry shortly
         if (!window || typeof window.SAYCBiddingSystem !== 'function') {
@@ -94,34 +101,47 @@ function initializeSystem() {
         // Build conventions UI and apply any persisted settings
         (async () => {
             try {
+                // --- Load the new AI models ---
+                console.log("Initializing AI models...");
+                try {
+                    // The paths point to the directories where your converted models will be.
+                    await loadBiddingModel('./models/bid_rl_model/model.json', './bid_tokens.json');
+                    await loadPlayModel('./models/play_rl_model/model.json');
+                    console.log("All AI models initialized successfully.");
+                } catch (error) {
+                    console.error("Failed to initialize AI models:", error);
+                    // Display an error to the user in the UI.
+                }
+                // --- End model loading ---
+
                 await initializeConventionUI();
                 // Apply persisted General Settings to engine config if present
                 try {
                     const gs = loadPersistedGeneralSettings();
                     if (gs) applyGeneralSettingsToConfig(gs);
-                } catch (_) {}
+                } catch (_) { }
                 // Persist a snapshot after initialization to keep store current
-                try { saveGeneralSettings(); } catch (_) {}
-                try { saveEnabledConventions(); } catch (_) {}
+                try { saveGeneralSettings(); } catch (_) { }
+                try { saveEnabledConventions(); } catch (_) { }
             } catch (e) {
                 console.warn('Convention UI initialization failed (continuing):', e?.message || e);
             }
         })();
 
         // Set default dealer/vulnerability overlays once controls are present
-        try { updateTableOverlays(); } catch (e) {}
+        try { updateTableOverlays(); } catch (e) { }
         // Hide the Hint button by default so it does not appear next to Start Auction
         try {
             const hb = document.getElementById('hintBtn');
             if (hb) hb.style.display = 'none';
-        } catch (_) {}
+        } catch (_) { }
         // Keep overlays in sync when user changes Dealer/Vulnerability dropdowns
         try {
             const dealerSel = document.getElementById('dealer');
             const vulnSel = document.getElementById('vulnerability');
-            if (dealerSel) dealerSel.addEventListener('change', () => { try { updateTableOverlays(); } catch(_) {} });
-            if (vulnSel) vulnSel.addEventListener('change', () => { try { updateTableOverlays(); } catch(_) {} });
-        } catch (_) {}
+            if (dealerSel) dealerSel.addEventListener('change', () => { try { updateTableOverlays(); } catch (_) { } });
+            if (vulnSel) vulnSel.addEventListener('change', () => { try { updateTableOverlays(); } catch (_) { } });
+        } catch (_) { }
 
         // Generate an initial random deal and show auction setup
         try {
@@ -130,15 +150,15 @@ function initializeSystem() {
             displayHands();
             showAuctionSetup();
             // Ensure generation toolbar reflects default mode
-            try { setGenerationMode('random'); } catch (_) {}
+            try { setGenerationMode('random'); } catch (_) { }
             // Hide loading indicator now that the UI is ready (fade-out then remove)
             try {
                 const li = document.getElementById('loadingIndicator');
                 if (li) {
                     li.classList.add('fade-out');
-                    setTimeout(() => { try { li.style.display = 'none'; } catch(_) {} }, 280);
+                    setTimeout(() => { try { li.style.display = 'none'; } catch (_) { } }, 280);
                 }
-            } catch (_) {}
+            } catch (_) { }
             // Attach Download Log button handler if present
             try {
                 const dl = document.getElementById('playDownloadLogBtn');
@@ -147,7 +167,7 @@ function initializeSystem() {
                         try { downloadPlayLog(); } catch (e) { console.warn('downloadPlayLog failed', e); }
                     });
                 }
-            } catch (_) {}
+            } catch (_) { }
             // Attach Auction download button handler if present
             try {
                 const ad = document.getElementById('auctionDownloadBtn');
@@ -156,7 +176,7 @@ function initializeSystem() {
                         try { downloadAuctionLog(); } catch (e) { console.warn('downloadAuctionLog failed', e); }
                     });
                 }
-            } catch (_) {}
+            } catch (_) { }
         } catch (e) {
             console.warn('Initial deal generation failed:', e?.message || e);
         }
@@ -172,17 +192,17 @@ try {
         // Test-only hooks to manipulate internal state safely in jsdom
         try {
             Object.defineProperty(window, '__setCurrentTurnForTests', {
-                value: function(seat) { currentTurn = seat; },
+                value: function (seat) { currentTurn = seat; },
                 writable: false,
                 enumerable: false
             });
             Object.defineProperty(window, '__getAuctionHistoryForTests', {
-                value: function() { return Array.isArray(auctionHistory) ? auctionHistory.slice() : []; },
+                value: function () { return Array.isArray(auctionHistory) ? auctionHistory.slice() : []; },
                 writable: false,
                 enumerable: false
             });
             Object.defineProperty(window, '__getCurrentAuctionForTests', {
-                value: function() { return Array.isArray(currentAuction) ? currentAuction.slice() : []; },
+                value: function () { return Array.isArray(currentAuction) ? currentAuction.slice() : []; },
                 writable: false,
                 enumerable: false
             });
@@ -201,42 +221,42 @@ function generateFromManualHands() {
         try {
             const cc = document.getElementById('cardCount');
             if (cc) cc.textContent = `Cards: ${totalCards}/13`;
-        } catch (_) {}
+        } catch (_) { }
         if (totalCards !== 13) {
             showError(`Hand must have exactly 13 cards. Current: ${totalCards}`);
             return;
         }
-        
+
         // Validate the suit inputs (check for errors)
         console.log('Running validation...');
         validateSuitInput(); // This will update the UI and show any errors
-        
+
         // Check if there are any validation errors displayed
         const errorDiv = document.getElementById('handValidationError');
         if (errorDiv.textContent.trim() !== '') {
             showError('Please fix the errors in your hand entry: ' + errorDiv.textContent);
             return;
         }
-        
+
         console.log('Validation passed, continuing...');
-        
+
         // Create the hand string for South in the format "spades hearts diamonds clubs"
         // Each suit must be represented, use empty string for void suits
         const suitStrings = [
             spades || '',
-            hearts || '', 
+            hearts || '',
             diamonds || '',
             clubs || ''
         ];
         const southHandString = suitStrings.join(' ');
         console.log('South hand string:', southHandString);
-        
+
         // Create South's hand
         console.log('Creating South hand with string:', southHandString);
         const southHand = new window.Hand(southHandString);
         console.log('South hand created:', southHand);
         currentHands['S'] = southHand;
-        
+
         // Track used cards from South's hand
         const usedCards = [];
         ['S', 'H', 'D', 'C'].forEach(suit => {
@@ -247,38 +267,38 @@ function generateFromManualHands() {
                 });
             }
         });
-        
+
         console.log('South hand created, used cards:', usedCards.length, usedCards);
-        
+
         // Generate remaining hands randomly for North, East, West
         const deck = createDeck();
         const availableCards = deck.filter(deckCard => {
             return !usedCards.includes(deckCard);
         });
-        
+
         shuffleDeck(availableCards);
-        
+
         // Generate North, East, West hands
         const positions = ['N', 'E', 'W'];
         let cardIndex = 0;
-        
+
         positions.forEach(pos => {
             const handCards = availableCards.slice(cardIndex, cardIndex + 13);
             currentHands[pos] = new window.Hand(convertCardsToHandString(handCards));
             cardIndex += 13;
         });
-        
+
         console.log('All hands generated successfully');
         console.log('Current hands:', currentHands);
-        
+
         console.log('Calling displayHands()...');
         displayHands();
-    console.log('Calling showAuctionSetup()...');
-    showAuctionSetup();
-    // Auto-switch to Auction tab after generating from manual input
-    try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
+        console.log('Calling showAuctionSetup()...');
+        showAuctionSetup();
+        // Auto-switch to Auction tab after generating from manual input
+        try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         console.log('Manual hand generation completed');
-        
+
     } catch (error) {
         console.error('Error in generateFromManualHands:', error);
         showError('Error generating hands: ' + error.message);
@@ -287,7 +307,7 @@ function generateFromManualHands() {
 
 function generateWithConstraints() {
     console.log('generateWithConstraints called');
-    
+
     try {
         // Cancel any in-progress auction before creating a new deal
         resetAuctionForNewDeal();
@@ -298,44 +318,44 @@ function generateWithConstraints() {
             showError('System not ready. Please wait for initialization to complete.');
             return;
         }
-        
+
         // Get constraint values from the UI
         const constraints = getConstraints();
         console.log('Constraints:', constraints);
-        
+
         // This is a simplified version - full constraint handling would be complex
         // For now, generate random hands and check if they approximately match constraints
         let attempts = 0;
         let success = false;
-        
+
         while (attempts < 100 && !success) {
             // Generate basic random hands without calling generateRandomHands to avoid recursion
             const deck = createDeck();
             shuffleDeck(deck);
-            
+
             // Convert deck cards to suit-separated format for Hand constructor
             currentHands.N = new window.Hand(convertCardsToHandString(deck.slice(0, 13)));
             currentHands.E = new window.Hand(convertCardsToHandString(deck.slice(13, 26)));
             currentHands.S = new window.Hand(convertCardsToHandString(deck.slice(26, 39)));
             currentHands.W = new window.Hand(convertCardsToHandString(deck.slice(39, 52)));
-            
+
             // Check if hands roughly match constraints
             success = checkConstraints(constraints);
             attempts++;
         }
-        
+
         if (!success) {
             alert('Could not generate hands matching constraints after 100 attempts. Try looser constraints.');
             console.log('Failed to match constraints after 100 attempts');
         } else {
             console.log(`Successfully generated hands with constraints in ${attempts} attempts`);
         }
-        
-    displayHands();
-    showAuctionSetup();
-    // Auto-switch to Auction tab after constrained generation
-    try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-        
+
+        displayHands();
+        showAuctionSetup();
+        // Auto-switch to Auction tab after constrained generation
+        try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
+
     } catch (error) {
         console.error('Error generating with constraints:', error);
         showError('Error generating with constraints: ' + error.message);
@@ -352,7 +372,7 @@ function setGenerationMode(mode) {
         generationMode = mode;
         const manual = document.getElementById('manualMode');
         const constraint = document.getElementById('constraintMode');
-    const genBtn = document.getElementById('generateBtn'); // Generate Random Hands
+        const genBtn = document.getElementById('generateBtn'); // Generate Random Hands
 
         if (manual) manual.style.display = (mode === 'manual') ? 'block' : 'none';
         if (constraint) constraint.style.display = (mode === 'constraints') ? 'block' : 'none';
@@ -373,11 +393,11 @@ function setGenerationMode(mode) {
                 const cc = document.getElementById('cardCount');
                 if (err) err.textContent = '';
                 if (cc) cc.textContent = 'Cards: 0/13';
-                ['spadesInput','heartsInput','diamondsInput','clubsInput'].forEach(id => {
+                ['spadesInput', 'heartsInput', 'diamondsInput', 'clubsInput'].forEach(id => {
                     const el = document.getElementById(id);
                     if (el && el.classList) el.classList.remove('is-invalid');
                 });
-            } catch (_) {}
+            } catch (_) { }
         }
     } catch (e) {
         console.warn('setGenerationMode failed:', e?.message || e);
@@ -388,7 +408,7 @@ function getConstraints() {
     // Read constraint values from the UI inputs
     const positions = ['north', 'east', 'south', 'west'];
     const constraints = {};
-    
+
     positions.forEach(position => {
         constraints[position] = {
             hcp: { min: getInputValue(`${position}HcpMin`), max: getInputValue(`${position}HcpMax`) },
@@ -398,7 +418,7 @@ function getConstraints() {
             clubs: { min: getInputValue(`${position}ClubsMin`), max: getInputValue(`${position}ClubsMax`) }
         };
     });
-    
+
     return constraints;
 }
 
@@ -419,9 +439,9 @@ function showError(message) {
             el.className = 'alert alert-danger';
             return;
         }
-    } catch (_) {}
+    } catch (_) { }
     // Fallback
-    try { alert(message); } catch (_) {}
+    try { alert(message); } catch (_) { }
 }
 
 // Validate manual hand entry for South (inputs: southSpades/Hearts/Diamonds/Clubs)
@@ -441,14 +461,14 @@ function validateSuitInput() {
     // Allow '-' to denote voids; remove them for validation length counting
     Object.keys(values).forEach(k => { values[k] = values[k].replace(/-/g, ''); });
 
-    const validRanks = new Set(['A','K','Q','J','T','9','8','7','6','5','4','3','2']);
+    const validRanks = new Set(['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2']);
     const errors = [];
 
     // Clear previous input error styling
     inputs.forEach(el => el.classList && el.classList.remove('is-invalid'));
 
     // Per-suit validation: only valid ranks, no duplicates within a suit
-    const suitOrder = ['S','H','D','C'];
+    const suitOrder = ['S', 'H', 'D', 'C'];
     suitOrder.forEach(suit => {
         const txt = values[suit] || '';
         const seen = new Set();
@@ -470,7 +490,7 @@ function validateSuitInput() {
     try {
         const cc = document.getElementById('cardCount');
         if (cc) cc.textContent = `Cards: ${total}/13`;
-    } catch (_) {}
+    } catch (_) { }
     if (total !== 13) {
         errors.push(`Hand must have exactly 13 cards. Current: ${total}.`);
         // Mark all inputs softly since count spans suits
@@ -493,14 +513,14 @@ function validateSuitInput() {
 function checkConstraints(constraints) {
     const positions = ['north', 'east', 'south', 'west'];
     const hands = [currentHands.N, currentHands.E, currentHands.S, currentHands.W];
-    
+
     for (let i = 0; i < positions.length; i++) {
         const position = positions[i];
         const hand = hands[i];
         const constraint = constraints[position];
-        
+
         if (!hand) continue;
-        
+
         // Check HCP constraint
         if (constraint.hcp.min !== null && hand.hcp < constraint.hcp.min) {
             return false;
@@ -508,11 +528,11 @@ function checkConstraints(constraints) {
         if (constraint.hcp.max !== null && hand.hcp > constraint.hcp.max) {
             return false;
         }
-        
+
         // Check suit length constraints
         const suits = ['spades', 'hearts', 'diamonds', 'clubs'];
         const suitCodes = ['S', 'H', 'D', 'C'];
-        
+
         for (let j = 0; j < suits.length; j++) {
             const suitLength = hand.lengths[suitCodes[j]];
             if (constraint[suits[j]].min !== null && suitLength < constraint[suits[j]].min) {
@@ -523,20 +543,20 @@ function checkConstraints(constraints) {
             }
         }
     }
-    
+
     return true;
 }
 
 // Hand Display Functions
 function toggleHandVisibility(mode) {
     handVisibility = mode;
-    
+
     // Update button states
     document.getElementById('southOnlyBtn').classList.toggle('btn-light', mode === 'south');
     document.getElementById('southOnlyBtn').classList.toggle('btn-outline-light', mode !== 'south');
     document.getElementById('allHandsBtn').classList.toggle('btn-light', mode === 'all');
     document.getElementById('allHandsBtn').classList.toggle('btn-outline-light', mode !== 'all');
-    
+
     // Show/hide hands - South hand is always visible
     const showAll = mode === 'all';
     document.getElementById('southHand').style.display = 'block'; // Always show South
@@ -551,7 +571,7 @@ function toggleOtherHands() {
     otherHandsVisible = !otherHandsVisible;
     const toggleBtn = document.getElementById('toggleHandsBtn');
     const handsGrid = document.querySelector('.hands-grid');
-    
+
     if (otherHandsVisible) {
         // Show all hands
         document.getElementById('northHand').style.display = 'block';
@@ -572,20 +592,20 @@ function toggleOtherHands() {
 function displayHands() {
     console.log('displayHands called');
     console.log('currentHands.S:', currentHands.S);
-    
+
     if (!currentHands.S) {
         console.error('No South hand to display');
         return;
     }
-    
+
     console.log('Displaying all hands...');
-    
+
     // Display all hands
     displaySingleHand('north', currentHands.N);
     displaySingleHand('east', currentHands.E);
     displaySingleHand('south', currentHands.S);
     displaySingleHand('west', currentHands.W);
-    
+
     // Show game layout
     const gameLayout = document.getElementById('gameLayout');
     if (gameLayout) {
@@ -610,70 +630,70 @@ function displayHands() {
     } catch (cleanupErr) {
         console.warn('Could not clear previous auction end state:', cleanupErr?.message || cleanupErr);
     }
-    
+
     // On a new deal, ensure dealer/vulnerability controls are unlocked even if a prior auction was active
-    try { setDealerVulnerabilityDisabled(false); } catch (e) {}
+    try { setDealerVulnerabilityDisabled(false); } catch (e) { }
 
     // Show start auction button
     const startAuctionBtn = document.getElementById('startAuctionBtn');
     if (startAuctionBtn) {
         startAuctionBtn.style.display = 'inline-block';
     }
-    
+
     // Set initial visibility based on General Settings preference (default: show all)
-    const persistedGS = (function(){ try { return loadPersistedGeneralSettings(); } catch(_) { return null; } })();
+    const persistedGS = (function () { try { return loadPersistedGeneralSettings(); } catch (_) { return null; } })();
     const showAllByDefault = (persistedGS && typeof persistedGS.show_all_hands_by_default === 'boolean') ? persistedGS.show_all_hands_by_default : true;
     otherHandsVisible = !!showAllByDefault;
     // South is always visible
     document.getElementById('southHand').style.display = 'block';
     document.getElementById('northHand').style.display = otherHandsVisible ? 'block' : 'none';
-    document.getElementById('eastHand').style.display  = otherHandsVisible ? 'block' : 'none';
-    document.getElementById('westHand').style.display  = otherHandsVisible ? 'block' : 'none';
+    document.getElementById('eastHand').style.display = otherHandsVisible ? 'block' : 'none';
+    document.getElementById('westHand').style.display = otherHandsVisible ? 'block' : 'none';
     // Toggle layout class to avoid overlay overlapping when only South is shown
     try {
         const handsGrid = document.querySelector('.hands-grid');
         if (handsGrid) {
             handsGrid.classList.toggle('solo-south', !otherHandsVisible);
         }
-    } catch (_) {}
+    } catch (_) { }
 
     const toggleBtn = document.getElementById('toggleHandsBtn');
     if (toggleBtn) {
         toggleBtn.textContent = otherHandsVisible ? 'Hide Other Hands' : 'Show Other Hands';
     }
-    
+
     // Update center overlay badges based on current selects
-    try { updateTableOverlays(); } catch (e) {}
+    try { updateTableOverlays(); } catch (e) { }
 
     // Before any auction starts, keep bid pad disabled by default
-    try { setAllBidButtonsDisabled(true); } catch (_) {}
+    try { setAllBidButtonsDisabled(true); } catch (_) { }
 
     console.log('displayHands completed');
 }
 
 function displaySingleHand(position, hand) {
     console.log(`displaySingleHand called for ${position}`, hand);
-    
+
     if (!hand) {
         console.error(`No hand provided for ${position}`);
         return;
     }
-    
+
     const contentElement = document.getElementById(`${position}HandContent`);
     if (!contentElement) {
         console.error(`Content element for ${position} not found`);
         return;
     }
-    
+
     // Build the hand display HTML
     const suitSymbols = { 'S': '♠', 'H': '♥', 'D': '♦', 'C': '♣' };
     const suitColors = { 'S': '#000', 'H': '#d63031', 'D': '#d63031', 'C': '#000' };
-    
+
     let handHTML = '';
     ['S', 'H', 'D', 'C'].forEach(suitCode => {
-        const cards = hand.suitBuckets[suitCode] ? 
+        const cards = hand.suitBuckets[suitCode] ?
             hand.suitBuckets[suitCode].map(card => card.rank).join(' ') : '-';
-        
+
         handHTML += `
             <div class="hand-suit">
                 <span class="suit-symbol" style="color: ${suitColors[suitCode]}">${suitSymbols[suitCode]}</span>
@@ -681,7 +701,7 @@ function displaySingleHand(position, hand) {
             </div>
         `;
     });
-    
+
     // Calculate distribution points according to General Settings preference
     let distPoints = 0;
     try {
@@ -695,10 +715,10 @@ function displaySingleHand(position, hand) {
     } catch (_) {
         distPoints = calculateShortnessPoints(hand);
     }
-    
+
     // Add HCP and DP display
     handHTML += `<div style="margin-top: 10px; font-size: 0.9em; color: #3498db;">HCP: ${hand.hcp} | DP: ${distPoints}</div>`;
-    
+
     contentElement.innerHTML = handHTML;
     console.log(`Displayed hand for ${position} with ${hand.hcp} HCP and ${distPoints} DP`);
 }
@@ -707,13 +727,13 @@ function calculateLengthPoints(hand) {
     // Calculate length points: 1 point for 5th card, 2 for 6th, etc.
     let distPoints = 0;
     const lengths = [hand.lengths.S, hand.lengths.H, hand.lengths.D, hand.lengths.C];
-    
+
     lengths.forEach(length => {
         if (length >= 5) {
             distPoints += (length - 4); // 1 point for 5th card, 2 for 6th, etc.
         }
     });
-    
+
     return distPoints;
 }
 
@@ -753,7 +773,7 @@ function resetAuctionForNewDeal() {
             if (system && typeof system === 'object') {
                 if (system.currentAuction) system.currentAuction = null;
             }
-        } catch (_) {}
+        } catch (_) { }
 
         // UI cleanup
         const biddingInterface = document.getElementById('biddingInterface');
@@ -771,17 +791,17 @@ function resetAuctionForNewDeal() {
             auctionStatus.className = 'alert alert-info';
         }
 
-    const startAuctionBtn = document.getElementById('startAuctionBtn');
-    if (startAuctionBtn) startAuctionBtn.style.display = 'inline-block';
+        const startAuctionBtn = document.getElementById('startAuctionBtn');
+        if (startAuctionBtn) startAuctionBtn.style.display = 'inline-block';
 
         // Remove any prior "auction ended" banner rows, if still present
         try {
             const auctionGrid = document.querySelector('.auction-grid');
             if (auctionGrid) auctionGrid.querySelectorAll('.auction-result').forEach(el => el.remove());
-        } catch (_) {}
+        } catch (_) { }
 
         // Ensure controls are enabled so user can adjust before next auction
-        try { setDealerVulnerabilityDisabled(false); } catch (_) {}
+        try { setDealerVulnerabilityDisabled(false); } catch (_) { }
 
         // Restore Hint button default state (red, invokes recommendation) but keep it hidden until auction starts
         try {
@@ -794,10 +814,17 @@ function resetAuctionForNewDeal() {
                 // Keep hidden pre-auction so it does not appear next to Start Auction
                 hintBtn.style.display = 'none';
             }
-        } catch (_) {}
+        } catch (_) { }
     } catch (e) {
         console.warn('resetAuctionForNewDeal encountered an issue:', e?.message || e);
     }
+}
+
+// Wrapper used by inline handlers to fully reset the auction state
+function resetAuction() {
+    try { stopAuctionConsoleCapture(); } catch (_) { }
+    try { resetAuctionForNewDeal(); } catch (e) { console.warn('resetAuction failed:', e?.message || e); }
+    try { updatePlayTabState(); } catch (_) { }
 }
 
 // Enable/disable Dealer and Vulnerability controls during an active auction
@@ -827,11 +854,11 @@ function showAuctionSetup() {
 
 function startAuction() {
     console.log('startAuction called');
-    
+
     // Force switch to Practice Bids tab
     showTab('practice-bids');
     console.log('Switched to Practice Bids tab');
-    
+
     // Ensure any previous "Auction Ended" indicators are cleared before starting
     try {
         const auctionGrid = document.querySelector('.auction-grid');
@@ -850,7 +877,7 @@ function startAuction() {
     } else {
         console.error('auctionContent element not found');
     }
-    
+
     // Immediately show bidding interface if dealer is South
     const dealerSelEl = document.getElementById('dealer');
     const dealerVal = (dealerSelEl && dealerSelEl.value) ? dealerSelEl.value : 'S';
@@ -862,13 +889,13 @@ function startAuction() {
             console.log('Pre-showed bidding interface for South dealer');
         }
     }
-    
+
     // Hide start auction button
     const startAuctionBtn = document.getElementById('startAuctionBtn');
     if (startAuctionBtn) {
         startAuctionBtn.style.display = 'none';
     }
-    
+
     // Update auction status to show the auction has started
     const auctionStatus = document.getElementById('auctionStatus');
     if (auctionStatus) {
@@ -877,7 +904,7 @@ function startAuction() {
     } else {
         console.error('auctionStatus element not found');
     }
-    
+
     // Call the existing auction initialization
     startNewAuction();
 }
@@ -888,7 +915,7 @@ function startNewAuction() {
             alert('Please generate hands first');
             return;
         }
-        
+
         // Clear prior UI remnants so a restart begins cleanly
         try {
             const auctionBids = document.getElementById('auctionBids');
@@ -897,7 +924,7 @@ function startNewAuction() {
             if (explanationsList) explanationsList.innerHTML = '';
             const auctionGrid = document.querySelector('.auction-grid');
             if (auctionGrid) auctionGrid.querySelectorAll('.auction-result').forEach(el => el.remove());
-        } catch (_) {}
+        } catch (_) { }
 
         // Get dealer and vulnerability settings (default to South/None if unset)
         const dealerEl = document.getElementById('dealer');
@@ -906,33 +933,33 @@ function startNewAuction() {
         try {
             if (dealerEl && !dealerEl.value) dealerEl.value = dealer;
             updateTableOverlays();
-        } catch (_) {}
+        } catch (_) { }
         const vulnEl = document.getElementById('vulnerability');
         const vulSetting = (vulnEl && vulnEl.value) ? vulnEl.value : 'none';
         try {
             if (vulnEl && !vulnEl.value) vulnEl.value = 'none';
             updateTableOverlays();
-        } catch (_) {}
-        
+        } catch (_) { }
+
         // Set vulnerability
         vulnerability.ns = vulSetting === 'ns' || vulSetting === 'both';
         vulnerability.ew = vulSetting === 'ew' || vulSetting === 'both';
         // Ensure Play tab is disabled at the start of a new auction
-        try { updatePlayTabState(); } catch (_) {}
-        
+        try { updatePlayTabState(); } catch (_) { }
+
         // Initialize auction
         auctionHistory = [];
         currentAuction = [];
         auctionActive = true;
         // Start capturing console output for Auction tab
-        try { startAuctionConsoleCapture(); } catch (_) {}
-    // Lock Dealer/Vulnerability controls while auction is active
-    setDealerVulnerabilityDisabled(true);
-        
+        try { startAuctionConsoleCapture(); } catch (_) { }
+        // Lock Dealer/Vulnerability controls while auction is active
+        setDealerVulnerabilityDisabled(true);
+
         // Initialize bidding system for this auction (human is always South)
         if (typeof system.startAuctionWithDealer !== 'function') {
             // Shim helper: start auction and set dealer rotation
-            system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
+            system.startAuctionWithDealer = function (ourSeat, dealerSeat, vulNS, vulEW) {
                 this.startAuction(ourSeat, /*we*/ vulNS, /*they*/ vulEW);
                 if (this.currentAuction && typeof this.currentAuction.reseat === 'function') {
                     this.currentAuction.reseat(dealerSeat);
@@ -941,13 +968,13 @@ function startNewAuction() {
                 }
             };
         }
-    system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
-        
+        system.startAuctionWithDealer('S', dealer, vulnerability.ns, vulnerability.ew);
+
         // Update auction table headers to show dealer first
         updateAuctionHeaders();
-        
-    // Determine starting position (first to bid is the dealer)
-    currentTurn = dealer;
+
+        // Determine starting position (first to bid is the dealer)
+        currentTurn = dealer;
 
         // Ensure Hint button is in Hint mode at auction start
         try {
@@ -958,15 +985,15 @@ function startNewAuction() {
                 hintBtn.classList.add('danger');
                 hintBtn.setAttribute('onclick', 'getRecommendedBid()');
             }
-        } catch (_) {}
-        
+        } catch (_) { }
+
         // Update UI
         updateAuctionTable();
         updateAuctionStatus();
-        
+
         // Start bidding sequence
         processTurn();
-        
+
     } catch (error) {
         console.error('Error starting auction:', error);
         showError('Error starting auction: ' + error.message);
@@ -975,44 +1002,44 @@ function startNewAuction() {
 
 function processTurn() {
     if (!auctionActive) return;
-    
+
     console.log(`processTurn called: currentTurn = ${currentTurn}`);
-    
+
     // Check if auction should end before processing turn
     if (isAuctionComplete()) {
         console.log('Auction is complete at start of processTurn, ending...');
         endAuction();
         return;
     }
-    
+
     if (currentTurn === 'S') {
         // Player's turn
         console.log('Showing bidding interface for South');
-        
+
         // Check parent container first
         const auctionContent = document.getElementById('auctionContent');
         console.log('auctionContent element:', auctionContent);
         console.log('auctionContent display:', auctionContent ? auctionContent.style.display : 'not found');
-        
+
         const biddingInterface = document.getElementById('biddingInterface');
         console.log('biddingInterface element:', biddingInterface);
         console.log('biddingInterface display:', biddingInterface ? biddingInterface.style.display : 'not found');
-        
+
         // Ensure parent is visible
         if (auctionContent) {
             auctionContent.style.display = 'block';
             console.log('Ensured auctionContent is visible');
         }
-        
+
         if (biddingInterface) {
             biddingInterface.style.display = 'block';
             console.log('Bidding interface displayed');
         } else {
             console.error('Bidding interface element not found');
         }
-    // Re-enable appropriate buttons for user's turn
-    updateBidButtons();
-        
+        // Re-enable appropriate buttons for user's turn
+        updateBidButtons();
+
         // Debug: Check if buttons are enabled
         const bidButtons = document.querySelectorAll('.bid-button');
         console.log('Bid buttons found:', bidButtons.length);
@@ -1029,7 +1056,7 @@ function processTurn() {
             biddingInterface.style.display = 'none';
         }
         // Disable all bid buttons while it's not the user's turn
-        try { setAllBidButtonsDisabled(true); } catch (_) {}
+        try { setAllBidButtonsDisabled(true); } catch (_) { }
         setTimeout(() => makeSystemBid(), 1000); // Delay for realism
     }
 }
@@ -1038,7 +1065,7 @@ function isPartnerResponse(auctionLength) {
     // Determine if the current bid is from partner or opponent
     // Auction positions: 1=South, 2=West, 3=North, 4=East (if South deals)
     // Partners: South-North (1,3), West-East (2,4)
-    
+
     if (auctionLength === 1) {
         // Second bid - if South opened, this should be West (opponent)
         // If West opened, this should be North (opponent)
@@ -1051,7 +1078,7 @@ function isPartnerResponse(auctionLength) {
         // Fourth bid - if South opened, this should be East (opponent) 
         return false; // Position 4 (East) is opponent to South
     }
-    
+
     // For longer auctions, use modulo to determine partnership
     // Positions 1,3,5,7... are South/North partnership
     // Positions 2,4,6,8... are West/East partnership
@@ -1060,21 +1087,44 @@ function isPartnerResponse(auctionLength) {
 }
 
 function getConventionExplanation(bid, auction) {
+    let explanation = 'Your bid';
+
+    // Prefer the engine's explanation when available
     try {
         if (system && typeof system.getExplanationFor === 'function') {
-            // Delegate to engine central explanation to avoid UI/engine drift
-            return system.getExplanationFor(bid, { bids: auction });
+            explanation = system.getExplanationFor(bid, { bids: auction });
         }
-    } catch (_) {}
-    return 'Your bid';
+    } catch (_) { /* fall back to local reasoning */ }
+
+    // Guard against mislabeling simple raises (e.g., 2H after partner's 1H) as cue bids
+    try {
+        const token = bid?.token || '';
+        const suit = token.replace(/^[1-7]/, '');
+        if (/^[1-7][CDHS]$/.test(token)) {
+            // Human sits South; partner is North (still compute generically for safety)
+            const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
+            const partnerLastContract = (auctionHistory || []).slice().reverse().find(entry => {
+                const tok = entry?.bid?.token || 'PASS';
+                return entry?.position === partnerSeat && tok !== 'PASS' && tok !== 'X' && tok !== 'XX';
+            });
+            const partnerSuit = partnerLastContract ? (partnerLastContract.bid.token || '').replace(/^[1-7]/, '') : '';
+            if (partnerSuit && partnerSuit === suit) {
+                const suitNames = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' };
+                explanation = `Raise to ${token} in partner's ${suitNames[suit] || suit}`;
+            }
+        }
+    } catch (_) { /* best-effort protection against cue-raise mislabels */ }
+
+    return explanation || 'Your bid';
 }
 
 function makeBid(bidString) {
     try {
         if (currentTurn !== 'S') return;
-        
+
         const bid = new window.Bid(bidString);
-        
+        if (!bid.seat) bid.seat = currentTurn;
+
         // Check if this bid uses a convention
         let explanation = 'Your bid';
         if (bid.conventionUsed) {
@@ -1083,26 +1133,26 @@ function makeBid(bidString) {
             // Check for known conventions based on the bid and auction context
             explanation = getConventionExplanation(bid, currentAuction);
         }
-        
+
         auctionHistory.push({
             position: 'S',
             bid: bid,
             explanation: explanation
         });
-        
+
         currentAuction.push(bid);
         addBidExplanation('S', bid, explanation);
-        
+
         // Move to next turn
         advanceTurn();
         updateAuctionTable();
         updateAuctionStatus();
-        
+
         // Check if auction is over
         console.log('Human bid - checking if auction is complete...');
         console.log('Current auction length:', currentAuction.length);
         console.log('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
-        
+
         if (isAuctionComplete()) {
             console.log('Auction is complete after human bid, ending...');
             endAuction();
@@ -1110,7 +1160,7 @@ function makeBid(bidString) {
             console.log('Auction continues after human bid...');
             processTurn();
         }
-        
+
     } catch (error) {
         console.error('Error making bid:', error);
         alert('Error making bid: ' + error.message);
@@ -1119,7 +1169,7 @@ function makeBid(bidString) {
 
 function isHigherBid(newBid, lastBid) {
     if (!lastBid) return true;
-    
+
     // Some test stubs may not populate level/suit on Bid objects; derive from token when missing
     const parseParts = (b) => {
         const tok = (typeof b === 'string') ? b : (b?.token || '');
@@ -1137,7 +1187,7 @@ function isHigherBid(newBid, lastBid) {
     // Compare levels first
     if (nbLevel > lbLevel) return true;
     if (nbLevel < lbLevel) return false;
-    
+
     // Same level - compare suits (C=0, D=1, H=2, S=3, NT=4)
     const suitOrder = { 'C': 0, 'D': 1, 'H': 2, 'S': 3, 'NT': 4 };
     return (suitOrder[nbSuit] || 0) > (suitOrder[lbSuit] || 0);
@@ -1152,16 +1202,16 @@ function checkForcedResponse(hand, auction) {
     // Be robust when conventions API is stubbed in tests (isEnabled may be undefined)
     const strong2cOn = !!(system?.conventions?.isEnabled?.('strong_2_clubs', 'opening_bids'));
     console.log('Strong 2C enabled:', strong2cOn);
-    
+
     // Strong 2C forcing response - only for PARTNER, not opponents
     const firstBidIs2C = auction.length >= 1 && auction[0].token === '2C';
-    
+
     // Determine current seat robustly using dealer and TURN_ORDER when available.
     // Fall back to the original simple position math if dealer/TURN_ORDER are not available.
     let currentSeat = null;
     let isPartnerToOpener = false;
     try {
-        const order = (window.Auction && Array.isArray(window.Auction.TURN_ORDER)) ? window.Auction.TURN_ORDER : ['N','E','S','W'];
+        const order = (window.Auction && Array.isArray(window.Auction.TURN_ORDER)) ? window.Auction.TURN_ORDER : ['N', 'E', 'S', 'W'];
         const dealerSeat = (typeof dealer !== 'undefined' && dealer) ? dealer : (order[0] || 'S');
         const idx = order.indexOf(dealerSeat) >= 0 ? order.indexOf(dealerSeat) : 0;
         currentSeat = order[(idx + (auction.length || 0)) % 4];
@@ -1188,7 +1238,7 @@ function checkForcedResponse(hand, auction) {
 
     console.log('First bid is 2C?', firstBidIs2C);
     console.log('Is partner responding?', isPartnerToOpener, 'currentSeat=', currentSeat);
-    
+
     // Check if Strong 2C sequence is still forcing (not yet reached game level)
     const isGameLevel = (bid) => {
         if (!bid || !bid.token) return false;
@@ -1196,22 +1246,22 @@ function checkForcedResponse(hand, auction) {
         // Game level bids: 3NT, 4C, 4D, 4H, 4S, 5C, 5D, 6+ level, 7+ level
         return /^[4-7]/.test(token) || token === '3NT';
     };
-    
+
     const hasReachedGame = auction.some(bid => isGameLevel(bid));
-    
+
     // Respect Active Conventions toggle for Strong 2C
     const strongTwoClubsEnabled = strong2cOn;
     console.log('Strong 2C enabled (effective):', strongTwoClubsEnabled);
     console.log('Has reached game level?', hasReachedGame);
-    
+
     if (firstBidIs2C && isPartnerToOpener && strongTwoClubsEnabled && !hasReachedGame) {
         console.log('Strong 2C sequence - FORCING response required (must continue to game)');
-        
+
         // Must respond - cannot pass until game is reached
         console.log('Hand HCP:', hand.hcp);
         console.log('Hand distribution:', hand.lengths);
         console.log('Current auction:', auction.map(b => b.token));
-        
+
         // Find the last non-pass bid to determine auction state
         let lastBid = null;
         for (let i = auction.length - 1; i >= 0; i--) {
@@ -1220,12 +1270,12 @@ function checkForcedResponse(hand, auction) {
                 break;
             }
         }
-        
+
         console.log('Last non-pass bid:', lastBid?.token);
-        
+
         // Determine forced response based on auction sequence and hand strength
         let forcedBid;
-        
+
         if (!lastBid || lastBid.token === '2C') {
             // First response to 2C opening
             if (hand.hcp >= 8) {
@@ -1258,12 +1308,12 @@ function checkForcedResponse(hand, auction) {
             // Look for pattern: 2C ... 2D ... 2NT (with any passes in between)
             let found2C = false;
             let found2D = false;
-            
+
             for (let bid of auction) {
                 if (bid.token === '2C') found2C = true;
                 else if (bid.token === '2D' && found2C) found2D = true;
             }
-            
+
             if (found2C && found2D) {
                 // After 2C-2D-2NT sequence, partner cannot pass!
                 // This shows balanced 22-24 HCP and is forcing to game
@@ -1282,7 +1332,7 @@ function checkForcedResponse(hand, auction) {
             // North has already made a positive response, and South has rebid
             // North must continue to support or explore further - cannot pass
             console.log('After positive response and opener rebid - must continue bidding');
-            
+
             // Determine appropriate continuation based on South's rebid and North's hand
             if (lastBid.token === '3H' && hand.lengths.H >= 3) {
                 // Support hearts with 3+ card support
@@ -1317,28 +1367,28 @@ function checkForcedResponse(hand, auction) {
                 }
             }
         }
-        
+
         console.log('Returning forced bid:', forcedBid?.token);
         return forcedBid;
     }
-    
+
     return null; // No forced response needed
 }
 
-function makeSystemBid() {
+async function makeSystemBid() {
     try {
         // Get system's bid for current position
         const hand = currentHands[currentTurn];
         const seatNumber = getSeatNumber(currentTurn);
         // Ensure dealer is always defined when syncing to engine
         const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
-        
+
         // Initialize system auction if not already done or if we need fresh state
-    if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
+        if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
             // initialization logging suppressed in non-debug runs
             // Human is South; keep ourSeat fixed as 'S' for partnership-relative logic
             if (typeof system.startAuctionWithDealer !== 'function') {
-                system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
+                system.startAuctionWithDealer = function (ourSeat, dealerSeat, vulNS, vulEW) {
                     this.startAuction(ourSeat, /*we*/ vulNS, /*they*/ vulEW);
                     if (this.currentAuction && typeof this.currentAuction.reseat === 'function') {
                         this.currentAuction.reseat(dealerSeat);
@@ -1348,7 +1398,7 @@ function makeSystemBid() {
                 };
             }
             system.startAuctionWithDealer('S', dealerSeat, vulnerability.ns, vulnerability.ew);
-            
+
             // Ensure dealer is set, then add bids via Auction.add to auto-assign seats
             if (typeof system.currentAuction.reseat === 'function') {
                 system.currentAuction.reseat(dealerSeat);
@@ -1366,24 +1416,101 @@ function makeSystemBid() {
                 // suppressed per housekeeping: do not spam console in tests/UI
             });
         }
-        
+
         // Check for forced responses (e.g., Strong 2C)
-    // suppressed noisy diagnostics in UI/tests
-    const forcedBid = checkForcedResponse(hand, currentAuction);
-        
-    // Ensure the engine evaluates from the current actor's perspective
-    try {
-    if (system.currentAuction) {
-            system.currentAuction.ourSeat = currentTurn;
-            // Keep engine's side-tracking helpers (which rely on system.ourSeat) aligned with the actor
-            system.ourSeat = currentTurn;
+        // suppressed noisy diagnostics in UI/tests
+        const forcedBid = checkForcedResponse(hand, currentAuction);
+
+        // Ensure the engine evaluates from the current actor's perspective
+        try {
+            if (system.currentAuction) {
+                system.currentAuction.ourSeat = currentTurn;
+                // Keep engine's side-tracking helpers (which rely on system.ourSeat) aligned with the actor
+                system.ourSeat = currentTurn;
+            }
+        } catch (e) { /* ignore */ }
+
+        // Get bid recommendation
+        let recommendedBid = forcedBid || system.getBid(hand);
+
+        // Tag the bid with the acting seat so explanation logic can distinguish partner vs opponent.
+        if (recommendedBid && !recommendedBid.seat) {
+            recommendedBid.seat = currentTurn;
         }
-    } catch (e) { /* ignore */ }
 
-    // Get bid recommendation
-    let recommendedBid = forcedBid || system.getBid(hand);
-    let explanation = recommendedBid.conventionUsed || getConventionExplanation(recommendedBid, currentAuction) || 'Standard bid';
+        const explanationContext = (system && system.currentAuction) ? system.currentAuction : { bids: currentAuction, dealer: dealerSeat };
+        let explanation = recommendedBid.conventionUsed || getConventionExplanation(recommendedBid, explanationContext) || 'Standard bid';
 
+        // Responder safeguard: with game-going strength (>=12 HCP) after having already bid,
+        // do not allow a passive PASS before reaching game. Promote to a game contract based on context.
+        try {
+            if (!forcedBid && recommendedBid && recommendedBid.token === 'PASS') {
+                const partnerSeat = partnerOf(currentTurn);
+                const ourLast = auctionHistory.slice().reverse().find(e => e.position === currentTurn && e?.bid?.token && e.bid.token !== 'PASS');
+                const partnerLastContract = auctionHistory.slice().reverse().find(e => e.position === partnerSeat && /^[1-7]/.test(e?.bid?.token || ''));
+                const auctionReachedGame = (currentAuction || []).some(b => {
+                    const t = b?.token || 'PASS';
+                    return t === '3NT' || /^[4-7]/.test(t);
+                });
+
+                if (ourLast && partnerLastContract && !auctionReachedGame && (hand.hcp || 0) >= 12) {
+                    const suit = partnerLastContract.bid.token.replace(/^[1-7]/, '');
+                    const hasSupport = hand.lengths && suit && hand.lengths[suit] >= 3;
+                    if (suit === 'H' || suit === 'S') {
+                        if (hasSupport) {
+                            recommendedBid = new window.Bid(`4${suit}`);
+                            explanation = 'Game raise with 12+ points';
+                        } else {
+                            recommendedBid = new window.Bid('3NT');
+                            explanation = 'Game try with 12+ points';
+                        }
+                    } else {
+                        // For minor/NT contexts, steer to 3NT as a practical game choice
+                        recommendedBid = new window.Bid('3NT');
+                        explanation = 'Game try with 12+ points';
+                    }
+                }
+            }
+        } catch (_) { /* best-effort safeguard */ }
+
+        // --- Integration of the new Bidding Model ---
+        // Only call the model when the rules truly have no answer (null/undefined), or when a rules PASS looks suspect (strong hand in a live auction).
+        const rulesReturnedNull = !recommendedBid || recommendedBid.token == null;
+        const rulesPassButStrong = (!rulesReturnedNull && !forcedBid && recommendedBid.token === 'PASS' && (hand.hcp || 0) >= 10 && currentAuction.length > 0);
+        if ((rulesReturnedNull || rulesPassButStrong) && !forcedBid) {
+            const why = rulesReturnedNull ? 'null from rules' : 'rules PASS with 10+ HCP';
+            console.log(`Rules fallback trigger for ${currentTurn}: ${why}. Consulting bidding model...`);
+            try {
+                const context = {
+                    dealer: dealer,
+                    vulnerability: vulnerability,
+                    currentTurn: currentTurn
+                };
+                const modelBidResult = await getModelBid(currentAuction.map(b => b.token || 'PASS'), hand, context);
+                const modelBidToken = (modelBidResult && typeof modelBidResult === 'object') ? modelBidResult.token : modelBidResult;
+                const modelConfidence = (modelBidResult && typeof modelBidResult === 'object') ? modelBidResult.confidence : null;
+
+                if (modelConfidence !== null && modelConfidence !== undefined) {
+                    console.log(`Model fallback confidence for ${currentTurn}: ${(modelConfidence * 100).toFixed(1)}% (${modelBidToken || 'PASS'})`);
+                }
+
+                const passesThreshold = modelBidToken && modelBidToken !== 'PASS' && (modelConfidence === null || modelConfidence >= MODEL_CONFIDENCE_THRESHOLD);
+                if (passesThreshold) {
+                    recommendedBid = new window.Bid(modelBidToken);
+                    explanation = "Model Fallback"; // Indicate that the model made this bid
+                } else if (modelConfidence !== null && modelConfidence < MODEL_CONFIDENCE_THRESHOLD) {
+                    console.log(`Model bid discarded due to low confidence (<${(MODEL_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%). Keeping rules recommendation ${recommendedBid?.token || 'PASS'}.`);
+                }
+            } catch (e) {
+                console.error("Bidding model fallback failed:", e);
+            }
+        }
+
+        // If rules/model produced no bid at all, normalize to a Pass bid to keep downstream logic safe
+        if (!recommendedBid) {
+            recommendedBid = new window.Bid('PASS');
+            explanation = 'Pass';
+        }
         // If system recommended a takeout double, show a small inline hint with shape rationale
         try {
             if (recommendedBid && recommendedBid.isDouble) {
@@ -1398,13 +1525,13 @@ function makeSystemBid() {
                         if (t && /^[1-7][CDHS]$/.test(t)) { oppSuit = t.slice(1); break; }
                     }
                     if (oppSuit) {
-                        const name = (s)=>({C:'clubs',D:'diamonds',H:'hearts',S:'spades'}[s]||s);
+                        const name = (s) => ({ C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' }[s] || s);
                         annotated = `${label} (takeout over ${name(oppSuit)}: short/acceptably short there; support across other suits)`;
                     }
                 }
                 showInlineHintChip('X', annotated);
             }
-        } catch(_) { /* non-fatal UI hint */ }
+        } catch (_) { /* non-fatal UI hint */ }
 
         // Normalize obviously inconsistent explanations
         try {
@@ -1447,7 +1574,7 @@ function makeSystemBid() {
             }
         } catch (_) { /* non-fatal */ }
 
-    // Safety filter: prevent weak/indirect or invalid-shape cue-bids of opener's suit (e.g., Michaels)
+        // Safety filter: prevent weak/indirect or invalid-shape cue-bids of opener's suit (e.g., Michaels)
         // Context: Occasionally, in multi-bid auctions like 1m - Pass - 1H - (?), a 2m cue-bid can slip through
         // from engine fallbacks even with very weak hands. In mainstream styles, a cue-bid of opener's suit here
         // should be either a conventional two-suited overcall (Michaels) made in direct seat, or a strong raise
@@ -1545,46 +1672,46 @@ function makeSystemBid() {
                         explanation = 'Cue bid of opponents\' suit';
                     }
                 }
-            } catch (_) {}
+            } catch (_) { }
         }
 
-    // Opportunistic opener-game rule: if we were going to PASS but partner just made
-    // a forcing cue-bid raise and we hold strong opener values, continue to an appropriate
-    // game-level contract instead of passing. This is a narrow, low-risk heuristic that
-    // fixes cases where clear combined strength and shown support should force game.
-    try {
-        if (!forcedBid && recommendedBid && (recommendedBid.token === 'PASS' || !recommendedBid.token)) {
-            // Find last non-pass auction entry in history
-            const lastNonPass = auctionHistory.slice().reverse().find(e => e.bid && e.bid.token && e.bid.token !== 'PASS');
-            if (lastNonPass) {
-                // Check that the last non-pass was by our partner
-                const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
-                if (lastNonPass.position === partnerSeat) {
-                    // Was it a cue-bid raise? Prefer to use the system's convention explanation when present
-                    const cueLabel = (lastNonPass.explanation || '').toLowerCase();
-                    const isCueRaise = /cue bid raise|cue bid \(forcing\)|cue bid of opponents' suit/i.test(lastNonPass.explanation || '') || isCueBidOfOpponentsSuit(currentTurn, lastNonPass.bid, auctionHistory);
-                    if (isCueRaise && (hand.hcp || 0) >= 17) {
-                        // Choose a game: prefer 4M if partner cue-raised a major; else 3NT fallback
-                        const partnerBidTok = lastNonPass.bid.token || '';
-                        const suit = partnerBidTok.replace(/^[1-7]/, '');
-                        let gameTok = '3NT';
-                        if (suit === 'H' || suit === 'S') gameTok = `4${suit}`;
-                        recommendedBid = new window.Bid(gameTok);
-                        explanation = 'Game: combined strength and shown support';
+        // Opportunistic opener-game rule: if we were going to PASS but partner just made
+        // a forcing cue-bid raise and we hold strong opener values, continue to an appropriate
+        // game-level contract instead of passing. This is a narrow, low-risk heuristic that
+        // fixes cases where clear combined strength and shown support should force game.
+        try {
+            if (!forcedBid && recommendedBid && (recommendedBid.token === 'PASS' || !recommendedBid.token)) {
+                // Find last non-pass auction entry in history
+                const lastNonPass = auctionHistory.slice().reverse().find(e => e.bid && e.bid.token && e.bid.token !== 'PASS');
+                if (lastNonPass) {
+                    // Check that the last non-pass was by our partner
+                    const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
+                    if (lastNonPass.position === partnerSeat) {
+                        // Was it a cue-bid raise? Prefer to use the system's convention explanation when present
+                        const cueLabel = (lastNonPass.explanation || '').toLowerCase();
+                        const isCueRaise = /cue bid raise|cue bid \(forcing\)|cue bid of opponents' suit/i.test(lastNonPass.explanation || '') || isCueBidOfOpponentsSuit(currentTurn, lastNonPass.bid, auctionHistory);
+                        if (isCueRaise && (hand.hcp || 0) >= 17) {
+                            // Choose a game: prefer 4M if partner cue-raised a major; else 3NT fallback
+                            const partnerBidTok = lastNonPass.bid.token || '';
+                            const suit = partnerBidTok.replace(/^[1-7]/, '');
+                            let gameTok = '3NT';
+                            if (suit === 'H' || suit === 'S') gameTok = `4${suit}`;
+                            recommendedBid = new window.Bid(gameTok);
+                            explanation = 'Game: combined strength and shown support';
+                        }
                     }
                 }
             }
-        }
-    } catch (e) { /* non-fatal heuristic */ }
+        } catch (e) { /* non-fatal heuristic */ }
 
-    // Log after finalizing legality and explanation so console reflects what will be recorded
-    console.log('Final recommended bid:', recommendedBid.token || 'PASS');
-    console.log(`${currentTurn} making bid:`);
-    console.log(`  Hand: ${hand.toString()}`);
-    console.log(`  HCP: ${hand.hcp}`);
-    console.log(`  Current auction length: ${currentAuction.length}`);
-    console.log(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
-    console.log(`  Explanation: ${explanation}`);
+        // Log after finalizing legality and explanation so console reflects what will be recorded
+        console.log('Final recommended bid:', recommendedBid.token || 'PASS');
+        console.log(`${currentTurn} making bid:`);
+        console.log(`  Hand: ${hand.toString()}`);
+        console.log(`  HCP: ${hand.hcp}`);
+        console.log(`  Current auction length: ${currentAuction.length}`);
+        console.log(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
+        console.log(`  Explanation: ${explanation}`);
 
         // Responder upgrade: after opener's 2NT, push to game with adequate points
         try {
@@ -1597,26 +1724,26 @@ function makeSystemBid() {
                 explanation = 'Game after opener\'s 2NT';
             }
         } catch (e) { console.warn('Responder game check failed:', e?.message || e); }
-        
+
         auctionHistory.push({
             position: currentTurn,
             bid: recommendedBid,
             explanation: explanation
         });
-        
+
         currentAuction.push(recommendedBid);
         addBidExplanation(currentTurn, recommendedBid, explanation);
-        
+
         // Move to next turn
         advanceTurn();
         updateAuctionTable();
         updateAuctionStatus();
-        
+
         // Check if auction is over
         console.log('Checking if auction is complete...');
         console.log('Current auction length:', currentAuction.length);
         console.log('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
-        
+
         if (isAuctionComplete()) {
             console.log('Auction is complete, ending...');
             endAuction();
@@ -1624,7 +1751,7 @@ function makeSystemBid() {
             console.log('Auction continues...');
             processTurn();
         }
-        
+
     } catch (error) {
         console.error('Error making system bid:', error);
         // Make a pass bid as fallback
@@ -1648,7 +1775,7 @@ function isCueBidOfOpponentsSuit(position, bid, history) {
     const token = bid.token;
     const suit = token.replace(/^[1-7]/, ''); // extract suit part like C,D,H,S,NT
     if (suit === 'NT' || suit === 'X' || suit === 'XX') return false;
-    const opponents = (position === 'N' || position === 'S') ? ['E','W'] : ['N','S'];
+    const opponents = (position === 'N' || position === 'S') ? ['E', 'W'] : ['N', 'S'];
     // Look for any prior non-pass bid by opponents in the same suit
     for (let i = 0; i < history.length; i++) {
         const entry = history[i];
@@ -1673,8 +1800,8 @@ function detectMichaelsCueBid(position, bid, history, hand) {
         if (cfg.enabled === false) return null;
 
         // Find opponents' opening bid (first non-pass in history by opponents)
-        const ourSide = (position === 'N' || position === 'S') ? ['N','S'] : ['E','W'];
-        const oppSide = (position === 'N' || position === 'S') ? ['E','W'] : ['N','S'];
+        const ourSide = (position === 'N' || position === 'S') ? ['N', 'S'] : ['E', 'W'];
+        const oppSide = (position === 'N' || position === 'S') ? ['E', 'W'] : ['N', 'S'];
         const firstNonPass = history.find(e => {
             const t = e?.bid?.token || 'PASS';
             return oppSide.includes(e.position) && t !== 'PASS' && t !== 'X' && t !== 'XX';
@@ -1758,7 +1885,7 @@ function shouldRaiseToGameAfterOpener2NT(hand, history) {
 
 function getRecommendedBid() {
     try {
-    // suppressed noisy diagnostics in UI/tests
+        // suppressed noisy diagnostics in UI/tests
         // Be permissive when currentTurn is unset (e.g., jsdom tests). Only block if it's explicitly not South.
         if ((currentTurn && currentTurn !== 'S') || !currentHands.S) {
             alert('Not your turn or no hand available');
@@ -1767,13 +1894,13 @@ function getRecommendedBid() {
         }
         // Ensure dealer is always defined when syncing to engine
         const dealerSeat = dealer || (document.getElementById('dealer')?.value || 'S');
-    // suppressed noisy diagnostics in UI/tests
-        
+        // suppressed noisy diagnostics in UI/tests
+
         // Get system recommendation - use current system auction state
         if (!system.currentAuction || system.currentAuction.bids.length !== currentAuction.length) {
             // suppressed noisy diagnostics in UI/tests
             if (typeof system.startAuctionWithDealer !== 'function') {
-                system.startAuctionWithDealer = function(ourSeat, dealerSeat, vulNS, vulEW) {
+                system.startAuctionWithDealer = function (ourSeat, dealerSeat, vulNS, vulEW) {
                     this.startAuction(ourSeat, /*we*/ vulNS, /*they*/ vulEW);
                     if (this.currentAuction && typeof this.currentAuction.reseat === 'function') {
                         this.currentAuction.reseat(dealerSeat);
@@ -1804,19 +1931,19 @@ function getRecommendedBid() {
             } catch (_) { /* noop */ }
         }
         // Always evaluate recommendation from South's perspective
-        try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) {}
-        
-    const recommendedBid = system.getBid(currentHands.S);
-    // Derive a full textual explanation consistent with the explanations panel
-    let explanation = recommendedBid.conventionUsed || '';
-    try {
-        if (typeof system.getExplanationFor === 'function') {
-            const expl = system.getExplanationFor(recommendedBid, system.currentAuction);
-            if (expl && expl !== 'Your bid') explanation = expl;
-        }
-    } catch (_) { /* fallback below */ }
-    if (!explanation) explanation = 'Standard bid';
-    // suppressed noisy diagnostics in UI/tests
+        try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) { }
+
+        const recommendedBid = system.getBid(currentHands.S);
+        // Derive a full textual explanation consistent with the explanations panel
+        let explanation = recommendedBid.conventionUsed || '';
+        try {
+            if (typeof system.getExplanationFor === 'function') {
+                const expl = system.getExplanationFor(recommendedBid, system.currentAuction);
+                if (expl && expl !== 'Your bid') explanation = expl;
+            }
+        } catch (_) { /* fallback below */ }
+        if (!explanation) explanation = 'Standard bid';
+        // suppressed noisy diagnostics in UI/tests
 
         // Handle null token (which means Pass). If token is null (engine didn't
         // find a path and is effectively forced to pass), attempt to use the
@@ -1843,10 +1970,10 @@ function getRecommendedBid() {
                         panelWrap.style.display = 'block';
                     } else {
                         // Update inline hint
-                        try { showInlineHintChip(modelBidDisplay, modelExplanation); } catch(_) {}
+                        try { showInlineHintChip(modelBidDisplay, modelExplanation); } catch (_) { }
                     }
                 } catch (_) { /* ignore UI update failures */ }
-            }).catch(()=>{/* ignore prediction errors */});
+            }).catch(() => {/* ignore prediction errors */ });
         }
 
         // Display recommendation if the legacy panel exists; otherwise show an inline hint near the status
@@ -1862,12 +1989,12 @@ function getRecommendedBid() {
         } else {
             console.log('getRecommendedBid: Calling showInlineHintChip');
             try { showInlineHintChip(bidDisplay, explanation); }
-            catch (e) { 
+            catch (e) {
                 console.log('getRecommendedBid: showInlineHintChip failed:', e.message);
-                alert(`Hint: ${bidDisplay}`); 
+                alert(`Hint: ${bidDisplay}`);
             }
         }
-        
+
     } catch (error) {
         console.error('Error getting recommendation:', error);
         alert('Error getting recommendation: ' + error.message);
@@ -1914,13 +2041,13 @@ function createDeck() {
     const suits = ['S', 'H', 'D', 'C'];
     const ranks = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
     const deck = [];
-    
+
     suits.forEach(suit => {
         ranks.forEach(rank => {
             deck.push(rank + suit);
         });
     });
-    
+
     return deck;
 }
 
@@ -1992,7 +2119,7 @@ async function predictBidFromModel(hand, auction) {
         // The model used during training has input shape 181; if different, try to
         // adapt gracefully by inspecting model.input.shape.
         let inputShape = 181;
-        try { if (model && model.inputs && model.inputs[0] && model.inputs[0].shape) inputShape = model.inputs[0].shape[1] || inputShape; } catch(_) {}
+        try { if (model && model.inputs && model.inputs[0] && model.inputs[0].shape) inputShape = model.inputs[0].shape[1] || inputShape; } catch (_) { }
         if (!inputVec || !Array.isArray(inputVec) || inputVec.length !== inputShape) {
             inputVec = new Array(inputShape).fill(0);
         }
@@ -2027,23 +2154,23 @@ function shuffleDeck(deck) {
 function convertCardsToHandString(cards) {
     // Convert array of cards like ["AS", "KH", "QD", "JC"] to "AK QJ - -" format
     const suits = { S: [], H: [], D: [], C: [] };
-    
+
     cards.forEach(card => {
         const rank = card.slice(0, -1);
         const suit = card.slice(-1);
         suits[suit].push(rank);
     });
-    
+
     // Sort each suit by rank (A, K, Q, J, T, 9, 8, 7, 6, 5, 4, 3, 2)
     const rankOrder = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
     Object.keys(suits).forEach(suit => {
         suits[suit].sort((a, b) => rankOrder.indexOf(a) - rankOrder.indexOf(b));
     });
-    
+
     // Create the hand string format: "Spades Hearts Diamonds Clubs"
     return [
         suits.S.join('') || '-',
-        suits.H.join('') || '-', 
+        suits.H.join('') || '-',
         suits.D.join('') || '-',
         suits.C.join('') || '-'
     ].join(' ');
@@ -2088,10 +2215,10 @@ function endAuction() {
     try {
         const auctionContent = document.getElementById('auctionContent');
         if (auctionContent) auctionContent.style.display = 'block';
-    } catch (_) {}
+    } catch (_) { }
 
     // Stop capturing auction console output (we capture while auction is active)
-    try { stopAuctionConsoleCapture(); } catch (_) {}
+    try { stopAuctionConsoleCapture(); } catch (_) { }
 
     // Update auction status if it exists (preserve flex layout)
     const auctionStatus = document.getElementById('auctionStatus');
@@ -2100,21 +2227,21 @@ function endAuction() {
         try {
             auctionStatus.classList.remove('alert-info');
             auctionStatus.classList.add('alert', 'alert-warning', 'auction-status-flex');
-        } catch (_) {}
+        } catch (_) { }
         // Remove any inline hint chip from active-auction UI
-        try { const ih = document.getElementById('inlineHint'); if (ih) ih.remove(); } catch(_) {}
+        try { const ih = document.getElementById('inlineHint'); if (ih) ih.remove(); } catch (_) { }
         auctionStatus.innerHTML = '<span class="status-text">Auction Ended</span>';
     }
 
     // Disable bid buttons now that auction is over
-    try { setAllBidButtonsDisabled(true); } catch (_) {}
+    try { setAllBidButtonsDisabled(true); } catch (_) { }
 
     // Show Start Auction button to allow restart (after optional dealer/vul changes)
     const startAuctionBtn = document.getElementById('startAuctionBtn');
     if (startAuctionBtn) {
         startAuctionBtn.style.display = 'inline-block';
     }
-    
+
     // Add final auction result to the table
     try {
         const auctionGrid = document.querySelector('.auction-grid');
@@ -2145,7 +2272,7 @@ function endAuction() {
             if (!details.contract) {
                 banner.textContent = 'Final Contract: All Pass';
             } else {
-                const den = details.contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[details.contract.strain] || details.contract.strain);
+                const den = details.contract.strain === 'NT' ? 'NT' : ({ S: '♠', H: '♥', D: '♦', C: '♣' }[details.contract.strain] || details.contract.strain);
                 const dblTxt = details.contract.dbl === 1 ? ' x' : (details.contract.dbl === 2 ? ' xx' : '');
                 const sideTxt = details.contractSide === 'NS' ? 'N-S' : 'E-W';
                 banner.textContent = `Final Contract: ${details.contract.level}${den}${dblTxt} by ${getTurnName(details.declarer)} (${sideTxt})`;
@@ -2155,9 +2282,9 @@ function endAuction() {
     } catch (error) {
         console.log('Could not add auction ended message:', error.message);
     }
-    
+
     console.log('Auction ended');
-    
+
     // Repurpose Hint button to allow user-triggered transition to Play
     try {
         let hintBtn = document.getElementById('hintBtn');
@@ -2181,7 +2308,7 @@ function endAuction() {
     }
 
     // Update Play tab state now that auction ended
-    try { updatePlayTabState(); } catch (_) {}
+    try { updatePlayTabState(); } catch (_) { }
 
     // Do not auto-switch to Play; user will click the repurposed Hint button ("Play the Hand")
     // Keeping the transition manual per UX requirement.
@@ -2190,16 +2317,16 @@ function endAuction() {
 function updateAuctionHeaders() {
     const auctionGrid = document.querySelector('.auction-grid');
     if (!auctionGrid) return;
-    
+
     // Get dealer-clockwise order
     const positions = ['W', 'N', 'E', 'S'];
     const dealerIndex = positions.indexOf(dealer);
     const orderedPositions = [];
-    
+
     for (let i = 0; i < 4; i++) {
         orderedPositions.push(positions[(dealerIndex + i) % 4]);
     }
-    
+
     // Update headers
     const headers = auctionGrid.querySelectorAll('.auction-position');
     orderedPositions.forEach((pos, index) => {
@@ -2216,27 +2343,27 @@ function updateAuctionHeaders() {
 
 function updateAuctionTable() {
     const auctionBids = document.getElementById('auctionBids');
-    
+
     if (!auctionBids) {
         console.error('auctionBids element not found');
         return;
     }
-    
+
     // Update headers to show dealer first
     updateAuctionHeaders();
-    
+
     auctionBids.innerHTML = '';
-    
+
     if (auctionHistory.length === 0) {
         auctionBids.innerHTML = '<div class="text-muted">Auction starting...</div>';
         return;
     }
-    
+
     // Group bids by rounds
     const rounds = [];
     let currentRound = [];
     let expectedPosition = dealer;
-    
+
     auctionHistory.forEach(entry => {
         if (entry.position === expectedPosition && currentRound.length === 0) {
             // Start of new round
@@ -2244,35 +2371,35 @@ function updateAuctionTable() {
         } else {
             currentRound.push(entry);
         }
-        
+
         if (currentRound.length === 4) {
             rounds.push(currentRound);
             currentRound = [];
         }
-        
+
         // Advance expected position
         const order = ['W', 'N', 'E', 'S'];
         const index = order.indexOf(expectedPosition);
         expectedPosition = order[(index + 1) % 4];
     });
-    
+
     if (currentRound.length > 0) {
         rounds.push(currentRound);
     }
-    
+
     // Display rounds - use dealer-clockwise order
     const positions = ['W', 'N', 'E', 'S'];
     const dealerIndex = positions.indexOf(dealer);
     const orderedPositions = [];
-    
+
     for (let i = 0; i < 4; i++) {
         orderedPositions.push(positions[(dealerIndex + i) % 4]);
     }
-    
+
     rounds.forEach(round => {
         const roundDiv = document.createElement('div');
         roundDiv.className = 'auction-round';
-        
+
         orderedPositions.forEach(pos => {
             const bidDiv = document.createElement('div');
             bidDiv.className = 'auction-bid';
@@ -2281,7 +2408,7 @@ function updateAuctionTable() {
                 const bidToken = entry.bid.token || 'PASS';
                 let alertable = false;
                 try {
-                    alertable = isAlertableExplanation(entry.explanation) && !['PASS','X','XX'].includes(bidToken);
+                    alertable = isAlertableExplanation(entry.explanation) && !['PASS', 'X', 'XX'].includes(bidToken);
                 } catch (_) { /* noop */ }
                 // Base formatted bid (with suit color and alert marker)
                 let html = formatBidForAuction(bidToken, alertable);
@@ -2315,7 +2442,7 @@ function updateAuctionStatus() {
     if (auctionActive) {
         const turnName = getTurnName(currentTurn);
         // Make the status container flex via CSS class so we can place the existing Hint button on the right
-        try { status.classList.add('auction-status-flex'); } catch (_) {}
+        try { status.classList.add('auction-status-flex'); } catch (_) { }
 
         // Preserve (or recreate) the Hint button BEFORE resetting innerHTML to avoid nuking it
         let hintBtn = document.getElementById('hintBtn');
@@ -2341,7 +2468,7 @@ function updateAuctionStatus() {
                 hintBtn.style.display = 'inline-block';
                 status.appendChild(hintBtn);
             }
-        } catch (_) {}
+        } catch (_) { }
     }
 }
 
@@ -2393,7 +2520,7 @@ function formatBidForAuction(token, alertable) {
     // Suit bids: level followed by suit letter
     const level = t.charAt(0);
     const denom = t.slice(1);
-    if (['S','H','D','C'].includes(denom)) {
+    if (['S', 'H', 'D', 'C'].includes(denom)) {
         return `<strong>${level}${renderSuitSpan(denom)}${alertable ? '!' : ''}</strong>`;
     }
     // Fallback: just show as text
@@ -2405,7 +2532,7 @@ function updateBidButtons() {
     console.log('updateBidButtons called');
     // If it's not user's turn, keep everything disabled
     if (currentTurn !== 'S') {
-        try { setAllBidButtonsDisabled(true); } catch (_) {}
+        try { setAllBidButtonsDisabled(true); } catch (_) { }
         return;
     }
 
@@ -2490,13 +2617,13 @@ function isAuctionComplete() {
 
 function isValidBid(bidString, lastBid) {
     if (bidString === 'PASS') return true;
-    
+
     // Use the passed lastBid parameter consistently
     if (!lastBid) {
         // No previous non-pass bids - any opening bid is valid
         return true;
     }
-    
+
     // Compare bid levels for sufficient bids
     try {
         const newBid = new window.Bid(bidString);
@@ -2508,16 +2635,20 @@ function isValidBid(bidString, lastBid) {
             if (m) return { level: parseInt(m[1], 10), suit: m[2] };
             return { level: Number.NEGATIVE_INFINITY, suit: null };
         };
-        const nb = { level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
-                     suit: newBid.suit || parseParts(newBid).suit };
-        const lb = { level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
-                     suit: lastBid.suit || parseParts(lastBid).suit };
-        
+        const nb = {
+            level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
+            suit: newBid.suit || parseParts(newBid).suit
+        };
+        const lb = {
+            level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
+            suit: lastBid.suit || parseParts(lastBid).suit
+        };
+
         // Must be higher level or same level with higher suit
         const isHigherLevel = nb.level > lb.level;
-        const isSameLevelHigherSuit = (nb.level === lb.level && 
-                                      getSuitRank(nb.suit) > getSuitRank(lb.suit));
-        
+        const isSameLevelHigherSuit = (nb.level === lb.level &&
+            getSuitRank(nb.suit) > getSuitRank(lb.suit));
+
         return isHigherLevel || isSameLevelHigherSuit;
     } catch (e) {
         return false;
@@ -2527,12 +2658,12 @@ function isValidBid(bidString, lastBid) {
 function isValidUserBid(bidString, lastBid) {
     // More permissive validation for user bids
     if (bidString === 'PASS') return true;
-    
+
     // If no previous bid, any opening bid is valid
     if (!lastBid) {
         return true;
     }
-    
+
     // User can make any bid that's higher than the last bid
     try {
         const newBid = new window.Bid(bidString);
@@ -2543,16 +2674,20 @@ function isValidUserBid(bidString, lastBid) {
             if (m) return { level: parseInt(m[1], 10), suit: m[2] };
             return { level: Number.NEGATIVE_INFINITY, suit: null };
         };
-        const nb = { level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
-                     suit: newBid.suit || parseParts(newBid).suit };
-        const lb = { level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
-                     suit: lastBid.suit || parseParts(lastBid).suit };
-        
+        const nb = {
+            level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
+            suit: newBid.suit || parseParts(newBid).suit
+        };
+        const lb = {
+            level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
+            suit: lastBid.suit || parseParts(lastBid).suit
+        };
+
         // Must be higher level or same level with higher suit
         const isHigherLevel = nb.level > lb.level;
-        const isSameLevelHigherSuit = (nb.level === lb.level && 
-                                      getSuitRank(nb.suit) > getSuitRank(lb.suit));
-        
+        const isSameLevelHigherSuit = (nb.level === lb.level &&
+            getSuitRank(nb.suit) > getSuitRank(lb.suit));
+
         return isHigherLevel || isSameLevelHigherSuit;
     } catch (e) {
         return false;
@@ -2581,11 +2716,11 @@ function isOpponentPosition(position, ourPosition) {
     // Check if the given position is an opponent of ourPosition
     const partnerships = {
         'N': ['N', 'S'], // North-South partnership
-        'S': ['N', 'S'], 
+        'S': ['N', 'S'],
         'E': ['E', 'W'], // East-West partnership  
         'W': ['E', 'W']
     };
-    
+
     const ourPartnership = partnerships[ourPosition];
     return !ourPartnership.includes(position);
 }
@@ -2593,25 +2728,19 @@ function isOpponentPosition(position, ourPosition) {
 function isValidSystemBid(bidString, position) {
     // Validate a bid for the system (computer players)
     if (bidString === 'PASS' || bidString === null) return true;
-    
-    // Check basic bid validity
-    const lastNonPassBid = getLastNonPassBid();
-    if (!isValidBid(bidString, lastNonPassBid)) {
-        return false;
-    }
-    
-    // Check double/redouble rules for system
+
+    // Doubles/redoubles have distinct legality rules; handle them before sufficiency checks
     if (bidString === 'X') {
         const lastNonPassBidWithPos = getLastNonPassBidWithPosition();
         if (!lastNonPassBidWithPos) return false;
-        
-        // Cannot double if already doubled
+
+        // Cannot double if already doubled or redoubled
         if (lastNonPassBidWithPos.bid.token === 'X' || lastNonPassBidWithPos.bid.token === 'XX') return false;
-        
+
         // Can only double opponent's bid
         return isOpponentPosition(lastNonPassBidWithPos.position, position);
     }
-    
+
     if (bidString === 'XX') {
         // Can redouble if last action was opponent's double
         for (let i = currentAuction.length - 1; i >= 0; i--) {
@@ -2624,31 +2753,37 @@ function isValidSystemBid(bidString, position) {
         }
         return false;
     }
-    
+
+    // Check basic bid validity
+    const lastNonPassBid = getLastNonPassBid();
+    if (!isValidBid(bidString, lastNonPassBid)) {
+        return false;
+    }
+
     return true;
 }
 
 function canDouble() {
     // Can double if last non-pass bid was by opponents and not already doubled
     if (currentAuction.length === 0) return false;
-    
+
     // Find the last non-pass bid and who made it
     const lastNonPassBid = getLastNonPassBidWithPosition();
     if (!lastNonPassBid) return false;
-    
+
     // Cannot double if already doubled or redoubled
     if (lastNonPassBid.bid.token === 'X' || lastNonPassBid.bid.token === 'XX') return false;
-    
+
     // Can only double opponent's bid, not partner's
     const isOpponent = isOpponentPosition(lastNonPassBid.position, 'S');
-    
+
     return isOpponent;
 }
 
 function canRedouble() {
     // Can redouble if last action was a double by opponents
     if (currentAuction.length === 0) return false;
-    
+
     // Look for the most recent double
     for (let i = currentAuction.length - 1; i >= 0; i--) {
         const entry = auctionHistory[i];
@@ -2660,18 +2795,18 @@ function canRedouble() {
             return false;
         }
     }
-    
+
     return false;
 }
 
 function addBidExplanation(position, bid, explanation) {
     const explanationsList = document.getElementById('explanationsList');
-    
+
     if (!explanationsList) {
         console.error('explanationsList element not found');
         return;
     }
-    
+
     const row = document.createElement('div');
     row.className = 'explanation-item';
     const bidDisplay = bid.token || 'PASS';
@@ -2718,7 +2853,7 @@ function addBidExplanation(position, bid, explanation) {
             }
         }
     } catch (_) { /* best-effort normalization */ }
-    
+
     // If explanation is generic and this is a jump to game in a major after partner previously bid that major, label it clearly
     try {
         const isGeneric = !explanation || explanation === 'Your bid' || explanation === 'Standard bid';
@@ -2746,7 +2881,7 @@ function addBidExplanation(position, bid, explanation) {
         ${explText ? `<span class="explanation-text explanation-badge ${badgeClass}">${explText}</span>` : ''}
     `;
     explanationsList.appendChild(row);
-    
+
     // Keep a generous history so the panel matches the grid; allow up to 50 before trimming
     const MAX_EXPL = 50;
     while (explanationsList.children.length > MAX_EXPL) {
@@ -2801,13 +2936,13 @@ async function initializeConventionUI() {
         } catch (e) {
             console.warn('Failed to apply persisted enabled conventions:', e);
         }
-    // Build General Settings (engine-wide toggles)
-    createGeneralSettingsSection();
-    createConventionCheckboxes();
-    createPracticeConventionOptions();
-    // Sync Active Conventions into engine configuration so bidding logic respects UI
-    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync Active Conventions to engine:', e); }
-        
+        // Build General Settings (engine-wide toggles)
+        createGeneralSettingsSection();
+        createConventionCheckboxes();
+        createPracticeConventionOptions();
+        // Sync Active Conventions into engine configuration so bidding logic respects UI
+        try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync Active Conventions to engine:', e); }
+
         console.log('Convention UI initialized successfully');
     } catch (error) {
         console.error('Error initializing convention UI:', error);
@@ -2849,7 +2984,7 @@ function saveGeneralSettings() {
             },
             nt_over_minors_range: (cfg?.general?.nt_over_minors_range) || 'classic',
             // UI preferences not part of engine config
-            show_all_hands_by_default: (function(){
+            show_all_hands_by_default: (function () {
                 try {
                     const el = document.getElementById('toggle_show_all_hands');
                     if (el) return !!el.checked;
@@ -2857,10 +2992,10 @@ function saveGeneralSettings() {
                     if (persisted && typeof persisted.show_all_hands_by_default === 'boolean') {
                         return persisted.show_all_hands_by_default;
                     }
-                } catch(_) {}
+                } catch (_) { }
                 return true; // default
             })(),
-            dp_display_type: (function(){
+            dp_display_type: (function () {
                 try {
                     const sel = document.getElementById('select_dp_display');
                     if (sel && (sel.value === 'shortness' || sel.value === 'length')) {
@@ -2870,7 +3005,7 @@ function saveGeneralSettings() {
                     if (persisted && (persisted.dp_display_type === 'shortness' || persisted.dp_display_type === 'length')) {
                         return persisted.dp_display_type;
                     }
-                } catch(_) {}
+                } catch (_) { }
                 return 'shortness';
             })()
         };
@@ -2970,16 +3105,16 @@ function createGeneralSettingsSection() {
         const vulAdj = !!(cfg?.general?.vulnerability_adjustments);
         const relaxedTO = !!(cfg?.general?.relaxed_takeout_doubles);
         const persistedGS = loadPersistedGeneralSettings() || {};
-    const showAllHandsDefault = (typeof persistedGS.show_all_hands_by_default === 'boolean') ? persistedGS.show_all_hands_by_default : true;
-    const dpDisplayType = (persistedGS && (persistedGS.dp_display_type === 'length' || persistedGS.dp_display_type === 'shortness')) ? persistedGS.dp_display_type : 'shortness';
+        const showAllHandsDefault = (typeof persistedGS.show_all_hands_by_default === 'boolean') ? persistedGS.show_all_hands_by_default : true;
+        const dpDisplayType = (persistedGS && (persistedGS.dp_display_type === 'length' || persistedGS.dp_display_type === 'shortness')) ? persistedGS.dp_display_type : 'shortness';
         // RKCB response structure (1430/3014) - ensure we read from ace_asking.blackwood if present, else slam_bidding.blackwood_rkcb
         const rkcbResp = (cfg?.ace_asking?.blackwood?.responses) || (cfg?.slam_bidding?.blackwood_rkcb?.responses) || '1430';
         const supportThru = (cfg?.competitive?.support_doubles?.thru) || '2S';
         const respDblThru = (cfg?.competitive?.responsive_doubles?.thru_level) || 3;
-    const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
-    const unusualOverMinors = !!(cfg?.notrump_defenses?.unusual_nt?.over_minors);
-    const sysOn = (cfg?.general?.systems_on_over_1nt_interference) || { transfers:false, stolen_bid_double:false };
-    const ntOverMinorsRange = (cfg?.general?.nt_over_minors_range) || 'classic';
+        const michaelsStrength = (cfg?.competitive?.michaels?.strength) || 'wide_range';
+        const unusualOverMinors = !!(cfg?.notrump_defenses?.unusual_nt?.over_minors);
+        const sysOn = (cfg?.general?.systems_on_over_1nt_interference) || { transfers: false, stolen_bid_double: false };
+        const ntOverMinorsRange = (cfg?.general?.nt_over_minors_range) || 'classic';
 
         container.innerHTML = `
             <div class="general-settings-card">
@@ -3105,7 +3240,7 @@ function createGeneralSettingsSection() {
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
                     console.log('Updated dp_display_type to', e.target.value);
                     saveGeneralSettings();
-                    try { displayHands(); } catch (_) {}
+                    try { displayHands(); } catch (_) { }
                 } catch (err) {
                     console.warn('Failed to update dp_display_type:', err);
                 }
@@ -3277,7 +3412,7 @@ function createGeneralSettingsSection() {
                 try {
                     if (!system?.conventions?.config?.general) return;
                     const g = system.conventions.config.general;
-                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers:false, stolen_bid_double:false };
+                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers: false, stolen_bid_double: false };
                     g.systems_on_over_1nt_interference.transfers = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
@@ -3295,7 +3430,7 @@ function createGeneralSettingsSection() {
                 try {
                     if (!system?.conventions?.config?.general) return;
                     const g = system.conventions.config.general;
-                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers:false, stolen_bid_double:false };
+                    g.systems_on_over_1nt_interference = g.systems_on_over_1nt_interference || { transfers: false, stolen_bid_double: false };
                     g.systems_on_over_1nt_interference.stolen_bid_double = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
@@ -3326,7 +3461,7 @@ function updateRKCBLabelAndRerender() {
         createConventionCheckboxes();
         createPracticeConventionOptions();
         // Subtle highlight to indicate update
-        try { flashRKCBLabel(newLabel); } catch (_) {}
+        try { flashRKCBLabel(newLabel); } catch (_) { }
         return;
     }
 
@@ -3372,9 +3507,9 @@ function updateRKCBLabelAndRerender() {
     createConventionCheckboxes();
     createPracticeConventionOptions();
     // Persist enabled conventions after relabeling to keep storage in sync
-    try { saveEnabledConventions(); } catch (_) {}
+    try { saveEnabledConventions(); } catch (_) { }
     // Subtle highlight to indicate update
-    try { flashRKCBLabel(newLabel); } catch (_) {}
+    try { flashRKCBLabel(newLabel); } catch (_) { }
 }
 
 function updateMutualExclusivityForRKCB(rkcbLabel) {
@@ -3423,16 +3558,16 @@ async function loadAvailableConventions() {
             loadFallbackConventions();
             return;
         }
-        
+
         // Parse conventions from the loaded configuration
         availableConventions = {};
         conventionCategories = {};
         mutuallyExclusiveGroups = [];
-        
+
         // Process each category
         Object.keys(conventionsConfig).forEach(categoryKey => {
             const category = conventionsConfig[categoryKey];
-            
+
             // Skip general category for UI display but still process for background use
             if (categoryKey !== 'general') {
                 conventionCategories[categoryKey] = {
@@ -3440,7 +3575,7 @@ async function loadAvailableConventions() {
                     conventions: []
                 };
             }
-            
+
             // Process conventions in this category
             Object.keys(category).forEach(conventionKey => {
                 const convention = category[conventionKey];
@@ -3453,7 +3588,7 @@ async function loadAvailableConventions() {
                 }
 
                 const displayName = getConventionDisplayName(conventionKey);
-                
+
                 availableConventions[displayName] = {
                     category: categoryKey,
                     key: conventionKey,
@@ -3461,14 +3596,14 @@ async function loadAvailableConventions() {
                     enabled: convention.enabled !== false, // Default to enabled unless explicitly disabled
                     isGeneral: categoryKey === 'general' // Mark general conventions
                 };
-                
+
                 // Only add to UI categories if not general
                 if (categoryKey !== 'general') {
                     conventionCategories[categoryKey].conventions.push(displayName);
                 }
             });
         });
-        
+
         // Synthesize Opening Bids category with Strong 2C and Weak Two (from config.preempts)
         try {
             if (!conventionCategories['opening_bids']) {
@@ -3508,7 +3643,7 @@ async function loadAvailableConventions() {
         } catch (e) {
             console.warn('Failed to synthesize Opening Bids category:', e);
         }
-        
+
         // Synthesize Slam Bidding category from ace_asking config (Gerber + Blackwood variants)
         try {
             const ace = conventionsConfig?.ace_asking || {};
@@ -3600,13 +3735,13 @@ async function loadAvailableConventions() {
         } catch (e) {
             console.warn('Failed to relocate Meckwell to notrump_defenses:', e);
         }
-        
+
         // Set up mutual exclusivity groups
         mutuallyExclusiveGroups = [
             ['DONT', 'Meckwell'], // NT defense systems are mutually exclusive
             ['Regular Blackwood', 'RKC Blackwood 1430'] // Blackwood variants are mutually exclusive
         ];
-        
+
         // Initialize enabled conventions based on JSON configuration
         enabledConventions = {};
         Object.keys(availableConventions).forEach(name => {
@@ -3618,11 +3753,11 @@ async function loadAvailableConventions() {
                 enabledConventions[name] = convention.enabled;
             }
         });
-        
+
         console.log('Conventions loaded from inline/default config:', Object.keys(availableConventions));
 
         // Reorder categories for a balanced two-column layout, with Slam Bidding below Responses (first column)
-    const desiredOrder = ['opening_bids','notrump_responses','responses','competitive','slam_bidding','notrump_defenses'];
+        const desiredOrder = ['opening_bids', 'notrump_responses', 'responses', 'competitive', 'slam_bidding', 'notrump_defenses'];
         const orderedCategories = {};
         desiredOrder.forEach(key => {
             if (conventionCategories[key]) {
@@ -3636,7 +3771,7 @@ async function loadAvailableConventions() {
             }
         });
         conventionCategories = orderedCategories;
-        
+
     } catch (error) {
         console.error('Error loading conventions (using fallback):', error);
         // Fallback to hardcoded conventions
@@ -3669,7 +3804,7 @@ function getConventionDisplayName(conventionKey) {
         'stayman': 'Stayman',
         'jacoby_transfers': 'Jacoby Transfers',
         'texas_transfers': 'Texas Transfers',
-    'minor_suit_transfers': 'Minor Suit Transfers',
+        'minor_suit_transfers': 'Minor Suit Transfers',
         'control_showing_cue_bids': 'Control Showing Cue Bids',
         'gerber': 'Gerber',
         'blackwood_regular': 'Regular Blackwood',
@@ -3701,11 +3836,11 @@ function getDefaultDescription(conventionKey) {
         'stayman': '2C asking for a 4-card major over partner\'s 1NT',
         'jacoby_transfers': '2D/2H over 1NT (3D/3H over 2NT) transferring to hearts/spades',
         'texas_transfers': '4D/4H over 1NT/2NT transferring to 4H/4S to play',
-    'minor_suit_transfers': '2S transfers to clubs; 2NT transfers to diamonds over 1NT',
+        'minor_suit_transfers': '2S transfers to clubs; 2NT transfers to diamonds over 1NT',
         'control_showing_cue_bids': 'Cue bids showing first or second round control in slam-going auctions',
         'gerber': 'Ace asking convention using 4C',
         'blackwood_regular': 'Regular Blackwood asking for aces only',
-    'blackwood_rkcb': 'Roman Key Card Blackwood (1430 responses)',
+        'blackwood_rkcb': 'Roman Key Card Blackwood (1430 responses)',
         'dont': 'Defense against 1NT opening',
         'meckwell': 'Defense against strong club systems',
         'lebensohl': 'Lebensohl convention after interference',
@@ -3734,16 +3869,16 @@ function loadFallbackConventions() {
         'Stayman': { category: 'notrump_responses', key: 'stayman', description: '2C asking for a 4-card major over partner\'s 1NT', enabled: true, isGeneral: false },
         'Jacoby Transfers': { category: 'notrump_responses', key: 'jacoby_transfers', description: '2D/2H over 1NT; 3D/3H over 2NT transfer to H/S', enabled: true, isGeneral: false },
         'Texas Transfers': { category: 'notrump_responses', key: 'texas_transfers', description: '4D/4H over 1NT/2NT transfer to 4H/4S', enabled: true, isGeneral: false },
-    'Minor Suit Transfers': { category: 'notrump_responses', key: 'minor_suit_transfers', description: '2S->3C; 2NT->3D over 1NT', enabled: false, isGeneral: false },
+        'Minor Suit Transfers': { category: 'notrump_responses', key: 'minor_suit_transfers', description: '2S->3C; 2NT->3D over 1NT', enabled: false, isGeneral: false },
         'Gerber': { category: 'slam_bidding', key: 'gerber', description: 'Ace asking convention using 4C', enabled: true, isGeneral: false },
         'Regular Blackwood': { category: 'slam_bidding', key: 'blackwood_regular', description: 'Regular Blackwood asking for aces only', enabled: false, isGeneral: false },
-    [rkcbName]: { category: 'slam_bidding', key: 'blackwood_rkcb', description: 'Roman Key Card Blackwood (1430 responses)', enabled: true, isGeneral: false },
+        [rkcbName]: { category: 'slam_bidding', key: 'blackwood_rkcb', description: 'Roman Key Card Blackwood (1430 responses)', enabled: true, isGeneral: false },
         'Control Showing Cue Bids': { category: 'slam_bidding', key: 'control_showing_cue_bids', description: 'Cue bids showing first or second round control in slam-going auctions', enabled: true, isGeneral: false },
         'DONT': { category: 'notrump_defenses', key: 'dont', description: 'Defense against 1NT opening', enabled: true, isGeneral: false },
         'Meckwell': { category: 'notrump_defenses', key: 'meckwell', description: 'Defense against strong club systems', enabled: false, isGeneral: false },
         'Jacoby 2NT': { category: 'responses', key: 'jacoby_2nt', description: 'Game forcing raise of major suit', enabled: true, isGeneral: false },
-    'Splinter Bids': { category: 'responses', key: 'splinter_bids', description: 'Jump bids showing shortness and support', enabled: true, isGeneral: false },
-    'Bergen Raises': { category: 'responses', key: 'bergen_raises', description: '3♣/3♦ raises with 4+ trumps (7-10, 11-12); 3M preemptive 0-6', enabled: false, isGeneral: false },
+        'Splinter Bids': { category: 'responses', key: 'splinter_bids', description: 'Jump bids showing shortness and support', enabled: true, isGeneral: false },
+        'Bergen Raises': { category: 'responses', key: 'bergen_raises', description: '3♣/3♦ raises with 4+ trumps (7-10, 11-12); 3M preemptive 0-6', enabled: false, isGeneral: false },
         'Lebensohl': { category: 'competitive', key: 'lebensohl', description: 'Lebensohl convention after interference', enabled: true, isGeneral: false },
         'Unusual NT': { category: 'competitive', key: 'unusual_nt', description: 'Unusual No Trump showing minors', enabled: true, isGeneral: false },
         'Michaels': { category: 'competitive', key: 'michaels', description: 'Cue bid showing 5-5 in majors or major+minor', enabled: true, isGeneral: false },
@@ -3759,21 +3894,21 @@ function loadFallbackConventions() {
         'Passed Hand Variations': { category: 'general', key: 'passed_hand_variations', description: 'Variations for passed hand bidding', enabled: true, isGeneral: true },
         'Balance of Power': { category: 'general', key: 'balance_of_power', description: 'Balance of power considerations', enabled: true, isGeneral: true }
     };
-    
+
     conventionCategories = {
         'opening_bids': { name: 'Opening Bids', conventions: ['Strong 2 Clubs', 'Weak 2 Bids'] },
-    'notrump_responses': { name: 'No Trump Responses', conventions: ['Stayman', 'Jacoby Transfers', 'Texas Transfers', 'Minor Suit Transfers'] },
-    'responses': { name: 'Responses', conventions: ['Jacoby 2NT', 'Splinter Bids', 'Bergen Raises', 'Drury'] },
+        'notrump_responses': { name: 'No Trump Responses', conventions: ['Stayman', 'Jacoby Transfers', 'Texas Transfers', 'Minor Suit Transfers'] },
+        'responses': { name: 'Responses', conventions: ['Jacoby 2NT', 'Splinter Bids', 'Bergen Raises', 'Drury'] },
         'competitive': { name: 'Competitive Bidding', conventions: ['Lebensohl', 'Unusual NT', 'Michaels', 'Responsive Doubles', 'Negative Doubles', 'Takeout Doubles', 'Support Doubles', 'Reopening Doubles', 'Cue Bid Raises'] },
-    'slam_bidding': { name: 'Slam Bidding', conventions: ['Gerber', 'Regular Blackwood', rkcbName, 'Control Showing Cue Bids'] },
+        'slam_bidding': { name: 'Slam Bidding', conventions: ['Gerber', 'Regular Blackwood', rkcbName, 'Control Showing Cue Bids'] },
         'notrump_defenses': { name: 'No Trump Defenses', conventions: ['DONT', 'Meckwell'] }
     };
-    
+
     mutuallyExclusiveGroups = [
         ['DONT', 'Meckwell'],
         ['Regular Blackwood', rkcbName]
     ];
-    
+
     enabledConventions = {};
     Object.keys(availableConventions).forEach(name => {
         const convention = availableConventions[name];
@@ -3790,13 +3925,13 @@ function createConventionCheckboxes() {
     console.log('createConventionCheckboxes called');
     console.log('conventionCategories:', conventionCategories);
     console.log('availableConventions:', availableConventions);
-    
+
     const container = document.getElementById('conventionCheckboxes');
     if (!container) {
         console.error('conventionCheckboxes container not found');
         return;
     }
-    
+
     container.innerHTML = '';
 
     // Build two independent columns so left stack isn't constrained by right column height
@@ -3811,9 +3946,9 @@ function createConventionCheckboxes() {
     // 1) Opening Bids, Competitive Bidding
     // 2) No Trump Responses, No Trump Defenses
     // 3) Responses, Slam Bidding
-    const col1Order = ['opening_bids','competitive'];
-    const col2Order = ['notrump_responses','notrump_defenses'];
-    const col3Order = ['responses','slam_bidding'];
+    const col1Order = ['opening_bids', 'competitive'];
+    const col2Order = ['notrump_responses', 'notrump_defenses'];
+    const col3Order = ['responses', 'slam_bidding'];
 
     const renderCategory = (categoryKey, targetCol) => {
         const category = conventionCategories[categoryKey];
@@ -3869,7 +4004,7 @@ function createConventionCheckboxes() {
 function createPracticeConventionOptions() {
     const container = document.getElementById('practiceConventionCheckboxes');
     if (!container) return;
-    
+
     container.innerHTML = '';
 
     // Two independent columns for practice options
@@ -3884,9 +4019,9 @@ function createPracticeConventionOptions() {
     // 1) Opening Bids, Competitive Bidding
     // 2) No Trump Responses, No Trump Defenses
     // 3) Responses, Slam Bidding
-    const col1Order = ['opening_bids','competitive'];
-    const col2Order = ['notrump_responses','notrump_defenses'];
-    const col3Order = ['responses','slam_bidding'];
+    const col1Order = ['opening_bids', 'competitive'];
+    const col2Order = ['notrump_responses', 'notrump_defenses'];
+    const col3Order = ['responses', 'slam_bidding'];
 
     const renderPracticeCategory = (categoryKey, targetCol) => {
         const category = conventionCategories[categoryKey];
@@ -3983,20 +4118,20 @@ function updateConventionStatus(conventionName, enabled) {
             }
         });
     }
-    
+
     enabledConventions[conventionName] = enabled;
-    
+
     // If disabling a convention, also remove it from practice conventions
     if (!enabled && practiceConventions.includes(conventionName)) {
         practiceConventions = practiceConventions.filter(name => name !== conventionName);
     }
-    
+
     // Refresh practice convention checkboxes to reflect changes
     createPracticeConventionOptions();
     // Push changes down to engine configuration so bidding logic respects the UI
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync convention change to engine:', e); }
-    
-    try { saveEnabledConventions(); } catch (_) {}
+
+    try { saveEnabledConventions(); } catch (_) { }
     console.log(`Convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
 }
 
@@ -4008,7 +4143,7 @@ function updatePracticeConvention(conventionName, enabled) {
     } else {
         practiceConventions = practiceConventions.filter(name => name !== conventionName);
     }
-    
+
     console.log(`Practice convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
 }
 
@@ -4019,7 +4154,7 @@ function updatePracticeConventionSelection(categoryKey, conventionName) {
     } else {
         selectedPracticeConventions[categoryKey] = conventionName;
     }
-    
+
     console.log(`Practice convention selection for ${categoryKey}: ${conventionName || 'None'}`);
     console.log('Current practice selections:', selectedPracticeConventions);
 }
@@ -4027,46 +4162,46 @@ function updatePracticeConventionSelection(categoryKey, conventionName) {
 function selectAllConventions() {
     Object.keys(availableConventions).forEach(conventionName => {
         const convention = availableConventions[conventionName];
-        
+
         // Skip general conventions (always enabled), Meckwell (user must manually enable),
         // and Regular Blackwood (RKC Blackwood 1430 is preferred)
         if (convention.isGeneral || conventionName === 'Meckwell' || conventionName === 'Regular Blackwood') {
             return;
         }
-        
+
         enabledConventions[conventionName] = true;
         const checkbox = document.getElementById(`conv_${conventionName.replace(/\s+/g, '_')}`);
         if (checkbox) checkbox.checked = true;
     });
-    
+
     // Refresh practice convention checkboxes
     createPracticeConventionOptions();
-    try { saveEnabledConventions(); } catch (_) {}
+    try { saveEnabledConventions(); } catch (_) { }
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after select all:', e); }
-    
+
     console.log('All conventions enabled (except general, Meckwell, and Regular Blackwood)');
 }
 
 function clearAllConventions() {
     Object.keys(availableConventions).forEach(conventionName => {
         const convention = availableConventions[conventionName];
-        
+
         // Skip general conventions (always enabled)
         if (convention.isGeneral) {
             return;
         }
-        
+
         enabledConventions[conventionName] = false;
         const checkbox = document.getElementById(`conv_${conventionName.replace(/\s+/g, '_')}`);
         if (checkbox) checkbox.checked = false;
     });
-    
+
     // Clear all practice conventions and refresh
     practiceConventions = [];
     createPracticeConventionOptions();
-    try { saveEnabledConventions(); } catch (_) {}
+    try { saveEnabledConventions(); } catch (_) { }
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after clear all:', e); }
-    
+
     console.log('All conventions disabled (except general)');
 }
 
@@ -4075,9 +4210,9 @@ function clearAllConventions() {
 function updateSystemConventions() {
     // Update the system's convention configuration based on enabled conventions
     if (!system || !system.conventions || !system.conventions.config) return;
-    
+
     const config = system.conventions.config;
-    
+
     // Update each convention category (generic path)
     Object.keys(availableConventions).forEach(conventionName => {
         const convention = availableConventions[conventionName];
@@ -4088,11 +4223,21 @@ function updateSystemConventions() {
             if (convention.category && !config[convention.category]) {
                 config[convention.category] = {};
             }
-            if (convention.category && convention.key && !config[convention.category][convention.key]) {
-                config[convention.category][convention.key] = { enabled: enabled };
-            }
+
             if (convention.category && convention.key) {
-                config[convention.category][convention.key].enabled = enabled;
+                const currentVal = config[convention.category][convention.key];
+                if (typeof currentVal === 'boolean') {
+                    config[convention.category][convention.key] = enabled;
+                } else if (typeof currentVal === 'string') {
+                    // String settings (e.g. 'classic') are not toggles; ignore
+                } else {
+                    // Object or undefined
+                    if (!currentVal) {
+                        config[convention.category][convention.key] = { enabled: enabled };
+                    } else {
+                        config[convention.category][convention.key].enabled = enabled;
+                    }
+                }
             }
         } catch (error) {
             console.warn(`Could not update convention ${conventionName}:`, error);
@@ -4131,7 +4276,7 @@ function updateSystemConventions() {
             // Gerber UI under Slam Bidding -> ace_asking.gerber
             if (convention.key === 'gerber') {
                 config.ace_asking = config.ace_asking || {};
-                config.ace_asking.gerber = config.ace_asking.gerber || { enabled: enabled, continuations: true, responses_map: ['4D','4H','4S','4NT'] };
+                config.ace_asking.gerber = config.ace_asking.gerber || { enabled: enabled, continuations: true, responses_map: ['4D', '4H', '4S', '4NT'] };
                 config.ace_asking.gerber.enabled = enabled;
             }
 
@@ -4165,8 +4310,8 @@ function updateSystemConventions() {
             config.ace_asking.blackwood = config.ace_asking.blackwood || { enabled: false, variant: 'rkcb', responses: '1430' };
             config.ace_asking.blackwood.enabled = false;
         }
-    } catch (_) {}
-    
+    } catch (_) { }
+
     console.log('System conventions updated');
 }
 
@@ -4177,12 +4322,12 @@ function generateHandsForPractice() {
 
         const selectedConventions = Object.values(selectedPracticeConventions).filter(conv => conv !== null);
         console.log(`Generating hands for selected practice conventions:`, selectedPracticeConventions);
-        
+
         if (selectedConventions.length === 0) {
             // No practice conventions selected, generate random hands
             return generateBasicRandomHands();
         }
-        
+
         // First, try to satisfy ALL selected conventions at once
         if (generateConventionTargetedHand(selectedConventions)) {
             displayHands();
@@ -4222,7 +4367,7 @@ function generateHandsForPractice() {
             generateRandomHands();
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         }
-        
+
     } catch (error) {
         console.error('Error generating practice hands:', error);
         generateRandomHands();
@@ -4236,12 +4381,12 @@ function generateHandsForPractice() {
 function generateBasicRandomHands() {
     const deck = createDeck();
     shuffleDeck(deck);
-    
+
     currentHands.N = new window.Hand(convertCardsToHandString(deck.slice(0, 13)));
     currentHands.E = new window.Hand(convertCardsToHandString(deck.slice(13, 26)));
     currentHands.S = new window.Hand(convertCardsToHandString(deck.slice(26, 39)));
     currentHands.W = new window.Hand(convertCardsToHandString(deck.slice(39, 52)));
-    try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) {}
+    try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) { }
 }
 
 // Public helper to generate a fresh random deal and refresh UI
@@ -4253,13 +4398,13 @@ function generateRandomHands() {
         displayHands();
         showAuctionSetup();
         // Auto-switch to Auction tab after generating a random deal
-        try { switchTab('auction'); } catch (_) {}
+        try { switchTab('auction'); } catch (_) { }
     } catch (e) {
         console.error('generateRandomHands failed:', e);
         try {
             displayHands();
             showAuctionSetup();
-        } catch (_) {}
+        } catch (_) { }
     }
 }
 
@@ -4268,7 +4413,7 @@ function selectTargetConvention(selectedConventions) {
     if (selectedConventions.length === 1) {
         return selectedConventions[0];
     }
-    
+
     // If multiple conventions are selected, try to find one that's compatible
     // For now, randomly select one
     return selectedConventions[Math.floor(Math.random() * selectedConventions.length)];
@@ -4321,63 +4466,63 @@ function validateHandForConvention(southHand, conventionName) {
     switch (conventionName) {
         case 'Strong 2 Clubs':
             return southHand.hcp >= 22;
-            
+
         case 'Weak 2 Bids':
-            return southHand.hcp >= 6 && southHand.hcp <= 10 && 
-                   (southHand.lengths.H === 6 || southHand.lengths.S === 6 || southHand.lengths.D === 6);
-                   
+            return southHand.hcp >= 6 && southHand.hcp <= 10 &&
+                (southHand.lengths.H === 6 || southHand.lengths.S === 6 || southHand.lengths.D === 6);
+
         case 'Jacoby 2NT':
-            return southHand.hcp >= 13 && 
-                   (southHand.lengths.H >= 4 || southHand.lengths.S >= 4);
-                   
+            return southHand.hcp >= 13 &&
+                (southHand.lengths.H >= 4 || southHand.lengths.S >= 4);
+
         case 'Splinter Bids':
-            return southHand.hcp >= 13 && 
-                   (southHand.lengths.H >= 4 || southHand.lengths.S >= 4) &&
-                   (southHand.lengths.C <= 1 || southHand.lengths.D <= 1 || 
+            return southHand.hcp >= 13 &&
+                (southHand.lengths.H >= 4 || southHand.lengths.S >= 4) &&
+                (southHand.lengths.C <= 1 || southHand.lengths.D <= 1 ||
                     southHand.lengths.H <= 1 || southHand.lengths.S <= 1);
-                    
+
         case 'Gerber':
         case 'Regular Blackwood':
         case 'RKC Blackwood 1430':
             return southHand.hcp >= 16; // Strong enough to consider slam
-            
+
         case 'DONT':
         case 'Meckwell':
             return southHand.hcp >= 8; // Enough to interfere over 1NT
-            
+
         case 'Unusual NT':
-            return southHand.hcp >= 8 && 
-                   southHand.lengths.C >= 5 && southHand.lengths.D >= 5;
+            return southHand.hcp >= 8 &&
+                southHand.lengths.C >= 5 && southHand.lengths.D >= 5;
         case 'Unusual NT (over minors)':
             return southHand.hcp >= 8 &&
-                   southHand.lengths.H >= 5 &&
-                   (southHand.lengths.C >= 5 || southHand.lengths.D >= 5);
-                   
+                southHand.lengths.H >= 5 &&
+                (southHand.lengths.C >= 5 || southHand.lengths.D >= 5);
+
         case 'Michaels':
-            return southHand.hcp >= 8 && 
-                   ((southHand.lengths.H >= 5 && southHand.lengths.S >= 5) ||
+            return southHand.hcp >= 8 &&
+                ((southHand.lengths.H >= 5 && southHand.lengths.S >= 5) ||
                     (southHand.lengths.H >= 5 && (southHand.lengths.C >= 5 || southHand.lengths.D >= 5)) ||
                     (southHand.lengths.S >= 5 && (southHand.lengths.C >= 5 || southHand.lengths.D >= 5)));
-                    
+
         case 'Negative Doubles':
         case 'Responsive Doubles':
         case 'Takeout Doubles':
         case 'Support Doubles':
         case 'Reopening Doubles':
             return southHand.hcp >= 6; // Minimum for doubles
-            
+
         case 'Cue Bid Raises':
             return southHand.hcp >= 10 && // Need strength for cue bid raise
-                   (southHand.lengths.H >= 3 || southHand.lengths.S >= 3); // Need support
-                   
+                (southHand.lengths.H >= 3 || southHand.lengths.S >= 3); // Need support
+
         case 'Drury':
             return southHand.hcp >= 8 && southHand.hcp <= 12 && // Drury range
-                   (southHand.lengths.H >= 3 || southHand.lengths.S >= 3); // Need major support
-        
+                (southHand.lengths.H >= 3 || southHand.lengths.S >= 3); // Need major support
+
         case 'Bergen Raises':
             // Hands suitable for Bergen raises as responder: 4+ card support in a major and up to invitational values
             return southHand.hcp <= 12 && (southHand.lengths.H >= 4 || southHand.lengths.S >= 4);
-            
+
         default:
             return southHand.hcp >= 12; // Generic opening hand strength
     }
@@ -4387,9 +4532,9 @@ function addPracticeIndicator(targetConvention) {
     // Remove any existing practice indicators
     const existingIndicators = document.querySelectorAll('.practice-indicator');
     existingIndicators.forEach(indicator => indicator.remove());
-    
+
     if (!targetConvention) return;
-    
+
     // Add new practice indicator
     const indicator = document.createElement('div');
     indicator.className = 'alert alert-info alert-dismissible fade show mt-2 practice-indicator';
@@ -4398,7 +4543,7 @@ function addPracticeIndicator(targetConvention) {
         <i class="bi bi-target"></i> <strong>Practice Mode:</strong> Hand generated for practicing <strong>${label}</strong>
         <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
     `;
-    
+
     const handCard = document.getElementById('handDisplayCard');
     if (handCard) {
         handCard.appendChild(indicator);
@@ -4421,15 +4566,15 @@ function switchTab(tabName) {
     document.querySelectorAll('.tab-panel').forEach(panel => {
         panel.classList.remove('active');
     });
-    
+
     // Remove active class from all tab buttons
     document.querySelectorAll('.tab-button').forEach(button => {
         button.classList.remove('active');
     });
-    
+
     // Show selected tab panel
     document.getElementById(tabName + 'Panel').classList.add('active');
-    
+
     // Add active class to selected tab button
     const activeBtn = document.getElementById(tabName + 'Tab');
     if (activeBtn) activeBtn.classList.add('active');
@@ -4460,8 +4605,8 @@ function switchTab(tabName) {
     try {
         if (tabName === 'play') {
             renderPlayTab();
-                // Only run debug overlays when explicitly enabled (avoid UI noise)
-                try { if (window && window.__debugPlayLayout) { debugPlayLayout(); } } catch (_) { /* ignore debug failures */ }
+            // Only run debug overlays when explicitly enabled (avoid UI noise)
+            try { if (window && window.__debugPlayLayout) { debugPlayLayout(); } } catch (_) { /* ignore debug failures */ }
         }
     } catch (e) {
         console.warn('Failed to render Play tab:', e?.message || e);
@@ -4496,8 +4641,8 @@ function updatePlayTabState() {
 // Debug helper: draw temporary overlays around play-area elements and log computed styles.
 function debugPlayLayout() {
     try {
-        const ids = ['playNorthArea','playWestArea','playTableArea','playEastArea','playSouthArea','trickArea'];
-        const colors = ['#ff7f7f','#ffd07f','#7fffd4','#7fb3ff','#c87fff','#ffdf7f'];
+        const ids = ['playNorthArea', 'playWestArea', 'playTableArea', 'playEastArea', 'playSouthArea', 'trickArea'];
+        const colors = ['#ff7f7f', '#ffd07f', '#7fffd4', '#7fb3ff', '#c87fff', '#ffdf7f'];
         const overlays = [];
         ids.forEach((id, i) => {
             const el = document.getElementById(id);
@@ -4553,7 +4698,7 @@ function debugPlayLayout() {
             console.groupEnd();
         }
 
-        ['playWestArea','playEastArea','playTableArea'].forEach(id => {
+        ['playWestArea', 'playEastArea', 'playTableArea'].forEach(id => {
             const el = document.getElementById(id);
             if (!el) return;
             const cs = window.getComputedStyle(el);
@@ -4655,11 +4800,11 @@ function showTab(tabId) {
 }
 
 // Initialize when page loads
-document.addEventListener('DOMContentLoaded', function() {
+document.addEventListener('DOMContentLoaded', function () {
     // Add delay to ensure all scripts are loaded
     setTimeout(initializeSystem, 500);
     // Ensure Play tab button state is correct on load
-    try { updatePlayTabState(); } catch (_) {}
+    try { updatePlayTabState(); } catch (_) { }
     // Enhance bid buttons to color suit icons only on the buttons (not in the auction grid)
     try {
         enhanceBidButtonsSuitIcons();
@@ -4747,7 +4892,7 @@ playState.declarerPlan = null;
 
 // In-memory play trace log (browser-only). Each entry is a short text line.
 let playLog = [];
-try { if (typeof window !== 'undefined') window.playLog = playLog; } catch(_) {}
+try { if (typeof window !== 'undefined') window.playLog = playLog; } catch (_) { }
 
 
 function renderPlayTab() {
@@ -4764,174 +4909,174 @@ function renderPlayTab() {
                 tabContent.appendChild(playPanelEl);
                 appendPlayDebug('renderPlayTab: moved playPanel into .tab-content');
             }
-        } catch (_) {}
-    // Show a brief loading status while initializing the Play view
-    try {
-        const ps = document.getElementById('playStatus');
-        if (ps) {
-            ps.className = 'alert alert-info';
-            ps.style.display = 'block';
-            ps.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #1e88e5;border-top-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:spin .8s linear infinite"></span> Loading play layout…';
-            // Inject minimal spinner keyframes if not present
-            const styleId = 'play-spinner-style';
-            if (!document.getElementById(styleId)) {
-                const st = document.createElement('style');
-                st.id = styleId;
-                st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
-                document.head.appendChild(st);
-            }
-        }
-    } catch (_) {}
-
-    // In test/jsdom scenarios, window.currentHands may be the source of truth
-    try { if (typeof window !== 'undefined' && window.currentHands) { currentHands = window.currentHands; } } catch (_) {}
-
-    // If the Play panel is currently hidden (tab not active), don't force it
-    // visible — instead defer rendering until it's activated. This prevents
-    // showing Play content on the wrong tab while still ensuring renderPlayTab
-    // will run when the panel becomes active via switchTab().
-    try {
-        const playPanel = document.getElementById('playPanel');
-        if (playPanel) {
-            const cs = window.getComputedStyle ? getComputedStyle(playPanel) : null;
-            if (cs && cs.display === 'none') {
-                appendPlayDebug('renderPlayTab: panel is hidden; deferring render until activated');
-                // Watch for the 'active' class being added and then render once.
-                const mo = new MutationObserver((mutations, obs) => {
-                    try {
-                        const nowCs = getComputedStyle(playPanel);
-                        if (playPanel.classList.contains('active') && nowCs.display !== 'none') {
-                            appendPlayDebug('renderPlayTab: panel activated via mutation observer — rendering now');
-                            obs.disconnect();
-                            // Defer slightly to allow the browser layout to settle
-                            setTimeout(() => { try { renderPlayTab(); } catch(_) {} }, 40);
-                        }
-                    } catch (_) {}
-                });
-                mo.observe(playPanel, { attributes: true, attributeFilter: ['class', 'style'] });
-                // Also set a safety timeout to attempt rendering in case mutation observer misses
-                setTimeout(() => {
-                    try {
-                        const cs2 = getComputedStyle(playPanel);
-                        if (playPanel.classList.contains('active') && cs2.display !== 'none') {
-                            appendPlayDebug('renderPlayTab: panel active (timeout check) — rendering now');
-                            renderPlayTab();
-                        } else {
-                            appendPlayDebug('renderPlayTab: still hidden after timeout — aborting render');
-                        }
-                    } catch (_) {}
-                }, 500);
-                return; // abort this invocation — will rerun when panel activated
-            }
-        }
-    } catch (_) {}
-
-    // Compute final contract from auction history
-    const details = computePlayDetailsFromAuction();
-    try { appendPlayDebug('renderPlayTab: computed details: ' + JSON.stringify({ contract: details.contract ? `${details.contract.level}${details.contract.strain}` : null, declarer: details.declarer, dummy: details.dummy })); } catch(_) {}
-    playState.contract = details.contract;
-    playState.declarer = details.declarer;
-    playState.dummy = details.dummy;
-    playState.trump = details.trump;
-    playState.leader = details.leader;
-    playState.nextSeat = details.leader;
-    playState.trick = [];
-    playState.played = new Set();
-    playState.dummyRevealed = false;
-    playState.contractSide = details.contractSide;
-    playState.tricksNS = 0;
-    playState.tricksEW = 0;
-    // Snapshot original hands for replay
-    playState.originalHands = cloneHands(currentHands);
-    // Initialize remaining counts for plan decisions
-    try { computeRemainingCounts(); } catch(_) {}
-
-    // Update Play titles to reflect declarer and dummy roles
-    try {
-        const northTitleEl = document.querySelector('#playNorthArea .hand-title');
-        const southTitleEl = document.querySelector('#playSouthArea .hand-title');
-        const westTitleEl = document.querySelector('#playWestArea .hand-title');
-        const eastTitleEl = document.querySelector('#playEastArea .hand-title');
-        if (northTitleEl && southTitleEl) {
-            const decl = playState.declarer;
-            const dum = playState.dummy;
-            const northIsDummy = dum === 'N';
-            const southIsDummy = dum === 'S';
-            const northIsDeclarer = decl === 'N';
-            const southIsDeclarer = decl === 'S';
-            northTitleEl.textContent = northIsDummy ? 'North (Dummy)' : (northIsDeclarer ? 'North (Declarer)' : 'North');
-            southTitleEl.textContent = southIsDummy ? 'South (Dummy)' : (southIsDeclarer ? 'South (Declarer)' : 'South (You)');
-            // Also set East/West labels to indicate dummy if applicable
-            try {
-                if (westTitleEl) {
-                    const westIsDummy = dum === 'W';
-                    const westIsDeclarer = decl === 'W';
-                    westTitleEl.textContent = westIsDummy ? 'West (Dummy)' : (westIsDeclarer ? 'West (Declarer)' : 'West');
-                }
-                if (eastTitleEl) {
-                    const eastIsDummy = dum === 'E';
-                    const eastIsDeclarer = decl === 'E';
-                    eastTitleEl.textContent = eastIsDummy ? 'East (Dummy)' : (eastIsDeclarer ? 'East (Declarer)' : 'East');
-                }
-            } catch(_) {}
-        }
-    } catch (_) {}
-
-    // Update contract info
-    const info = document.getElementById('playContractInfo');
-    if (info) {
-        if (!details.contract) {
-            info.textContent = 'Contract: — (All Pass)';
-        } else {
-            const side = (details.contractSide === 'NS' ? 'N-S' : 'E-W');
-            const denom = details.contract.strain === 'NT' ? 'NT' : ({S:'♠',H:'♥',D:'♦',C:'♣'}[details.contract.strain] || details.contract.strain);
-            const dblTxt = details.contract.dbl === 1 ? 'x' : (details.contract.dbl === 2 ? 'xx' : '');
-            info.textContent = `Contract: ${details.contract.level}${denom}${dblTxt ? ' ' + dblTxt : ''} by ${seatName(details.declarer)} (${side}) — Leader: ${seatName(details.leader)}`;
-        }
-    }
-
-    // Render hands (South and Dummy if dummy is North)
-    try {
-        // Remove any lingering debug overlay elements left by earlier debug runs
-        try { document.querySelectorAll('[data-debug-for]').forEach(el => el.remove()); } catch(_) {}
-        appendPlayDebug('renderPlayTab: start rendering hands');
-        const southRow = document.getElementById('playSouthHand');
-        const northRow = document.getElementById('playNorthHand');
-        if (southRow) southRow.innerHTML = '';
-        if (northRow) northRow.innerHTML = '';
-
-        // Reveal dummy only after the opening lead. Render hands using the
-        // auction-style textual layout (suit groups) but create per-card
-        // clickable elements for the Play tab instead of using CardSVG.render.
-        const dummySeat = playState.dummy;
-        // South's cards must always be clickable per requirements
-        if (currentHands && currentHands.S) {
-            try { appendPlayDebug('renderPlayTab: rendering South hand (clickable)'); } catch(_) {}
-            renderPlayHand('playSouthHand', 'S', true);
-        }
-        // North's cards should only be visible when North is declarer or North is dummy.
-        // When N-S are defenders (contractSide === 'EW'), North's hand should be hidden
-        // but the engine will play for North automatically. If North is visible, make it clickable.
-        // Additionally, when East or West is the dummy, do NOT show the North hand at all
-        // (no card backs) so the layout matches E/W-dummy conventions.
-        const showNorth = (playState.declarer === 'N' || playState.dummy === 'N');
-        const northClickable = !!showNorth;
-        if (currentHands && currentHands.N) {
-            try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch(_) {}
-            if (!showNorth && northRow) {
-                // If dummy is E or W, hide North entirely (no card backs). Otherwise show backs.
-                northRow.innerHTML = '';
-                if (playState.dummy !== 'E' && playState.dummy !== 'W') {
-                    renderCardBacks('playNorthHand', 'N');
-                }
-            } else if (showNorth) {
-                renderPlayHand('playNorthHand', 'N', !!northClickable);
-            }
-        }
-        // East/West: show backs unless that seat is the dummy (then reveal its hand)
-        const eastRow = document.getElementById('playEastHand');
-        const westRow = document.getElementById('playWestHand');
+        } catch (_) { }
+        // Show a brief loading status while initializing the Play view
         try {
+            const ps = document.getElementById('playStatus');
+            if (ps) {
+                ps.className = 'alert alert-info';
+                ps.style.display = 'block';
+                ps.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #1e88e5;border-top-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:spin .8s linear infinite"></span> Loading play layout…';
+                // Inject minimal spinner keyframes if not present
+                const styleId = 'play-spinner-style';
+                if (!document.getElementById(styleId)) {
+                    const st = document.createElement('style');
+                    st.id = styleId;
+                    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
+                    document.head.appendChild(st);
+                }
+            }
+        } catch (_) { }
+
+        // In test/jsdom scenarios, window.currentHands may be the source of truth
+        try { if (typeof window !== 'undefined' && window.currentHands) { currentHands = window.currentHands; } } catch (_) { }
+
+        // If the Play panel is currently hidden (tab not active), don't force it
+        // visible — instead defer rendering until it's activated. This prevents
+        // showing Play content on the wrong tab while still ensuring renderPlayTab
+        // will run when the panel becomes active via switchTab().
+        try {
+            const playPanel = document.getElementById('playPanel');
+            if (playPanel) {
+                const cs = window.getComputedStyle ? getComputedStyle(playPanel) : null;
+                if (cs && cs.display === 'none') {
+                    appendPlayDebug('renderPlayTab: panel is hidden; deferring render until activated');
+                    // Watch for the 'active' class being added and then render once.
+                    const mo = new MutationObserver((mutations, obs) => {
+                        try {
+                            const nowCs = getComputedStyle(playPanel);
+                            if (playPanel.classList.contains('active') && nowCs.display !== 'none') {
+                                appendPlayDebug('renderPlayTab: panel activated via mutation observer — rendering now');
+                                obs.disconnect();
+                                // Defer slightly to allow the browser layout to settle
+                                setTimeout(() => { try { renderPlayTab(); } catch (_) { } }, 40);
+                            }
+                        } catch (_) { }
+                    });
+                    mo.observe(playPanel, { attributes: true, attributeFilter: ['class', 'style'] });
+                    // Also set a safety timeout to attempt rendering in case mutation observer misses
+                    setTimeout(() => {
+                        try {
+                            const cs2 = getComputedStyle(playPanel);
+                            if (playPanel.classList.contains('active') && cs2.display !== 'none') {
+                                appendPlayDebug('renderPlayTab: panel active (timeout check) — rendering now');
+                                renderPlayTab();
+                            } else {
+                                appendPlayDebug('renderPlayTab: still hidden after timeout — aborting render');
+                            }
+                        } catch (_) { }
+                    }, 500);
+                    return; // abort this invocation — will rerun when panel activated
+                }
+            }
+        } catch (_) { }
+
+        // Compute final contract from auction history
+        const details = computePlayDetailsFromAuction();
+        try { appendPlayDebug('renderPlayTab: computed details: ' + JSON.stringify({ contract: details.contract ? `${details.contract.level}${details.contract.strain}` : null, declarer: details.declarer, dummy: details.dummy })); } catch (_) { }
+        playState.contract = details.contract;
+        playState.declarer = details.declarer;
+        playState.dummy = details.dummy;
+        playState.trump = details.trump;
+        playState.leader = details.leader;
+        playState.nextSeat = details.leader;
+        playState.trick = [];
+        playState.played = new Set();
+        playState.dummyRevealed = false;
+        playState.contractSide = details.contractSide;
+        playState.tricksNS = 0;
+        playState.tricksEW = 0;
+        // Snapshot original hands for replay
+        playState.originalHands = cloneHands(currentHands);
+        // Initialize remaining counts for plan decisions
+        try { computeRemainingCounts(); } catch (_) { }
+
+        // Update Play titles to reflect declarer and dummy roles
+        try {
+            const northTitleEl = document.querySelector('#playNorthArea .hand-title');
+            const southTitleEl = document.querySelector('#playSouthArea .hand-title');
+            const westTitleEl = document.querySelector('#playWestArea .hand-title');
+            const eastTitleEl = document.querySelector('#playEastArea .hand-title');
+            if (northTitleEl && southTitleEl) {
+                const decl = playState.declarer;
+                const dum = playState.dummy;
+                const northIsDummy = dum === 'N';
+                const southIsDummy = dum === 'S';
+                const northIsDeclarer = decl === 'N';
+                const southIsDeclarer = decl === 'S';
+                northTitleEl.textContent = northIsDummy ? 'North (Dummy)' : (northIsDeclarer ? 'North (Declarer)' : 'North');
+                southTitleEl.textContent = southIsDummy ? 'South (Dummy)' : (southIsDeclarer ? 'South (Declarer)' : 'South (You)');
+                // Also set East/West labels to indicate dummy if applicable
+                try {
+                    if (westTitleEl) {
+                        const westIsDummy = dum === 'W';
+                        const westIsDeclarer = decl === 'W';
+                        westTitleEl.textContent = westIsDummy ? 'West (Dummy)' : (westIsDeclarer ? 'West (Declarer)' : 'West');
+                    }
+                    if (eastTitleEl) {
+                        const eastIsDummy = dum === 'E';
+                        const eastIsDeclarer = decl === 'E';
+                        eastTitleEl.textContent = eastIsDummy ? 'East (Dummy)' : (eastIsDeclarer ? 'East (Declarer)' : 'East');
+                    }
+                } catch (_) { }
+            }
+        } catch (_) { }
+
+        // Update contract info
+        const info = document.getElementById('playContractInfo');
+        if (info) {
+            if (!details.contract) {
+                info.textContent = 'Contract: — (All Pass)';
+            } else {
+                const side = (details.contractSide === 'NS' ? 'N-S' : 'E-W');
+                const denom = details.contract.strain === 'NT' ? 'NT' : ({ S: '♠', H: '♥', D: '♦', C: '♣' }[details.contract.strain] || details.contract.strain);
+                const dblTxt = details.contract.dbl === 1 ? 'x' : (details.contract.dbl === 2 ? 'xx' : '');
+                info.textContent = `Contract: ${details.contract.level}${denom}${dblTxt ? ' ' + dblTxt : ''} by ${seatName(details.declarer)} (${side}) — Leader: ${seatName(details.leader)}`;
+            }
+        }
+
+        // Render hands (South and Dummy if dummy is North)
+        try {
+            // Remove any lingering debug overlay elements left by earlier debug runs
+            try { document.querySelectorAll('[data-debug-for]').forEach(el => el.remove()); } catch (_) { }
+            appendPlayDebug('renderPlayTab: start rendering hands');
+            const southRow = document.getElementById('playSouthHand');
+            const northRow = document.getElementById('playNorthHand');
+            if (southRow) southRow.innerHTML = '';
+            if (northRow) northRow.innerHTML = '';
+
+            // Reveal dummy only after the opening lead. Render hands using the
+            // auction-style textual layout (suit groups) but create per-card
+            // clickable elements for the Play tab instead of using CardSVG.render.
+            const dummySeat = playState.dummy;
+            // South's cards must always be clickable per requirements
+            if (currentHands && currentHands.S) {
+                try { appendPlayDebug('renderPlayTab: rendering South hand (clickable)'); } catch (_) { }
+                renderPlayHand('playSouthHand', 'S', true);
+            }
+            // North's cards should only be visible when North is declarer or North is dummy.
+            // When N-S are defenders (contractSide === 'EW'), North's hand should be hidden
+            // but the engine will play for North automatically. If North is visible, make it clickable.
+            // Additionally, when East or West is the dummy, do NOT show the North hand at all
+            // (no card backs) so the layout matches E/W-dummy conventions.
+            const showNorth = (playState.declarer === 'N' || playState.dummy === 'N');
+            const northClickable = !!showNorth;
+            if (currentHands && currentHands.N) {
+                try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch (_) { }
+                if (!showNorth && northRow) {
+                    // If dummy is E or W, hide North entirely (no card backs). Otherwise show backs.
+                    northRow.innerHTML = '';
+                    if (playState.dummy !== 'E' && playState.dummy !== 'W') {
+                        renderCardBacks('playNorthHand', 'N');
+                    }
+                } else if (showNorth) {
+                    renderPlayHand('playNorthHand', 'N', !!northClickable);
+                }
+            }
+            // East/West: show backs unless that seat is the dummy (then reveal its hand)
+            const eastRow = document.getElementById('playEastHand');
+            const westRow = document.getElementById('playWestHand');
+            try {
                 if (currentHands && currentHands.E) {
                     if (playState.dummy === 'E') {
                         // Reveal dummy East (non-clickable, SVG rows)
@@ -4939,69 +5084,69 @@ function renderPlayTab() {
                     } else {
                         if (eastRow) { eastRow.innerHTML = ''; renderCardBacks('playEastHand', 'E'); }
                     }
-            }
+                }
                 if (currentHands && currentHands.W) {
                     if (playState.dummy === 'W') {
                         if (westRow) { westRow.innerHTML = ''; renderPlayHand('playWestHand', 'W', false); }
                     } else {
                         if (westRow) { westRow.innerHTML = ''; renderCardBacks('playWestHand', 'W'); }
                     }
-            }
-        } catch(_) {}
-    } catch (_) {}
+                }
+            } catch (_) { }
+        } catch (_) { }
 
-    // Provide immediate DOM counts for diagnosis (south/north child counts)
-    try { const southCnt = document.getElementById('playSouthHand')?.childElementCount; const northCnt = document.getElementById('playNorthHand')?.childElementCount; appendPlayDebug('renderPlayTab: DOM counts south=' + (typeof southCnt === 'number' ? southCnt : 'none') + ' north=' + (typeof northCnt === 'number' ? northCnt : 'none')); } catch(_) {}
+        // Provide immediate DOM counts for diagnosis (south/north child counts)
+        try { const southCnt = document.getElementById('playSouthHand')?.childElementCount; const northCnt = document.getElementById('playNorthHand')?.childElementCount; appendPlayDebug('renderPlayTab: DOM counts south=' + (typeof southCnt === 'number' ? southCnt : 'none') + ' north=' + (typeof northCnt === 'number' ? northCnt : 'none')); } catch (_) { }
 
-    // Layout guard removed: rely on scoped CSS rules in `css/bidding.css`
-    // (e.g. `.tab-panel.active#playPanel` and `.card-button` sizing) to
-    // prevent Play area collapse across browsers. This keeps DOM untouched
-    // and avoids transient inline style changes.
+        // Layout guard removed: rely on scoped CSS rules in `css/bidding.css`
+        // (e.g. `.tab-panel.active#playPanel` and `.card-button` sizing) to
+        // prevent Play area collapse across browsers. This keeps DOM untouched
+        // and avoids transient inline style changes.
 
-    // Reset trick area: ensure per-seat slots are present and empty
-    const trickArea = document.getElementById('trickArea');
-    if (trickArea) {
-        // Clear any previous inline styles (e.g., left/top/width) so CSS grid drives layout
-        try { trickArea.removeAttribute('style'); } catch(_) {}
-        trickArea.innerHTML = '';
-        const slots = ['N','E','S','W'];
-        slots.forEach(s => {
-            const slot = document.createElement('div');
-            slot.className = `trick-slot trick-slot-${s === 'N' ? 'north' : s === 'S' ? 'south' : s === 'E' ? 'east' : 'west'}`;
-            slot.dataset.seat = s;
-            trickArea.appendChild(slot);
-        });
-        const hint = document.createElement('div');
-        hint.className = 'trick-hint';
-        hint.textContent = 'Click a card to play';
-        trickArea.appendChild(hint);
-    }
+        // Reset trick area: ensure per-seat slots are present and empty
+        const trickArea = document.getElementById('trickArea');
+        if (trickArea) {
+            // Clear any previous inline styles (e.g., left/top/width) so CSS grid drives layout
+            try { trickArea.removeAttribute('style'); } catch (_) { }
+            trickArea.innerHTML = '';
+            const slots = ['N', 'E', 'S', 'W'];
+            slots.forEach(s => {
+                const slot = document.createElement('div');
+                slot.className = `trick-slot trick-slot-${s === 'N' ? 'north' : s === 'S' ? 'south' : s === 'E' ? 'east' : 'west'}`;
+                slot.dataset.seat = s;
+                trickArea.appendChild(slot);
+            });
+            const hint = document.createElement('div');
+            hint.className = 'trick-hint';
+            hint.textContent = 'Click a card to play';
+            trickArea.appendChild(hint);
+        }
 
-    // Reset counts and status/result
-    try { document.getElementById('trickCountNS').textContent = '0'; } catch(_) {}
-    try { document.getElementById('trickCountEW').textContent = '0'; } catch(_) {}
-    try { const scoreEl = document.getElementById('playInlineScore'); if (scoreEl) scoreEl.textContent = ''; } catch(_) {}
-    try { const rs = document.getElementById('playResultSummary'); if (rs) { rs.textContent = ''; rs.style.display = 'none'; } } catch(_) {}
-    try { const ul = document.getElementById('playScoreBreakdown'); if (ul) { ul.innerHTML = ''; ul.style.display = 'none'; } } catch(_) {}
-    // Status line: opening lead prompt or all-pass message
-    if (!details.contract) {
-        showPlayStatus('All Pass — no play.', 'light');
-    } else {
-        showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
-    }
+        // Reset counts and status/result
+        try { document.getElementById('trickCountNS').textContent = '0'; } catch (_) { }
+        try { document.getElementById('trickCountEW').textContent = '0'; } catch (_) { }
+        try { const scoreEl = document.getElementById('playInlineScore'); if (scoreEl) scoreEl.textContent = ''; } catch (_) { }
+        try { const rs = document.getElementById('playResultSummary'); if (rs) { rs.textContent = ''; rs.style.display = 'none'; } } catch (_) { }
+        try { const ul = document.getElementById('playScoreBreakdown'); if (ul) { ul.innerHTML = ''; ul.style.display = 'none'; } } catch (_) { }
+        // Status line: opening lead prompt or all-pass message
+        if (!details.contract) {
+            showPlayStatus('All Pass — no play.', 'light');
+        } else {
+            showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
+        }
 
-    // If next to play is E/W, auto-play to keep the trick moving
-    try { if (typeof updateLeadHighlight === 'function') updateLeadHighlight(); } catch(_) {}
-    setTimeout(() => autoPlayIfNeeded(), 200);
-    try { appendPlayDebug('renderPlayTab: finished'); } catch(_) {}
+        // If next to play is E/W, auto-play to keep the trick moving
+        try { if (typeof updateLeadHighlight === 'function') updateLeadHighlight(); } catch (_) { }
+        setTimeout(() => autoPlayIfNeeded(), 200);
+        try { appendPlayDebug('renderPlayTab: finished'); } catch (_) { }
         // Position East/West seats deterministically so they sit flush to the trick area
         // NOTE: layout should be handled by CSS grid; avoid runtime inline positioning
         // which causes a visual 'shift' after render. Leave `positionEWSeats` defined
         // for debugging, but do not call it here.
     } catch (e) {
         // Ensure user sees an error instead of a blank Play tab
-        try { showPlayStatus('Failed to render Play view: ' + (e?.message || e), 'danger'); } catch(_) {}
-        try { appendPlayDebug('renderPlayTab: ERROR -> ' + (e?.message || String(e))); } catch(_) {}
+        try { showPlayStatus('Failed to render Play view: ' + (e?.message || e), 'danger'); } catch (_) { }
+        try { appendPlayDebug('renderPlayTab: ERROR -> ' + (e?.message || String(e))); } catch (_) { }
         console.error('renderPlayTab error:', e);
     }
 }
@@ -5011,37 +5156,37 @@ try {
     if (typeof window !== 'undefined') {
         // Ensure callable from tests and inline handlers
         window.renderPlayTab = renderPlayTab;
-        window.goToPlay = function() {
+        window.goToPlay = function () {
             try {
                 const btn = document.getElementById('playTab');
                 if (btn) {
                     btn.disabled = false;
                     btn.title = 'Play the completed contract';
-                    try { btn.focus(); } catch (_) {}
+                    try { btn.focus(); } catch (_) { }
                 }
-            } catch (_) {}
-            try { switchTab('play'); } catch (_) {}
-            try { renderPlayTab(); } catch (_) {}
+            } catch (_) { }
+            try { switchTab('play'); } catch (_) { }
+            try { renderPlayTab(); } catch (_) { }
         };
     }
-} catch (_) {}
+} catch (_) { }
 
 // Make Play helpers accessible for inline handlers and external calls
-try { window.renderPlayTab = renderPlayTab; } catch (_) {}
+try { window.renderPlayTab = renderPlayTab; } catch (_) { }
 try {
-    window.goToPlay = function() {
+    window.goToPlay = function () {
         try {
             const btn = document.getElementById('playTab');
             if (btn) {
                 btn.disabled = false;
                 btn.title = 'Play the completed contract';
-                try { btn.focus(); } catch (_) {}
+                try { btn.focus(); } catch (_) { }
             }
-        } catch (_) {}
-        try { switchTab('play'); } catch (_) {}
-        try { renderPlayTab(); } catch (_) {}
+        } catch (_) { }
+        try { switchTab('play'); } catch (_) { }
+        try { renderPlayTab(); } catch (_) { }
     };
-} catch (_) {}
+} catch (_) { }
 
 function computePlayDetailsFromAuction() {
     // Find last contract and who declared
@@ -5059,7 +5204,7 @@ function computePlayDetailsFromAuction() {
     }
     const level = parseInt(finalToken[0], 10);
     const strain = finalToken.slice(1);
-    const sideSeats = (['N','S'].includes(finalSeat)) ? ['N','S'] : ['E','W'];
+    const sideSeats = (['N', 'S'].includes(finalSeat)) ? ['N', 'S'] : ['E', 'W'];
     let declarer = null;
     for (let i = 0; i < auctionHistory.length; i++) {
         const e = auctionHistory[i];
@@ -5097,10 +5242,10 @@ function renderHandCards(containerId, seat) {
     // Determine suit display order: start with trump suit and keep Black suits first
     const trump = (typeof playState !== 'undefined' && playState?.trump) ? playState.trump : null;
     const suits = getSuitOrder(trump);
-    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    const order = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
     suits.forEach(s => {
-        const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
-        try { appendPlayDebug(`renderHandCards: ${seat} processing suit ${s} (${cards.map(c=>c.rank).join('')})`); } catch(_) {}
+        const cards = (hand.suitBuckets[s] || []).slice().sort((a, b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+        try { appendPlayDebug(`renderHandCards: ${seat} processing suit ${s} (${cards.map(c => c.rank).join('')})`); } catch (_) { }
         cards.forEach(c => {
             const code = `${c.rank}${s}`;
             const svgEl = (window.CardSVG && window.CardSVG.render) ? window.CardSVG.render(code, { width: 72, height: 108 }) : null;
@@ -5136,10 +5281,10 @@ function renderPlayHand(containerId, seat, clickable) {
             renderCardBacks(containerId, seat);
             return;
         }
-    } catch(_) {}
+    } catch (_) { }
     const trump = (typeof playState !== 'undefined' && playState?.trump) ? playState.trump : null;
     const suits = getSuitOrder(trump);
-    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
+    const order = ['A', 'K', 'Q', 'J', 'T', '9', '8', '7', '6', '5', '4', '3', '2'];
 
     // Decide whether to render this seat as a single overlapping row (like N/S).
     const treatAsSingleRow = (seat === 'S' || seat === 'N' || (typeof playState !== 'undefined' && playState?.dummy === seat));
@@ -5157,9 +5302,9 @@ function renderPlayHand(containerId, seat, clickable) {
             row.style.justifyContent = 'center';
             row.style.alignItems = 'center';
             row.style.padding = '0';
-        } catch (_) {}
+        } catch (_) { }
         suits.forEach(s => {
-            const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+            const cards = (hand.suitBuckets[s] || []).slice().sort((a, b) => order.indexOf(a.rank) - order.indexOf(b.rank));
             let idx = row.childElementCount || 0;
             cards.forEach(c => {
                 const code = `${c.rank}${s}`;
@@ -5174,7 +5319,7 @@ function renderPlayHand(containerId, seat, clickable) {
                     if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat && svgEl) {
                         svgEl.setAttribute('data-dummy-card', 'true');
                     }
-                } catch(_) {}
+                } catch (_) { }
                 if (svgEl) {
                     // shrink by 20% vertically (and scale width proportionally)
                     try {
@@ -5187,12 +5332,12 @@ function renderPlayHand(containerId, seat, clickable) {
                         svgEl.style.width = newW + 'px';
                         svgEl.style.height = newH + 'px';
                         // Prevent any SVG text from overflowing the card bounds
-                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch(_) {}
-                    } catch(_) {}
+                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch (_) { }
+                    } catch (_) { }
                     const btn = wrapCardWithSeat(svgEl, code, seat);
                     if (btn) {
                         if (!clickable) {
-                            try { btn.removeEventListener('click', onCardClick); } catch (_) {}
+                            try { btn.removeEventListener('click', onCardClick); } catch (_) { }
                             btn.disabled = true;
                             btn.classList.add('non-clickable');
                         }
@@ -5206,7 +5351,7 @@ function renderPlayHand(containerId, seat, clickable) {
                             // ensure stacking order
                             btn.style.position = 'relative';
                             btn.style.zIndex = String(idx + 1);
-                        } catch(_) {}
+                        } catch (_) { }
                         row.appendChild(btn);
                         idx++;
                     }
@@ -5217,14 +5362,14 @@ function renderPlayHand(containerId, seat, clickable) {
     } else {
         // East/West: preserve 4 suit rows (one per suit)
         suits.forEach(s => {
-            const cards = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank));
+            const cards = (hand.suitBuckets[s] || []).slice().sort((a, b) => order.indexOf(a.rank) - order.indexOf(b.rank));
             if (!cards.length) return;
             const suitGroup = document.createElement('div');
             suitGroup.className = 'hand-suit';
             const cardsRow = document.createElement('div');
             cardsRow.className = 'suit-cards-row';
             // make suit rows non-wrapping and overlapping too
-            try { cardsRow.style.display = 'flex'; cardsRow.style.gap = '0px'; cardsRow.style.flexWrap = 'nowrap'; cardsRow.style.alignItems = 'center'; } catch(_) {}
+            try { cardsRow.style.display = 'flex'; cardsRow.style.gap = '0px'; cardsRow.style.flexWrap = 'nowrap'; cardsRow.style.alignItems = 'center'; } catch (_) { }
             cards.forEach(c => {
                 const code = `${c.rank}${s}`;
                 // For East/West suit rows, if this seat is the dummy and cards are non-clickable
@@ -5235,7 +5380,7 @@ function renderPlayHand(containerId, seat, clickable) {
                     if (!clickable && typeof playState !== 'undefined' && playState?.dummy === seat && svgEl) {
                         svgEl.setAttribute('data-dummy-card', 'true');
                     }
-                } catch(_) {}
+                } catch (_) { }
                 if (svgEl) {
                     try {
                         const origW = parseInt(svgEl.getAttribute('width') || '120', 10) || 120;
@@ -5247,12 +5392,12 @@ function renderPlayHand(containerId, seat, clickable) {
                         svgEl.style.width = newW + 'px';
                         svgEl.style.height = newH + 'px';
                         // Prevent any SVG text from overflowing the card bounds
-                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch(_) {}
-                    } catch(_) {}
+                        try { svgEl.setAttribute('overflow', 'hidden'); svgEl.style.overflow = 'hidden'; } catch (_) { }
+                    } catch (_) { }
                     const btn = wrapCardWithSeat(svgEl, code, seat);
                     if (btn) {
                         if (!clickable) {
-                            try { btn.removeEventListener('click', onCardClick); } catch (_) {}
+                            try { btn.removeEventListener('click', onCardClick); } catch (_) { }
                             btn.disabled = true;
                             btn.classList.add('non-clickable');
                         }
@@ -5264,7 +5409,7 @@ function renderPlayHand(containerId, seat, clickable) {
                             } else { btn.style.marginLeft = '0px'; }
                             btn.style.position = 'relative';
                             btn.style.zIndex = String(cardsRow.childElementCount + 1);
-                        } catch(_) {}
+                        } catch (_) { }
                         cardsRow.appendChild(btn);
                     }
                 }
@@ -5279,12 +5424,12 @@ function renderPlayHand(containerId, seat, clickable) {
 // but rotates the order so the trump suit (if provided) appears first.
 function getSuitOrder(trump) {
     // For No Trump, explicit order per spec: S,H,C,D
-    if (!trump) return ['S','H','C','D'];
+    if (!trump) return ['S', 'H', 'C', 'D'];
     // Ensure visual alternation of colors while keeping trump first.
     // Colors: black = [S,C], red = [H,D]. We'll start with trump, then pick a
     // suit of the opposite color, then the remaining black, then remaining red.
-    const blacks = ['S','C'];
-    const reds = ['H','D'];
+    const blacks = ['S', 'C'];
+    const reds = ['H', 'D'];
     const up = (s) => (blacks.includes(s) ? 'black' : (reds.includes(s) ? 'red' : null));
     const trumpColor = up(trump);
     // Build order starting with trump
@@ -5306,7 +5451,7 @@ function getSuitOrder(trump) {
         for (const b of blacks) if (!order.includes(b)) order.push(b);
     } else {
         // Fallback: default alternating sequence
-        return ['S','H','C','D'];
+        return ['S', 'H', 'C', 'D'];
     }
     return order;
 }
@@ -5330,7 +5475,7 @@ function renderCardBacks(containerId, seat) {
             const b = document.createElement('div');
             b.className = 'card-back';
             // Ensure PNG card-back is used (inline style to avoid CSS/path overrides)
-            try { b.style.backgroundImage = "url('cards/card_back.png')"; b.style.backgroundSize = 'cover'; b.style.backgroundPosition = 'center'; } catch(_) {}
+            try { b.style.backgroundImage = "url('cards/card_back.png')"; b.style.backgroundSize = 'cover'; b.style.backgroundPosition = 'center'; } catch (_) { }
             stack.appendChild(b);
         }
         const wrapper = document.createElement('div');
@@ -5338,7 +5483,7 @@ function renderCardBacks(containerId, seat) {
         wrapper.appendChild(stack);
         // Do not show numeric count badge - removed per UX request
         container.appendChild(wrapper);
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function wrapCardWithSeat(svgEl, code, seat) {
@@ -5351,7 +5496,7 @@ function wrapCardWithSeat(svgEl, code, seat) {
         btn.dataset.seat = seat;
         btn.addEventListener('click', onCardClick);
         // Defensive inline sizing for SVG-wrapped buttons
-        try { btn.style.display = 'inline-flex'; btn.style.minWidth = '44px'; btn.style.minHeight = '28px'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; } catch(_) {}
+        try { btn.style.display = 'inline-flex'; btn.style.minWidth = '44px'; btn.style.minHeight = '28px'; btn.style.alignItems = 'center'; btn.style.justifyContent = 'center'; } catch (_) { }
         svgEl.dataset.code = code;
         svgEl.dataset.seat = seat;
         btn.appendChild(svgEl);
@@ -5367,11 +5512,11 @@ function onCardClick(ev) {
         const code = el?.dataset?.code;
         const seat = el?.dataset?.seat;
         if (!code || !seat) return;
-            // Prevent playing cards for the next trick until the user has
-            // acknowledged the previous trick by clicking the table (awaitingContinue).
-            if (playState && playState.awaitingContinue) return;
+        // Prevent playing cards for the next trick until the user has
+        // acknowledged the previous trick by clicking the table (awaitingContinue).
+        if (playState && playState.awaitingContinue) return;
         // Only allow clicks for South or North, and only when it’s their turn
-        if (!['S','N'].includes(seat)) return;
+        if (!['S', 'N'].includes(seat)) return;
         if (seat !== playState.nextSeat) return;
         if (playState.played.has(code)) return;
 
@@ -5382,11 +5527,11 @@ function onCardClick(ev) {
         }
 
         // Remove from hand UI
-    try { el.removeEventListener('click', onCardClick); } catch(_) {}
-        try { el.parentElement?.removeChild(el); } catch(_) {}
+        try { el.removeEventListener('click', onCardClick); } catch (_) { }
+        try { el.parentElement?.removeChild(el); } catch (_) { }
 
-    // Remove from underlying hand state
-    try { removeCodeFromHand(currentHands?.[seat], code); } catch(_) {}
+        // Remove from underlying hand state
+        try { removeCodeFromHand(currentHands?.[seat], code); } catch (_) { }
 
         playCardToTrick(seat, code);
         // Proceed to next seat
@@ -5398,7 +5543,7 @@ function onCardClick(ev) {
     }
 }
 
-function autoPlayIfNeeded() {
+async function autoPlayIfNeeded() {
     try {
         // Do not auto-play while awaiting user to acknowledge completed trick
         if (playState && playState.awaitingContinue) return;
@@ -5411,7 +5556,7 @@ function autoPlayIfNeeded() {
         };
         while (playState.nextSeat && isAutomatedSeat(playState.nextSeat) && playState.trick.length < 4) {
             const seat = playState.nextSeat;
-            const code = pickAutoCardFor(seat);
+            const code = await pickAutoCardFor(seat);
             if (!code) break;
             playCardToTrick(seat, code);
             playState.nextSeat = leftOf(playState.nextSeat);
@@ -5421,515 +5566,108 @@ function autoPlayIfNeeded() {
     }
 }
 
-function pickAutoCardFor(seat) {
+function getLegalPlaysFor(seat) {
+    const hand = currentHands?.[seat];
+    if (!hand || !hand.suitBuckets) return [];
+    const allCards = [];
+    ['S', 'H', 'D', 'C'].forEach(suit => {
+        (hand.suitBuckets[suit] || []).forEach(c => allCards.push(c.rank + suit));
+    });
+
+    const leadSuit = playState.trick.length ? playState.trick[0].code.slice(-1) : null;
+    if (!leadSuit) return allCards; // Leading: any card is legal
+
+    // If following suit, must play lead suit if available
+    const followCards = allCards.filter(c => c.slice(-1) === leadSuit);
+    if (followCards.length > 0) return followCards;
+
+    // Otherwise any card is legal
+    return allCards;
+}
+
+async function pickAutoCardFor(seat) {
+    try { console.log('DEBUG: pickAutoCardFor playState.contract:', playState?.contract); } catch (_) { }
     try {
         if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
             // debug print removed
         }
-    } catch(_) {}
+    } catch (_) { }
     // If tests set `window.currentHands` or `window.playState`, sync module variables so we operate on test hands/state
-    try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch(_) {}
-    try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch(_) {}
-    // --- Lookahead helpers (depth=2 simulation) ---
-    const _rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-    function _seatSide(s) { return (['N','S'].includes(s) ? 'NS' : 'EW'); }
-    function _cloneHandsMap() {
-        const map = {};
-        ['N','E','S','W'].forEach(st => {
-            const h = currentHands?.[st];
-            map[st] = { S:[], H:[], D:[], C:[] };
-            if (!h || !h.suitBuckets) return;
-            ['S','H','D','C'].forEach(s => {
-                (h.suitBuckets[s] || []).forEach(c => map[st][s].push(`${c.rank}${s}`));
-            });
-        });
-        return map;
-    }
+    try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch (_) { }
+    try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch (_) { }
 
-    function _removeCodeFromMap(map, seat, code) {
-        const s = code.slice(-1);
-        const arr = map[seat][s] || [];
-        const idx = arr.indexOf(code);
-        if (idx >= 0) arr.splice(idx,1);
-    }
-
-    function _highestInSuit(arr) {
-        if (!arr || !arr.length) return null;
-        let best = arr[0];
-        for (const c of arr) {
-            if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(best[0])) best = c;
-        }
-        return best;
-    }
-
-    function _lowestInSuit(arr) {
-        if (!arr || !arr.length) return null;
-        let best = arr[0];
-        for (const c of arr) {
-            if (_rankOrder.indexOf(c[0]) > _rankOrder.indexOf(best[0])) best = c;
-        }
-        return best;
-    }
-
-    // Simulate two tricks starting with `startSeat` playing `firstCode`.
-    // Returns heuristic score: number of tricks (0..2) won by declarer's side in those two tricks.
-    function _simulateTwoTricks(startSeat, firstCode) {
-        try {
-            const map = _cloneHandsMap();
-            const trump = playState.trump || null;
-            const declarer = playState.declarer || null;
-            const declarerSide = declarer ? _seatSide(declarer) : null;
-            // Remove firstCode from startSeat
-            _removeCodeFromMap(map, startSeat, firstCode);
-            const leadSuit = firstCode.slice(-1);
-            const seats = [startSeat, leftOf(startSeat), leftOf(leftOf(startSeat)), leftOf(leftOf(leftOf(startSeat)))];
-            const trick1 = [{ seat: startSeat, code: firstCode }];
-            // Play remaining three
-            for (let i=1;i<4;i++) {
-                const s = seats[i];
-                const bucket = map[s][leadSuit] || [];
-                let play = null;
-                if (bucket.length) {
-                    // If can beat current highest in lead suit, defenders try to beat
-                    const currentHigh = _highestInSuit(trick1.filter(t=>t.code.slice(-1)===leadSuit).map(t=>t.code));
-                    // find minimal card that beats currentHigh
-                    let candidate = null;
-                    for (const c of bucket) {
-                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
-                            if (!candidate || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(candidate[0])) candidate = c;
-                        }
-                    }
-                    if (candidate) play = candidate; else play = _lowestInSuit(bucket);
-                    // remove
-                    _removeCodeFromMap(map, s, play);
-                } else {
-                    // no card in suit: if have trump, play lowest trump if attempting to win, else discard lowest
-                    if (trump && (map[s][trump]||[]).length) {
-                        play = _lowestInSuit(map[s][trump]);
-                        _removeCodeFromMap(map, s, play);
-                    } else {
-                        // discard lowest across suits
-                        let chosen=null; let chosenSuit=null;
-                        for (const su of ['S','H','D','C']) {
-                            const a = map[s][su] || [];
-                            if (a.length) {
-                                const low = _lowestInSuit(a);
-                                if (!chosen || _rankOrder.indexOf(low[0]) > _rankOrder.indexOf(chosen[0])) { chosen = low; chosenSuit = su; }
-                            }
-                        }
-                        if (chosen) { play = chosen; _removeCodeFromMap(map, s, play); }
-                    }
-                }
-                if (!play) play = null;
-                trick1.push({ seat: s, code: play });
-            }
-            // Determine trick winner
-            let trick1Winner = null;
-            // any trumps?
-            const trumpsPlayed = trick1.filter(t => t.code && t.code.slice(-1) === trump);
-            if (trumpsPlayed && trumpsPlayed.length) {
-                // highest trump wins
-                let best = trumpsPlayed[0];
-                for (const t of trumpsPlayed) {
-                    if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t;
-                }
-                trick1Winner = best.seat;
-            } else {
-                // highest in lead suit
-                const leadPlayed = trick1.filter(t=>t.code && t.code.slice(-1)===leadSuit);
-                let best = leadPlayed[0];
-                for (const t of leadPlayed) {
-                    if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t;
-                }
-                trick1Winner = best.seat;
-            }
-            let score = 0;
-            if (_seatSide(trick1Winner) === declarerSide) score++;
-
-            // --- simulate second trick: leader = trick1Winner. Build a plausible lead: if declarer side leads, lead highest remaining honor from declarer/dummy; opponents lead highest to try to win.
-            const leader2 = trick1Winner;
-            // choose first card for trick2
-            let first2 = null;
-            if (_seatSide(leader2) === declarerSide) {
-                // try to lead a suit where declarer/dummy have honors
-                let chosenSuit=null, chosenCode=null, bestScore=-1;
-                ['S','H','D','C'].forEach(su => {
-                    if (su === trump) return;
-                    const myCards = (map[leader2][su] || []);
-                    if (!myCards || !myCards.length) return;
-                    const honors = myCards.filter(c=>['A','K','Q'].includes(c[0])).length;
-                    if (honors > bestScore) { bestScore = honors; chosenSuit = su; }
-                });
-                if (!chosenSuit) {
-                    // fallback any suit
-                    for (const su of ['S','H','D','C']) { if ((map[leader2][su]||[]).length) { chosenSuit=su; break; } }
-                }
-                if (chosenSuit) first2 = _highestInSuit(map[leader2][chosenSuit]) || map[leader2][chosenSuit][0];
-                if (first2) _removeCodeFromMap(map, leader2, first2);
-            } else {
-                // opponents lead: lead highest to try to win
-                let chosen=null; for (const su of ['S','H','D','C']) { const h = _highestInSuit(map[leader2][su]||[]); if (h) { chosen=h; break; } }
-                if (chosen) { first2 = chosen; _removeCodeFromMap(map, leader2, first2); }
-            }
-            if (!first2) return score;
-            const seats2 = [leader2, leftOf(leader2), leftOf(leftOf(leader2)), leftOf(leftOf(leftOf(leader2)))];
-            const trick2 = [{ seat: leader2, code: first2 }];
-            const lead2Suit = first2.slice(-1);
-            for (let i=1;i<4;i++) {
-                const s = seats2[i];
-                let play = null;
-                if ((map[s][lead2Suit]||[]).length) {
-                    // follow: if can beat current highest, try minimal win, else play lowest
-                    const currentHigh = _highestInSuit(trick2.filter(t=>t.code && t.code.slice(-1)===lead2Suit).map(t=>t.code));
-                    let candidate = null;
-                    for (const c of map[s][lead2Suit]) {
-                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
-                            if (!candidate || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(candidate[0])) candidate = c;
-                        }
-                    }
-                    if (candidate) { play = candidate; _removeCodeFromMap(map, s, play); }
-                    else { play = _lowestInSuit(map[s][lead2Suit]); _removeCodeFromMap(map, s, play); }
-                } else {
-                    // no follow: trump if possible
-                    if (trump && (map[s][trump]||[]).length) { play = _lowestInSuit(map[s][trump]); _removeCodeFromMap(map, s, play); }
-                    else { // discard lowest
-                        let chosen=null; for (const su of ['S','H','D','C']) { const low=_lowestInSuit(map[s][su]||[]); if (low && (!chosen || _rankOrder.indexOf(low[0])>_rankOrder.indexOf(chosen[0]))) chosen=low; }
-                        if (chosen) { play = chosen; _removeCodeFromMap(map, s, play); }
-                    }
-                }
-                trick2.push({ seat: s, code: play });
-            }
-            // determine trick2 winner
-            let trick2Winner = null;
-            const trumps2 = trick2.filter(t=>t.code && t.code.slice(-1)===trump);
-            if (trumps2 && trumps2.length) {
-                let best = trumps2[0]; for (const t of trumps2) { if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t; } trick2Winner = best.seat;
-            } else {
-                const leadPlayed2 = trick2.filter(t=>t.code && t.code.slice(-1)===lead2Suit);
-                let best = leadPlayed2[0]; for (const t of leadPlayed2) { if (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best.code[0])) best = t; } trick2Winner = best.seat;
-            }
-            if (_seatSide(trick2Winner) === declarerSide) score++;
-            return score;
-        } catch (_) { return 0; }
-    }
-
-    // Evaluate whether to finesse (lead low) vs cash (lead high) by simulating two tricks and comparing heuristic scores.
-    function _evaluateFinesseVsCash(declarerSeat, suit, arr) {
-        try {
-            if (!arr || arr.length < 1) return null;
-            // arr is local list of this seat's suit codes high->low; cash = highest, finesse = lowest
-            const cash = arr[0];
-            const finesse = arr[arr.length-1] || cash;
-            const cashScore = _simulateTwoTricks(declarerSeat, cash);
-            const finScore = _simulateTwoTricks(declarerSeat, finesse);
-            if (finScore > cashScore) return finesse;
-            // tie or cash better -> return cash (conservative)
-            return cash;
-        } catch (_) { return arr[0]; }
-    }
+    // --- Integration of the new Playing Model ---
     const hand = currentHands?.[seat];
     if (!hand) return null;
-    // Build list of codes by suit
-    const suits = ['S','H','D','C'];
-    const order = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-    const suitMap = {};
-    suits.forEach(s => {
-        suitMap[s] = (hand.suitBuckets[s] || []).slice().sort((a,b) => order.indexOf(a.rank) - order.indexOf(b.rank)).map(c => `${c.rank}${s}`);
-    });
-    // Determine lead suit for current trick
-    const leadSuit = playState.trick.length ? playState.trick[0].code.slice(-1) : null;
-    let pick = null;
-    // Helper: seat side
-    const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
 
-    // Initialize or update declarer plan: two-step (draw trumps -> establish winners)
-    try {
-        const declarer = playState.declarer;
-        const dummySeat = playState.dummy;
-        const trump = playState.trump || null;
-        if (declarer && dummySeat && playState.dummyRevealed) {
-            const myTrumps = trump ? (currentHands?.[declarer]?.suitBuckets?.[trump] || []).length : 0;
-            const dummyTrumps = trump ? (currentHands?.[dummySeat]?.suitBuckets?.[trump] || []).length : 0;
-            const combinedTrumps = myTrumps + dummyTrumps;
-            const declarerEntries = (playState.entries && typeof playState.entries[declarer] === 'number') ? playState.entries[declarer] : null;
-            const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
-            // Prefer drawing trumps only when enough combined trumps AND preserving dummy entries
-            const needed = (typeof playState.dummyEntryNeeds === 'number') ? playState.dummyEntryNeeds : 0;
-            // Want to draw if combined trumps >=4 and after drawing we would still preserve at least 'needed' dummy entries,
-            // or if combined trumps are large enough (>=5) to be safe.
-            const wantDraw = (trump && combinedTrumps >= 4 && ((combinedTrumps - needed) >= 1 || combinedTrumps >= 5));
-            if (!playState.declarerPlan) {
-                playState.declarerPlan = { phase: (wantDraw ? 'draw' : 'establish') };
-            } else {
-                // If in draw phase but trumps largely drawn, move to establish
-                if (playState.declarerPlan.phase === 'draw' && combinedTrumps <= 1) {
-                    playState.declarerPlan.phase = 'establish';
-                }
-            }
-        } else if (!trump) {
-            // No trump contract: go straight to establish
-            if (!playState.declarerPlan) playState.declarerPlan = { phase: 'establish' };
-        }
-    } catch (_) { /* ignore */ }
-
-    // Advanced declarer heuristics: try to finesse or extract winners when leading
-    try {
-        const declarer = playState.declarer;
-        const dummySeat = playState.dummy;
-        const isDeclarerToPlay = (seat === declarer);
-        // If declarer plan requests drawing trumps, prioritize that
-        if (isDeclarerToPlay && playState.declarerPlan && playState.declarerPlan.phase === 'draw') {
-            const trump = playState.trump || null;
-            if (trump) {
-                const myTrumpsArr = (currentHands[seat]?.suitBuckets?.[trump] || []).slice().map(c => `${c.rank}${trump}`);
-                const dummySeat = playState.dummy;
-                const dummyTrumps = (currentHands?.[dummySeat]?.suitBuckets?.[trump] || []).length || 0;
-                const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
-                // Avoid drawing trumps if doing so would eliminate dummy entries needed to cash winners
-                const needed = (typeof playState.dummyEntryNeeds === 'number') ? playState.dummyEntryNeeds : 0;
-                if (myTrumpsArr.length) {
-                    // Ensure that after playing one trump we would still have at least 'needed' entries available in dummy+remaining trumps
-                    if (((myTrumpsArr.length - 1) + dummyTrumps) >= needed) {
-                        pick = myTrumpsArr.shift();
-                    } else {
-                        // skip forcing a trump-draw now; prefer to establish side suits
-                    }
-                }
-            }
-        }
-        if (!pick && isDeclarerToPlay && playState.trick.length === 0 && playState.dummyRevealed && dummySeat && currentHands?.[dummySeat]) {
-            // Look for finesse opportunity: declarer has K (or Q) and dummy has Q (or J)
-            for (const s of ['S','H','D','C']) {
-                if (s === (playState.trump || null)) continue; // avoid trump finesses here
-                const myCards = (currentHands[seat]?.suitBuckets?.[s] || []).map(c => c.rank);
-                const dummyCards = (currentHands[dummySeat]?.suitBuckets?.[s] || []).map(c => c.rank);
-                if (!myCards.length || !dummyCards.length) continue;
-                // Finesse: I have K and dummy has Q (or I have Q and dummy has J)
-                if ((myCards.includes('K') && dummyCards.includes('Q')) || (myCards.includes('Q') && dummyCards.includes('J'))) {
-                    // Use remaining-counts to decide if finesse is sensible: inspect opponents combined counts
-                    const oppCount = (playState.opponentsCombined && typeof playState.opponentsCombined[s] === 'number')
-                        ? playState.opponentsCombined[s]
-                        : ((currentHands?.E?.suitBuckets?.[s]?.length || 0) + (currentHands?.W?.suitBuckets?.[s]?.length || 0));
-                    const arr = suitMap[s];
-                    if (arr && arr.length) {
-                        // Avoid trying a finesse while still in trump-draw phase
-                        if (playState.declarerPlan && playState.declarerPlan.phase === 'draw') {
-                            // Prefer to draw trumps first
-                            continue;
-                        }
-                        // If dummy has no entries (cannot win the trick), prefer cashing instead of finesse
-                        const dummyEntries = (playState.entries && typeof playState.entries[dummySeat] === 'number') ? playState.entries[dummySeat] : null;
-                        if (dummyEntries !== null && dummyEntries <= 0) {
-                            pick = arr.shift();
-                        } else {
-                            // Use a simple depth-2 lookahead to choose between finesse (lead low) and cash (lead high)
-                            try {
-                                const chosen = _evaluateFinesseVsCash(seat, s, arr.slice());
-                                if (chosen) pick = chosen;
-                                else pick = arr.shift();
-                            } catch (_) {
-                                // fallback conservative: cash high
-                                pick = arr.shift();
-                            }
-                        }
-                        break;
-                    }
-                }
-                // Extraction: if combined honors indicate we can cash winners, lead highest
-                const honors = ['A','K','Q'];
-                const combinedHonors = myCards.filter(r=>honors.includes(r)).length + dummyCards.filter(r=>honors.includes(r)).length;
-                if (combinedHonors >= 2 && (myCards.includes('A') || dummyCards.includes('A'))) {
-                    const arr = suitMap[s];
-                    if (arr && arr.length) { pick = arr.shift(); break; }
-                }
-            }
-        }
-    } catch (_) { /* non-fatal */ }
-
-    if (!pick && leadSuit && suitMap[leadSuit] && suitMap[leadSuit].length) {
-        // When following suit, apply simple strategy:
-        // - Declarer-side: play lowest to preserve winners
-        // - Defender-side: play second-highest to signal and possibly force out honors
-        const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
-        let declarerSide = null;
-        if (playState.contractSide === 'NS' || playState.contractSide === 'EW') declarerSide = playState.contractSide;
-        const isDefender = declarerSide ? (seatSide(seat) !== declarerSide) : (seat === 'E' || seat === 'W');
-        const arr = suitMap[leadSuit];
-        // arr sorted ascending by rank (A high at front?) We stored as order index earlier; ensure we pick correctly
-        // Our suitMap entries were created using order.indexOf so they are from high->low; adapt accordingly
-        // For simplicity, compute rank order mapping
-        const rankOrder = ['A','K','Q','J','T','9','8','7','6','5','4','3','2'];
-        const sortByRankDesc = (a,b) => rankOrder.indexOf(a[0]) - rankOrder.indexOf(b[0]);
-        // Ensure arr is sorted by rank descending
-        arr.sort(sortByRankDesc);
-        if (isDefender) {
-            // Defender signaling: prefer attitude signal to partner when partner led the trick.
-            const partner = partnerOf(seat);
-            const trickPlayed = (playState.trick || []).filter(t => t && t.code && t.code.slice(-1) === leadSuit);
-            const currentHigh = trickPlayed.length ? trickPlayed.reduce((best,t)=> {
-                return (_rankOrder.indexOf(t.code[0]) < _rankOrder.indexOf(best[0])) ? t.code : best;
-            }, trickPlayed[0].code) : null;
-            const partnerLed = (playState.trick && playState.trick.length && playState.trick[0].seat === partner);
-            if (partnerLed && currentHigh) {
-                // If partner led and only partner has played so far, prefer immediate
-                // wins with top honors (A or K). Avoid overtaking partner with medium
-                // honors (Q/J) unless there is a clear winner candidate later.
-                if (trickPlayed.length === 1) {
-                    // debug print removed
-                    // take A or K immediately when available
-                    const top = arr.find(c => c[0] === 'A' || c[0] === 'K');
-                    // debug print removed
-                    if (top) {
-                        const idx = arr.indexOf(top);
-                        if (idx >= 0) { pick = arr.splice(idx,1)[0]; }
-                    }
-                }
-                // If not already picked, find minimal winning card
-                if (!pick) {
-                    let winning = null;
-                    for (const c of arr) {
-                        if (_rankOrder.indexOf(c[0]) < _rankOrder.indexOf(currentHigh[0])) {
-                            if (!winning || _rankOrder.indexOf(c[0]) > _rankOrder.indexOf(winning[0])) winning = c;
-                        }
-                    }
-                    // If only partner has played, avoid taking with medium honors
-                    if (winning && trickPlayed.length === 1 && !(['A','K'].includes(winning[0]))) {
-                        winning = null;
-                    }
-                    if (winning) {
-                        // remove that specific card from arr
-                        const idx = arr.indexOf(winning);
-                        if (idx >= 0) pick = arr.splice(idx,1)[0]; else pick = winning;
-                    } else {
-                        // discourage: play lowest to show lack of support
-                        pick = arr.pop();
-                    }
-                }
-            } else {
-                // Default defender behavior: prefer smallest discard unless partner led and signaling is desired.
-                // Honors (third-highest/count signals) are only used when partner led and we intend to signal.
-                pick = arr.pop();
-            }
-        } else {
-            // Declarer-side: play lowest (preserve winners)
-            pick = arr.pop();
-        }
-    } else {
-        // No follow-suit available: choose a discard or ruff depending on trump and shape
-        // If void in many suits and have trumps, consider ruff (play lowest trump)
-        const trump = playState.trump || null;
-        // If have trump and short in non-trump suits, ruff if that is the defender's strategy
-        // If playState.trump is not set (tests may set window.playState inconsistently),
-        // heuristically pick a likely trump as any suit where this seat holds multiple cards.
-        const inferredTrump = (!trump) ? (suits.find(s => (suitMap[s] || []).length >= 2) || null) : null;
-        const trumpToUse = trump || inferredTrump;
-        if (trumpToUse && suitMap[trumpToUse] && suitMap[trumpToUse].length) {
-            // If this seat is a defender (opposite declarer's side) and has no cards in lead suit,
-            // prefer to ruff with a low trump when useful
-            const declarerSide = (playState && playState.contractSide) ? playState.contractSide : null;
-            // If contractSide is unknown, assume E/W are defenders as a safe default for test fixtures
-            const isDefender = declarerSide ? (seatSide(seat) !== declarerSide) : (seat === 'E' || seat === 'W');
-            // Only ruff if we have fewer cards overall in non-trump suits
-            const nonTrumpCount = suits.filter(s => s !== trumpToUse).reduce((acc, s) => acc + (suitMap[s]?.length || 0), 0);
-            if (isDefender && nonTrumpCount <= 1) {
-                // Prefer to ruff with a low trump (small spot) rather than a high honor
-                pick = suitMap[trumpToUse].pop();
-            }
-        }
-
-        // If still no pick, consider declarer leading strategy: draw trumps when appropriate
-        // If declarer is leading and dummy is revealed and both have trumps, lead highest trump to draw
-        if (!pick) {
-            const declarer = playState.declarer;
-            const seatSide = (s) => (['N','S'].includes(s) ? 'NS' : 'EW');
-            const isDeclarer = (seat === declarer);
-            const dummySeat = playState.dummy;
-            const trump = playState.trump || null;
-            if (isDeclarer && playState.trick.length === 0 && trump && currentHands?.[dummySeat] && playState.dummyRevealed) {
-                const myTrumps = suitMap[trump] || [];
-                const dummyTrumps = (currentHands[dummySeat]?.suitBuckets?.[trump] || []);
-                if ((myTrumps.length + (dummyTrumps.length || 0)) >= 4 && myTrumps.length >= 2) {
-                    // Lead highest trump to begin drawing
-                    pick = myTrumps.shift();
-                }
-            }
-            // If we're in 'establish' phase and declarer is to play, prioritize suits with most combined honors
-            try {
-                if (!pick && isDeclarer && playState.declarerPlan && playState.declarerPlan.phase === 'establish') {
-                    const suitsRank = ['S','H','D','C'];
-                    let bestSuit = null;
-                    let bestScore = -1;
-                    const honors = ['A','K','Q'];
-                    for (const s of suitsRank) {
-                        if (s === trump) continue;
-                        const myCards = (currentHands[seat]?.suitBuckets?.[s] || []).map(c=>c.rank);
-                        const dummyCards = (currentHands[dummySeat]?.suitBuckets?.[s] || []).map(c=>c.rank);
-                        const score = myCards.filter(r=>honors.includes(r)).length + dummyCards.filter(r=>honors.includes(r)).length;
-                        if (score > bestScore && (myCards.length > 0)) { bestScore = score; bestSuit = s; }
-                    }
-                    if (bestSuit) {
-                        // Lead highest in that suit to cash winners
-                        const arr = suitMap[bestSuit];
-                        if (arr && arr.length) pick = arr.shift();
-                    }
-                }
-            } catch(_) {}
-        }
-
-        // If still no pick, discard the lowest card from the shortest non-empty suit (safe throw)
-        if (!pick) {
-            // Find shortest non-empty suit
-            let shortest = null;
-            let shortestLen = 99;
-            for (const s of suits) {
-                const ln = suitMap[s].length || 0;
-                if (ln > 0 && ln < shortestLen) { shortestLen = ln; shortest = s; }
-            }
-            if (shortest) {
-                // Prefer discarding small spot cards from the shortest suit
-                pick = suitMap[shortest].pop();
-            } else {
-                // Fallback: any card (prefer lowest available)
-                for (const s of suits) {
-                    if (suitMap[s] && suitMap[s].length) { pick = suitMap[s].pop(); break; }
-                }
-            }
-        }
+    const legalPlays = getLegalPlaysFor(seat);
+    if (!legalPlays || legalPlays.length === 0) {
+        return null; // No legal plays
     }
-    if (!pick) return null;
-    // Remove from underlying hand bucket (already shifted from local map but update source)
+
+    // Derive a reliable hasCard fallback when hand.hasCard is missing
+    const cardSet = new Set();
     try {
-        if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
-            // debug print removed
-        }
-    } catch(_) {}
-    removeCodeFromHand(hand, pick);
-    return pick;
+        Object.entries(hand.suitBuckets || {}).forEach(([suit, arr]) => {
+            (arr || []).forEach(c => cardSet.add(`${c.rank}${suit}`));
+        });
+    } catch (_) { }
+    const suitOrder = ['S', 'H', 'D', 'C'];
+    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+    const hasCardFn = (typeof hand.hasCard === 'function')
+        ? (i) => hand.hasCard(i)
+        : (i) => {
+            const suit = suitOrder[Math.floor(i / 13)] || 'S';
+            const rank = rankOrder[i % 13] || '2';
+            return cardSet.has(`${rank}${suit}`);
+        };
+
+    // Prepare the game state object for the model
+    const gameState = {
+        hand: Array.from({ length: 52 }, (_, i) => !!hasCardFn(i)),
+        contract: [
+            playState.contract.level,
+            playState.contract.strain,
+            playState.declarer,
+            playState.contract.dbl,
+            vulnerability.ns,
+            vulnerability.ew,
+            1 // has ddt
+        ],
+        trickHistory: playState.played,
+        currentTrick: playState.trick.map(p => p.code),
+        currentPlayer: getSeatNumber(seat),
+        vulnerability: (vulnerability.ns << 1 | vulnerability.ew)
+    };
+
+    const cardToPlay = await getModelPlay(gameState, legalPlays);
+    removeCodeFromHand(hand, cardToPlay);
+    return cardToPlay;
 }
 
 function playCardToTrick(seat, code) {
     // Log play event and current hands for diagnostics
     try {
         // If tests set `window.currentHands` or `window.playState`, use those so test fixtures are respected
-            try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch(_) {}
-            try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch(_) {}
+        try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch (_) { }
+        try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch (_) { }
         const summarizeHands = () => {
             const out = {};
-            ['N','E','S','W'].forEach(s => {
+            ['N', 'E', 'S', 'W'].forEach(s => {
                 const h = currentHands?.[s];
                 if (!h || !h.suitBuckets) { out[s] = []; return; }
                 const list = [];
-                ['S','H','D','C'].forEach(su => {
+                ['S', 'H', 'D', 'C'].forEach(su => {
                     (h.suitBuckets[su] || []).forEach(c => list.push(c.rank + su));
                 });
                 out[s] = list;
             });
             return out;
         };
-        const entry = `[BEFORE] ${new Date().toISOString()} seat=${seat} code=${code} next=${playState.nextSeat} trick=${JSON.stringify((playState.trick||[]).slice())} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
+        const entry = `[BEFORE] ${new Date().toISOString()} seat=${seat} code=${code} next=${playState.nextSeat} trick=${JSON.stringify((playState.trick || []).slice())} remaining=${JSON.stringify(playState.remainingCounts || null)} hands=${JSON.stringify(summarizeHands())}`;
         // play log removed
-        try { playLog.push(entry); } catch (_) {}
-    } catch (_) {}
+        try { playLog.push(entry); } catch (_) { }
+    } catch (_) { }
 
     // Record
     playState.trick.push({ seat, code });
@@ -5963,7 +5701,7 @@ function playCardToTrick(seat, code) {
                 // Start slightly smaller and fade in (subtle animation)
                 wrap.style.transform = (baseTranslate ? baseTranslate + ' ' : '') + 'scale(0.85)';
                 wrap.style.opacity = '0';
-            } catch (_) {}
+            } catch (_) { }
             if (slot) {
                 slot.appendChild(wrap);
             } else {
@@ -5972,13 +5710,13 @@ function playCardToTrick(seat, code) {
             }
             // Trigger transition to full size
             setTimeout(() => {
-                try { wrap.style.transform = (baseTranslate ? baseTranslate + ' ' : '') + 'scale(1)'; wrap.style.opacity = '1'; } catch(_) {}
+                try { wrap.style.transform = (baseTranslate ? baseTranslate + ' ' : '') + 'scale(1)'; wrap.style.opacity = '1'; } catch (_) { }
             }, 20);
         }
     }
     // Remove the card from the underlying hand state for automated plays
     try {
-        try { removeCodeFromHand(currentHands?.[seat], code); } catch(_) {}
+        try { removeCodeFromHand(currentHands?.[seat], code); } catch (_) { }
         // If the hand is currently rendered (e.g., dummy revealed), re-render it so the UI no longer shows the played card
         try {
             const containerIdMap = { N: 'playNorthHand', E: 'playEastHand', S: 'playSouthHand', W: 'playWestHand' };
@@ -5986,35 +5724,35 @@ function playCardToTrick(seat, code) {
             const el = cid ? document.getElementById(cid) : null;
             if (el && el.childElementCount > 0) {
                 const clickable = (seat === 'N' || seat === 'S');
-                try { renderPlayHand(cid, seat, clickable); } catch(_) {}
+                try { renderPlayHand(cid, seat, clickable); } catch (_) { }
             }
-        } catch(_) {}
-    } catch (_) {}
+        } catch (_) { }
+    } catch (_) { }
     // If this is the first card of the hand (or of the trick), reveal dummy if not revealed yet
     if (!playState.dummyRevealed && playState.trick.length === 1 && playState.dummy) {
         revealDummy();
     }
     // Update remaining counts after a card is played
-    try { computeRemainingCounts(); } catch(_) {}
+    try { computeRemainingCounts(); } catch (_) { }
     // Log post-play snapshot so we can trace play sequence
     try {
         const summarizeHands = () => {
             const out = {};
-            ['N','E','S','W'].forEach(s => {
+            ['N', 'E', 'S', 'W'].forEach(s => {
                 const h = currentHands?.[s];
                 if (!h || !h.suitBuckets) { out[s] = []; return; }
                 const list = [];
-                ['S','H','D','C'].forEach(su => {
+                ['S', 'H', 'D', 'C'].forEach(su => {
                     (h.suitBuckets[su] || []).forEach(c => list.push(c.rank + su));
                 });
                 out[s] = list;
             });
             return out;
         };
-        const entry = `[AFTER] ${new Date().toISOString()} seat=${seat} code=${code} trick=${JSON.stringify(playState.trick.slice())} next=${playState.nextSeat} remaining=${JSON.stringify(playState.remainingCounts||null)} hands=${JSON.stringify(summarizeHands())}`;
+        const entry = `[AFTER] ${new Date().toISOString()} seat=${seat} code=${code} trick=${JSON.stringify(playState.trick.slice())} next=${playState.nextSeat} remaining=${JSON.stringify(playState.remainingCounts || null)} hands=${JSON.stringify(summarizeHands())}`;
         // play log removed
-        try { playLog.push(entry); } catch (_) {}
-    } catch (_) {}
+        try { playLog.push(entry); } catch (_) { }
+    } catch (_) { }
     // If trick complete, evaluate winner and set up next trick
     if (playState.trick.length === 4) {
         // compute winner and then pause; user must click to continue to next trick
@@ -6027,9 +5765,9 @@ function playCardToTrick(seat, code) {
  * Format: { N: {S:2,H:3,D:1,C:7}, E: {...}, S: {...}, W: {...} }
  */
 function computeRemainingCounts() {
-    const suits = ['S','H','D','C'];
+    const suits = ['S', 'H', 'D', 'C'];
     const counts = { N: {}, E: {}, S: {}, W: {} };
-    for (const seat of ['N','E','S','W']) {
+    for (const seat of ['N', 'E', 'S', 'W']) {
         const hand = currentHands?.[seat];
         for (const s of suits) counts[seat][s] = (hand?.suitBuckets?.[s]?.length) || 0;
     }
@@ -6044,8 +5782,8 @@ function computeRemainingCounts() {
     // Compute simple entries: number of non-trump suits with at least one card
     try {
         const trump = playState.trump || null;
-        playState.entries = { N:0, E:0, S:0, W:0 };
-        for (const seat of ['N','E','S','W']) {
+        playState.entries = { N: 0, E: 0, S: 0, W: 0 };
+        for (const seat of ['N', 'E', 'S', 'W']) {
             let c = 0;
             for (const s of suits) {
                 if (s === trump) continue;
@@ -6060,7 +5798,7 @@ function computeRemainingCounts() {
         let need = 0;
         if (dummy && currentHands?.[dummy]) {
             const trump = playState.trump || null;
-            const honors = ['A','K','Q'];
+            const honors = ['A', 'K', 'Q'];
             for (const s of suits) {
                 if (s === trump) continue;
                 const arr = currentHands[dummy]?.suitBuckets?.[s] || [];
@@ -6087,7 +5825,7 @@ function downloadPlayLog() {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setTimeout(() => { try { URL.revokeObjectURL(url); } catch(_) {} }, 2000);
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) { } }, 2000);
     } catch (e) {
         console.warn('downloadPlayLog failed', e);
     }
@@ -6135,7 +5873,7 @@ function downloadAuctionLog() {
         document.body.appendChild(a);
         a.click();
         a.remove();
-        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) {} }, 2000);
+        setTimeout(() => { try { URL.revokeObjectURL(url); } catch (_) { } }, 2000);
     } catch (e) {
         console.warn('downloadAuctionLog failed', e);
     }
@@ -6148,7 +5886,7 @@ function finishTrick() {
         playState.leader = winner;
         playState.nextSeat = winner;
         // Increment trick counts
-        if (['N','S'].includes(winner)) playState.tricksNS += 1; else playState.tricksEW += 1;
+        if (['N', 'S'].includes(winner)) playState.tricksNS += 1; else playState.tricksEW += 1;
         updateTrickCountsUI();
         // Leave the played cards visible in their slots and prompt user to continue
         playState.trick = [];
@@ -6171,7 +5909,7 @@ function finishTrick() {
                 try {
                     if (!playState.awaitingContinue) return;
                     continueAfterTrick();
-                } catch (_) {}
+                } catch (_) { }
             };
             // Use a delegated listener that checks the awaiting flag
             area.addEventListener('click', handler, { once: true });
@@ -6193,7 +5931,7 @@ function continueAfterTrick() {
         if (area) {
             // Remove all children from trick-slot elements, keep hint appended later
             const slots = area.querySelectorAll('.trick-slot');
-            slots.forEach(s => { try { s.innerHTML = ''; } catch(_) {} });
+            slots.forEach(s => { try { s.innerHTML = ''; } catch (_) { } });
             // Replace hint for next trick or done message
             const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
             const hint = document.createElement('div'); hint.className = 'trick-hint'; hint.textContent = 'Click a card to play'; area.appendChild(hint);
@@ -6203,7 +5941,7 @@ function continueAfterTrick() {
         // reflects who is on lead once the player has continued.
         try {
             document.querySelectorAll('.hand-title.lead').forEach(el => el.classList.remove('lead'));
-        } catch (_) {}
+        } catch (_) { }
         // If all tricks completed, finalize result
         if (playState.tricksNS + playState.tricksEW >= 13) {
             summarizeResult();
@@ -6214,7 +5952,7 @@ function continueAfterTrick() {
         try {
             // Apply the lead highlight to the updated nextSeat
             if (typeof updateLeadHighlight === 'function') updateLeadHighlight();
-        } catch (_) {}
+        } catch (_) { }
         setTimeout(() => autoPlayIfNeeded(), 200);
     } catch (e) { console.warn('continueAfterTrick failed:', e?.message || e); }
 }
@@ -6233,13 +5971,13 @@ function updateLeadHighlight() {
             const el = document.querySelector(cls);
             if (el) el.classList.add('lead');
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function computeTrickWinner(trick, trump) {
     // trick: [{ seat, code }]; trump: 'S'|'H'|'D'|'C'|null
     if (!trick || trick.length === 0) return null;
-    const rankOrder = ['2','3','4','5','6','7','8','9','T','J','Q','K','A'];
+    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
     const leadSuit = trick[0].code.slice(-1);
     // Gather trump cards
     const trumps = trump ? trick.filter(c => c.code.slice(-1) === trump) : [];
@@ -6265,7 +6003,7 @@ function removeCodeFromHand(hand, code) {
 
 function partnerOf(seat) { return seat === 'N' ? 'S' : seat === 'S' ? 'N' : seat === 'E' ? 'W' : 'E'; }
 function leftOf(seat) { return seat === 'N' ? 'E' : seat === 'E' ? 'S' : seat === 'S' ? 'W' : 'N'; }
-function seatName(seat) { return ({N:'North',E:'East',S:'South',W:'West'}[seat] || seat); }
+function seatName(seat) { return ({ N: 'North', E: 'East', S: 'South', W: 'West' }[seat] || seat); }
 
 function revealDummy() {
     if (playState.dummyRevealed) return;
@@ -6280,7 +6018,7 @@ function revealDummy() {
             if (row && row.childElementCount === 0) renderHandCards('playSouthHand', 'S');
         }
         playState.dummyRevealed = true;
-    } catch (_) {}
+    } catch (_) { }
 }
 
 function canPlayCode(seat, code) {
@@ -6296,11 +6034,11 @@ function canPlayCode(seat, code) {
 }
 
 function updateTrickCountsUI() {
-    try { document.getElementById('trickCountNS').textContent = String(playState.tricksNS); } catch(_) {}
-    try { document.getElementById('trickCountEW').textContent = String(playState.tricksEW); } catch(_) {}
+    try { document.getElementById('trickCountNS').textContent = String(playState.tricksNS); } catch (_) { }
+    try { document.getElementById('trickCountEW').textContent = String(playState.tricksEW); } catch (_) { }
 }
 
-function showPlayStatus(message, kind='light') {
+function showPlayStatus(message, kind = 'light') {
     const el = document.getElementById('playStatus');
     if (!el) return;
     el.textContent = message;
@@ -6308,7 +6046,7 @@ function showPlayStatus(message, kind='light') {
     el.style.display = 'block';
     // Auto-fade non-error messages
     if (kind !== 'danger') {
-        setTimeout(() => { try { el.style.display = 'none'; } catch(_) {} }, 1800);
+        setTimeout(() => { try { el.style.display = 'none'; } catch (_) { } }, 1800);
     }
 }
 
@@ -6332,7 +6070,7 @@ function summarizeResult() {
             const nsScore = (side === 'NS') ? total : -total;
             scoreEl.textContent = (nsScore >= 0 ? '+' + nsScore : String(nsScore));
         }
-    } catch (_) {}
+    } catch (_) { }
 
     // Reveal all hands now that the play is complete.
     try {
@@ -6342,8 +6080,9 @@ function summarizeResult() {
             const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
         }
         // Render all hands visibly (non-interactive)
-        try { const containers = { N: 'playNorthHand', E: 'playEastHand', S: 'playSouthHand', W: 'playWestHand' };
-            ['N','E','S','W'].forEach(seat => {
+        try {
+            const containers = { N: 'playNorthHand', E: 'playEastHand', S: 'playSouthHand', W: 'playWestHand' };
+            ['N', 'E', 'S', 'W'].forEach(seat => {
                 try {
                     const cid = containers[seat];
                     const el = document.getElementById(cid);
@@ -6353,11 +6092,12 @@ function summarizeResult() {
                     // Disable any interactive handlers on rendered buttons
                     const buttons = Array.from(document.querySelectorAll('#' + cid + ' .card-button'));
                     buttons.forEach(b => {
-                        try { b.disabled = true; b.classList.add('non-clickable'); if (typeof onCardClick === 'function') b.removeEventListener('click', onCardClick); } catch(_) {}
+                        try { b.disabled = true; b.classList.add('non-clickable'); if (typeof onCardClick === 'function') b.removeEventListener('click', onCardClick); } catch (_) { }
                     });
-                } catch(_) {}
-            }); } catch(_) {}
-    } catch (_) {}
+                } catch (_) { }
+            });
+        } catch (_) { }
+    } catch (_) { }
 }
 
 function vulnerabilityForSide(side) {
@@ -6475,7 +6215,7 @@ function returnCodeToHand(seat, code) {
                 }
             }
         }
-    } catch (_) {}
+    } catch (_) { }
 }
 
 // Claim, Replay, New Deal
@@ -6488,7 +6228,7 @@ function replayHand() {
         if (!playState.originalHands) return;
         // Deep clone original hands back into currentHands
         currentHands = cloneHands(playState.originalHands);
-        try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) {}
+        try { if (typeof window !== 'undefined') window.currentHands = currentHands; } catch (_) { }
         // Reset play state and re-render Play tab
         renderPlayTab();
         showPlayStatus('Replaying hand from the start.', 'light');
@@ -6507,7 +6247,7 @@ function newDealFromPlay() {
 
 function cloneHands(source) {
     const out = { N: null, E: null, S: null, W: null };
-    ['N','E','S','W'].forEach(seat => {
+    ['N', 'E', 'S', 'W'].forEach(seat => {
         const h = source[seat];
         if (!h) return;
         out[seat] = cloneHand(h);
@@ -6516,10 +6256,28 @@ function cloneHands(source) {
 }
 
 function cloneHand(hand) {
-    const suits = ['S','H','D','C'];
+    const suits = ['S', 'H', 'D', 'C'];
     const buckets = {};
     suits.forEach(s => {
         buckets[s] = (hand.suitBuckets?.[s] || []).map(c => new window.Card(c.rank, s));
     });
     return new window.Hand(buckets);
 }
+
+// Expose functions used by inline onclick handlers in index.html so they are available with module scripts
+try {
+    if (typeof window !== 'undefined') {
+        Object.assign(window, {
+            switchTab,
+            setGenerationMode,
+            generateRandomHands,
+            generateFromManualHands,
+            generateConstrainedHands,
+            toggleOtherHands,
+            getRecommendedBid,
+            startAuction,
+            resetAuction,
+            makeBid
+        });
+    }
+} catch (_) { /* ignore in non-browser contexts */ }
