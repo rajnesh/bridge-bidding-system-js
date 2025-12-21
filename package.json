@@ -37,7 +37,8 @@
   },
   "homepage": "https://github.com/rajnesh/bridge-bidding-system#readme",
   "dependencies": {
+    "@tensorflow/tfjs-node": "^4.22.0",
     "@viz-js/lang-dot": "^1.0.5",
-    
+    "uglify-js": "^3.19.3"
   }
 }
