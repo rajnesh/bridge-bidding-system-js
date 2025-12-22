@@ -37,7 +37,7 @@ function startAuctionConsoleCapture() {
             debug: console.debug
         };
         auctionConsoleLog = [];
-        const pushMessage = (level, args) => {
+        const pushMessage = (level, ...args) => {
             try {
                 const ts = new Date().toISOString();
                 const text = args.map(a => {
@@ -102,12 +102,12 @@ function initializeSystem() {
         (async () => {
             try {
                 // --- Load the new AI models ---
-                console.log("Initializing AI models...");
+                pageLog("Initializing AI models...");
                 try {
                     // The paths point to the directories where your converted models will be.
                     await loadBiddingModel('./models/bid_rl_model/model.json', './bid_tokens.json');
                     await loadPlayModel('./models/play_rl_model/model.json');
-                    console.log("All AI models initialized successfully.");
+                    pageLog("All AI models initialized successfully.");
                 } catch (error) {
                     console.error("Failed to initialize AI models:", error);
                     // Display an error to the user in the UI.
@@ -228,7 +228,7 @@ function generateFromManualHands() {
         }
 
         // Validate the suit inputs (check for errors)
-        console.log('Running validation...');
+        pageLog('Running validation...');
         validateSuitInput(); // This will update the UI and show any errors
 
         // Check if there are any validation errors displayed
@@ -238,7 +238,7 @@ function generateFromManualHands() {
             return;
         }
 
-        console.log('Validation passed, continuing...');
+        pageLog('Validation passed, continuing...');
 
         // Create the hand string for South in the format "spades hearts diamonds clubs"
         // Each suit must be represented, use empty string for void suits
@@ -249,12 +249,12 @@ function generateFromManualHands() {
             clubs || ''
         ];
         const southHandString = suitStrings.join(' ');
-        console.log('South hand string:', southHandString);
+        pageLog('South hand string:', southHandString);
 
         // Create South's hand
-        console.log('Creating South hand with string:', southHandString);
+        pageLog('Creating South hand with string:', southHandString);
         const southHand = new window.Hand(southHandString);
-        console.log('South hand created:', southHand);
+        pageLog('South hand created:', southHand);
         currentHands['S'] = southHand;
 
         // Track used cards from South's hand
@@ -268,7 +268,7 @@ function generateFromManualHands() {
             }
         });
 
-        console.log('South hand created, used cards:', usedCards.length, usedCards);
+        pageLog('South hand created, used cards:', usedCards.length, usedCards);
 
         // Generate remaining hands randomly for North, East, West
         const deck = createDeck();
@@ -288,16 +288,16 @@ function generateFromManualHands() {
             cardIndex += 13;
         });
 
-        console.log('All hands generated successfully');
-        console.log('Current hands:', currentHands);
+        pageLog('All hands generated successfully');
+        pageLog('Current hands:', currentHands);
 
-        console.log('Calling displayHands()...');
+        pageLog('Calling displayHands()...');
         displayHands();
-        console.log('Calling showAuctionSetup()...');
+        pageLog('Calling showAuctionSetup()...');
         showAuctionSetup();
         // Auto-switch to Auction tab after generating from manual input
         try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-        console.log('Manual hand generation completed');
+        pageLog('Manual hand generation completed');
 
     } catch (error) {
         console.error('Error in generateFromManualHands:', error);
@@ -306,7 +306,7 @@ function generateFromManualHands() {
 }
 
 function generateWithConstraints() {
-    console.log('generateWithConstraints called');
+    pageLog('generateWithConstraints called');
 
     try {
         // Cancel any in-progress auction before creating a new deal
@@ -321,7 +321,7 @@ function generateWithConstraints() {
 
         // Get constraint values from the UI
         const constraints = getConstraints();
-        console.log('Constraints:', constraints);
+        pageLog('Constraints:', constraints);
 
         // This is a simplified version - full constraint handling would be complex
         // For now, generate random hands and check if they approximately match constraints
@@ -346,9 +346,9 @@ function generateWithConstraints() {
 
         if (!success) {
             alert('Could not generate hands matching constraints after 100 attempts. Try looser constraints.');
-            console.log('Failed to match constraints after 100 attempts');
+            pageLog('Failed to match constraints after 100 attempts');
         } else {
-            console.log(`Successfully generated hands with constraints in ${attempts} attempts`);
+            pageLog(`Successfully generated hands with constraints in ${attempts} attempts`);
         }
 
         displayHands();
@@ -590,15 +590,15 @@ function toggleOtherHands() {
 }
 
 function displayHands() {
-    console.log('displayHands called');
-    console.log('currentHands.S:', currentHands.S);
+    pageLog('displayHands called');
+    pageLog('currentHands.S:', currentHands.S);
 
     if (!currentHands.S) {
         console.error('No South hand to display');
         return;
     }
 
-    console.log('Displaying all hands...');
+    pageLog('Displaying all hands...');
 
     // Display all hands
     displaySingleHand('north', currentHands.N);
@@ -610,7 +610,7 @@ function displayHands() {
     const gameLayout = document.getElementById('gameLayout');
     if (gameLayout) {
         gameLayout.style.display = 'grid';
-        console.log('Game layout made visible');
+        pageLog('Game layout made visible');
     } else {
         console.error('gameLayout element not found');
     }
@@ -668,11 +668,11 @@ function displayHands() {
     // Before any auction starts, keep bid pad disabled by default
     try { setAllBidButtonsDisabled(true); } catch (_) { }
 
-    console.log('displayHands completed');
+    pageLog('displayHands completed');
 }
 
 function displaySingleHand(position, hand) {
-    console.log(`displaySingleHand called for ${position}`, hand);
+    pageLog(`displaySingleHand called for ${position}`, hand);
 
     if (!hand) {
         console.error(`No hand provided for ${position}`);
@@ -720,7 +720,7 @@ function displaySingleHand(position, hand) {
     handHTML += `<div style="margin-top: 10px; font-size: 0.9em; color: #3498db;">HCP: ${hand.hcp} | DP: ${distPoints}</div>`;
 
     contentElement.innerHTML = handHTML;
-    console.log(`Displayed hand for ${position} with ${hand.hcp} HCP and ${distPoints} DP`);
+    pageLog(`Displayed hand for ${position} with ${hand.hcp} HCP and ${distPoints} DP`);
 }
 
 function calculateLengthPoints(hand) {
@@ -841,23 +841,23 @@ function setDealerVulnerabilityDisabled(disabled) {
 
 // Auction Management Functions
 function showAuctionSetup() {
-    console.log('showAuctionSetup called');
+    auctionLog('showAuctionSetup called');
     const auctionSetupElement = document.getElementById('auctionSetup');
     if (auctionSetupElement) {
         auctionSetupElement.style.display = 'block';
-        console.log('Auction setup made visible');
+        auctionLog('Auction setup made visible');
     } else {
         // This is optional - auction works without it
-        console.log('auctionSetup element not found (optional)');
+        auctionLog('auctionSetup element not found (optional)');
     }
 }
 
 function startAuction() {
-    console.log('startAuction called');
+    auctionLog('startAuction called');
 
     // Force switch to Practice Bids tab
     showTab('practice-bids');
-    console.log('Switched to Practice Bids tab');
+    auctionLog('Switched to Practice Bids tab');
 
     // Ensure any previous "Auction Ended" indicators are cleared before starting
     try {
@@ -873,7 +873,7 @@ function startAuction() {
     const auctionContent = document.getElementById('auctionContent');
     if (auctionContent) {
         auctionContent.style.display = 'block';
-        console.log('Auction content made visible');
+        auctionLog('Auction content made visible');
     } else {
         console.error('auctionContent element not found');
     }
@@ -882,11 +882,11 @@ function startAuction() {
     const dealerSelEl = document.getElementById('dealer');
     const dealerVal = (dealerSelEl && dealerSelEl.value) ? dealerSelEl.value : 'S';
     if (dealerVal === 'S') {
-        console.log('Dealer is South - pre-showing bidding interface');
+        auctionLog('Dealer is South - pre-showing bidding interface');
         const biddingInterface = document.getElementById('biddingInterface');
         if (biddingInterface) {
             biddingInterface.style.display = 'block';
-            console.log('Pre-showed bidding interface for South dealer');
+            auctionLog('Pre-showed bidding interface for South dealer');
         }
     }
 
@@ -1003,37 +1003,37 @@ function startNewAuction() {
 function processTurn() {
     if (!auctionActive) return;
 
-    console.log(`processTurn called: currentTurn = ${currentTurn}`);
+    auctionLog(`processTurn called: currentTurn = ${currentTurn}`);
 
     // Check if auction should end before processing turn
     if (isAuctionComplete()) {
-        console.log('Auction is complete at start of processTurn, ending...');
+        auctionLog('Auction is complete at start of processTurn, ending...');
         endAuction();
         return;
     }
 
     if (currentTurn === 'S') {
         // Player's turn
-        console.log('Showing bidding interface for South');
+        auctionLog('Showing bidding interface for South');
 
         // Check parent container first
         const auctionContent = document.getElementById('auctionContent');
-        console.log('auctionContent element:', auctionContent);
-        console.log('auctionContent display:', auctionContent ? auctionContent.style.display : 'not found');
+        auctionLog('auctionContent element:', auctionContent);
+        auctionLog('auctionContent display:', auctionContent ? auctionContent.style.display : 'not found');
 
         const biddingInterface = document.getElementById('biddingInterface');
-        console.log('biddingInterface element:', biddingInterface);
-        console.log('biddingInterface display:', biddingInterface ? biddingInterface.style.display : 'not found');
+        auctionLog('biddingInterface element:', biddingInterface);
+        auctionLog('biddingInterface display:', biddingInterface ? biddingInterface.style.display : 'not found');
 
         // Ensure parent is visible
         if (auctionContent) {
             auctionContent.style.display = 'block';
-            console.log('Ensured auctionContent is visible');
+            auctionLog('Ensured auctionContent is visible');
         }
 
         if (biddingInterface) {
             biddingInterface.style.display = 'block';
-            console.log('Bidding interface displayed');
+            auctionLog('Bidding interface displayed');
         } else {
             console.error('Bidding interface element not found');
         }
@@ -1042,15 +1042,15 @@ function processTurn() {
 
         // Debug: Check if buttons are enabled
         const bidButtons = document.querySelectorAll('.bid-button');
-        console.log('Bid buttons found:', bidButtons.length);
+        auctionLog('Bid buttons found:', bidButtons.length);
         bidButtons.forEach((btn, index) => {
             if (index < 5) { // Log first 5 buttons
-                console.log(`Button ${index}: disabled=${btn.disabled}, onclick=${btn.getAttribute('onclick')}`);
+                auctionLog(`Button ${index}: disabled=${btn.disabled}, onclick=${btn.getAttribute('onclick')}`);
             }
         });
     } else {
         // System's turn
-        console.log(`System turn for ${currentTurn}`);
+        auctionLog(`System turn for ${currentTurn}`);
         const biddingInterface = document.getElementById('biddingInterface');
         if (biddingInterface) {
             biddingInterface.style.display = 'none';
@@ -1086,8 +1086,37 @@ function isPartnerResponse(auctionLength) {
     return position === 1 || position === 3; // South or North
 }
 
-function getConventionExplanation(bid, auction) {
-    let explanation = 'Your bid';
+// Debug logging toggles
+// Set window.__debugPageLogs or window.__debugAuctionLogs to true to enable ad-hoc logging without code changes.
+const DEFAULT_PAGE_DEBUG = false;
+const DEFAULT_AUCTION_DEBUG = true;
+
+function pageLog(...args) {
+    try {
+        const enabled = (typeof window !== 'undefined' && window.__debugPageLogs === true) || DEFAULT_PAGE_DEBUG;
+        if (enabled) console.log(...args);
+    } catch (_) { /* ignore logging errors */ }
+}
+
+function auctionLog(...args) {
+    try {
+        const enabled = (typeof window !== 'undefined' && window.__debugAuctionLogs === true) || DEFAULT_AUCTION_DEBUG;
+        if (enabled) console.log(...args);
+    } catch (_) { /* ignore logging errors */ }
+}
+
+function getSeatRelativeDefaultExplanation(seat) {
+    return '';
+}
+
+function isGenericExplanationLabel(text) {
+    if (!text) return true;
+    return text === 'Your bid' || text === 'Partner bid' || text === 'Opponent bid' || text === 'Standard bid';
+}
+
+function getConventionExplanation(bid, auction, seat = currentTurn) {
+    const defaultLabel = getSeatRelativeDefaultExplanation(seat);
+    let explanation = defaultLabel;
 
     // Prefer the engine's explanation when available
     try {
@@ -1096,26 +1125,34 @@ function getConventionExplanation(bid, auction) {
         }
     } catch (_) { /* fall back to local reasoning */ }
 
-    // Guard against mislabeling simple raises (e.g., 2H after partner's 1H) as cue bids
+    // Guard against mislabeling raises and cue bids. Only call it a raise of partner's suit
+    // when partner (not us) made the last contract in that suit. If we were the opener in that
+    // suit, prefer a neutral label instead of "partner's".
     try {
         const token = bid?.token || '';
         const suit = token.replace(/^[1-7]/, '');
         if (/^[1-7][CDHS]$/.test(token)) {
-            // Human sits South; partner is North (still compute generically for safety)
-            const partnerSeat = (currentTurn === 'S') ? 'N' : (currentTurn === 'N') ? 'S' : (currentTurn === 'E') ? 'W' : 'E';
-            const partnerLastContract = (auctionHistory || []).slice().reverse().find(entry => {
+            const actorSeat = seat || currentTurn || 'S';
+            const partnerSeat = partnerOf(actorSeat);
+            const history = auctionHistory || [];
+            const partnerLastContract = history.slice().reverse().find(entry => {
                 const tok = entry?.bid?.token || 'PASS';
                 return entry?.position === partnerSeat && tok !== 'PASS' && tok !== 'X' && tok !== 'XX';
             });
+            const actorLastContract = history.slice().reverse().find(entry => {
+                const tok = entry?.bid?.token || 'PASS';
+                return entry?.position === actorSeat && tok !== 'PASS' && tok !== 'X' && tok !== 'XX';
+            });
             const partnerSuit = partnerLastContract ? (partnerLastContract.bid.token || '').replace(/^[1-7]/, '') : '';
-            if (partnerSuit && partnerSuit === suit) {
+            const actorSuit = actorLastContract ? (actorLastContract.bid.token || '').replace(/^[1-7]/, '') : '';
+            if (partnerSuit && partnerSuit === suit && actorSuit !== suit) {
                 const suitNames = { C: 'clubs', D: 'diamonds', H: 'hearts', S: 'spades' };
                 explanation = `Raise to ${token} in partner's ${suitNames[suit] || suit}`;
             }
         }
     } catch (_) { /* best-effort protection against cue-raise mislabels */ }
 
-    return explanation || 'Your bid';
+    return explanation || defaultLabel;
 }
 
 function makeBid(bidString) {
@@ -1126,12 +1163,12 @@ function makeBid(bidString) {
         if (!bid.seat) bid.seat = currentTurn;
 
         // Check if this bid uses a convention
-        let explanation = 'Your bid';
+        let explanation = getSeatRelativeDefaultExplanation('S');
         if (bid.conventionUsed) {
             explanation = bid.conventionUsed;
         } else {
             // Check for known conventions based on the bid and auction context
-            explanation = getConventionExplanation(bid, currentAuction);
+            explanation = getConventionExplanation(bid, currentAuction, 'S');
         }
 
         auctionHistory.push({
@@ -1149,15 +1186,15 @@ function makeBid(bidString) {
         updateAuctionStatus();
 
         // Check if auction is over
-        console.log('Human bid - checking if auction is complete...');
-        console.log('Current auction length:', currentAuction.length);
-        console.log('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
+        auctionLog('Human bid - checking if auction is complete...');
+        auctionLog('Current auction length:', currentAuction.length);
+        auctionLog('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
 
         if (isAuctionComplete()) {
-            console.log('Auction is complete after human bid, ending...');
+            auctionLog('Auction is complete after human bid, ending...');
             endAuction();
         } else {
-            console.log('Auction continues after human bid...');
+            auctionLog('Auction continues after human bid...');
             processTurn();
         }
 
@@ -1194,14 +1231,14 @@ function isHigherBid(newBid, lastBid) {
 }
 
 function checkForcedResponse(hand, auction) {
-    console.log('checkForcedResponse called');
-    console.log('Auction length:', auction.length);
-    console.log('First bid:', auction.length > 0 ? auction[0].token : 'none');
-    console.log('System object:', !!system);
-    console.log('System conventions:', !!system?.conventions);
+    auctionLog('checkForcedResponse called');
+    auctionLog('Auction length:', auction.length);
+    auctionLog('First bid:', auction.length > 0 ? auction[0].token : 'none');
+    auctionLog('System object:', !!system);
+    auctionLog('System conventions:', !!system?.conventions);
     // Be robust when conventions API is stubbed in tests (isEnabled may be undefined)
     const strong2cOn = !!(system?.conventions?.isEnabled?.('strong_2_clubs', 'opening_bids'));
-    console.log('Strong 2C enabled:', strong2cOn);
+    auctionLog('Strong 2C enabled:', strong2cOn);
 
     // Strong 2C forcing response - only for PARTNER, not opponents
     const firstBidIs2C = auction.length >= 1 && auction[0].token === '2C';
@@ -1236,8 +1273,8 @@ function checkForcedResponse(hand, auction) {
         currentSeat = null;
     }
 
-    console.log('First bid is 2C?', firstBidIs2C);
-    console.log('Is partner responding?', isPartnerToOpener, 'currentSeat=', currentSeat);
+    auctionLog('First bid is 2C?', firstBidIs2C);
+    auctionLog('Is partner responding?', isPartnerToOpener, 'currentSeat=', currentSeat);
 
     // Check if Strong 2C sequence is still forcing (not yet reached game level)
     const isGameLevel = (bid) => {
@@ -1251,16 +1288,16 @@ function checkForcedResponse(hand, auction) {
 
     // Respect Active Conventions toggle for Strong 2C
     const strongTwoClubsEnabled = strong2cOn;
-    console.log('Strong 2C enabled (effective):', strongTwoClubsEnabled);
-    console.log('Has reached game level?', hasReachedGame);
+    auctionLog('Strong 2C enabled (effective):', strongTwoClubsEnabled);
+    auctionLog('Has reached game level?', hasReachedGame);
 
     if (firstBidIs2C && isPartnerToOpener && strongTwoClubsEnabled && !hasReachedGame) {
-        console.log('Strong 2C sequence - FORCING response required (must continue to game)');
+        auctionLog('Strong 2C sequence - FORCING response required (must continue to game)');
 
         // Must respond - cannot pass until game is reached
-        console.log('Hand HCP:', hand.hcp);
-        console.log('Hand distribution:', hand.lengths);
-        console.log('Current auction:', auction.map(b => b.token));
+        auctionLog('Hand HCP:', hand.hcp);
+        auctionLog('Hand distribution:', hand.lengths);
+        auctionLog('Current auction:', auction.map(b => b.token));
 
         // Find the last non-pass bid to determine auction state
         let lastBid = null;
@@ -1271,7 +1308,7 @@ function checkForcedResponse(hand, auction) {
             }
         }
 
-        console.log('Last non-pass bid:', lastBid?.token);
+        auctionLog('Last non-pass bid:', lastBid?.token);
 
         // Determine forced response based on auction sequence and hand strength
         let forcedBid;
@@ -1317,7 +1354,7 @@ function checkForcedResponse(hand, auction) {
             if (found2C && found2D) {
                 // After 2C-2D-2NT sequence, partner cannot pass!
                 // This shows balanced 22-24 HCP and is forcing to game
-                console.log('Detected 2C-2D-2NT sequence - forcing to game!');
+                auctionLog('Detected 2C-2D-2NT sequence - forcing to game!');
                 if (hand.hcp >= 10) {
                     // With 10+ HCP, try for slam (South has 22-24, North 10+ = 32+ combined)
                     forcedBid = new window.Bid('4NT');
@@ -1331,7 +1368,7 @@ function checkForcedResponse(hand, auction) {
         } else if (lastBid.token && lastBid.token !== '2C' && lastBid.token !== '2D') {
             // North has already made a positive response, and South has rebid
             // North must continue to support or explore further - cannot pass
-            console.log('After positive response and opener rebid - must continue bidding');
+            auctionLog('After positive response and opener rebid - must continue bidding');
 
             // Determine appropriate continuation based on South's rebid and North's hand
             if (lastBid.token === '3H' && hand.lengths.H >= 3) {
@@ -1368,7 +1405,7 @@ function checkForcedResponse(hand, auction) {
             }
         }
 
-        console.log('Returning forced bid:', forcedBid?.token);
+        auctionLog('Returning forced bid:', forcedBid?.token);
         return forcedBid;
     }
 
@@ -1439,7 +1476,7 @@ async function makeSystemBid() {
         }
 
         const explanationContext = (system && system.currentAuction) ? system.currentAuction : { bids: currentAuction, dealer: dealerSeat };
-        let explanation = recommendedBid.conventionUsed || getConventionExplanation(recommendedBid, explanationContext) || 'Standard bid';
+        let explanation = recommendedBid.conventionUsed || getConventionExplanation(recommendedBid, explanationContext, currentTurn) || '';
 
         // Responder safeguard: with game-going strength (>=12 HCP) after having already bid,
         // do not allow a passive PASS before reaching game. Promote to a game contract based on context.
@@ -1453,21 +1490,31 @@ async function makeSystemBid() {
                     return t === '3NT' || /^[4-7]/.test(t);
                 });
 
-                if (ourLast && partnerLastContract && !auctionReachedGame && (hand.hcp || 0) >= 12) {
-                    const suit = partnerLastContract.bid.token.replace(/^[1-7]/, '');
+                const ourLastToken = ourLast?.bid?.token || '';
+                const partnerToken = partnerLastContract?.bid?.token || '';
+                const partnerLevel = parseInt(partnerToken[0], 10) || 0;
+                const partnerSuit = partnerToken.replace(/^[1-7]/, '') || null;
+                const ourLastSuit = (/^[1-7]/.test(ourLastToken || '')) ? ourLastToken.replace(/^[1-7]/, '') : null;
+                const partnerSimpleRaise = (!!ourLastSuit && partnerSuit === ourLastSuit && partnerLevel === 2);
+                const partnerInviteOrBetter = partnerLevel >= 3 || partnerToken === '2NT' || partnerToken === '3NT';
+                const strongHandForcing = (hand.hcp || 0) >= 15 && !partnerSimpleRaise;
+                const shouldForceGame = ourLast && partnerLastContract && !auctionReachedGame && !partnerSimpleRaise && (partnerInviteOrBetter || strongHandForcing);
+
+                if (shouldForceGame) {
+                    const suit = partnerSuit;
                     const hasSupport = hand.lengths && suit && hand.lengths[suit] >= 3;
                     if (suit === 'H' || suit === 'S') {
                         if (hasSupport) {
                             recommendedBid = new window.Bid(`4${suit}`);
-                            explanation = 'Game raise with 12+ points';
+                            explanation = 'Game raise with game-forcing values';
                         } else {
                             recommendedBid = new window.Bid('3NT');
-                            explanation = 'Game try with 12+ points';
+                            explanation = 'Game try with game-forcing values';
                         }
                     } else {
                         // For minor/NT contexts, steer to 3NT as a practical game choice
                         recommendedBid = new window.Bid('3NT');
-                        explanation = 'Game try with 12+ points';
+                        explanation = 'Game try with game-forcing values';
                     }
                 }
             }
@@ -1475,11 +1522,26 @@ async function makeSystemBid() {
 
         // --- Integration of the new Bidding Model ---
         // Only call the model when the rules truly have no answer (null/undefined), or when a rules PASS looks suspect (strong hand in a live auction).
+        const isOpeningContext = (function () {
+            try {
+                if (system && typeof system._isOpeningBid === 'function') return !!system._isOpeningBid();
+                return !currentAuction.some(b => b && b.token && b.token !== 'PASS');
+            } catch (_) { return false; }
+        })();
+
         const rulesReturnedNull = !recommendedBid || recommendedBid.token == null;
-        const rulesPassButStrong = (!rulesReturnedNull && !forcedBid && recommendedBid.token === 'PASS' && (hand.hcp || 0) >= 10 && currentAuction.length > 0);
-        if ((rulesReturnedNull || rulesPassButStrong) && !forcedBid) {
+        // Only treat a PASS as suspicious when we have NOT previously bid (first action). If our side has already acted, allow disciplined PASS.
+        let ourSideHasBid = false;
+        try {
+            const ctx = (system && typeof system._seatContext === 'function') ? system._seatContext() : null;
+            if (ctx?.lastOur && ctx.lastOur.token) ourSideHasBid = true;
+        } catch (_) { ourSideHasBid = false; }
+        const rulesPassButStrong = (!rulesReturnedNull && !forcedBid && recommendedBid.token === 'PASS' && (hand.hcp || 0) >= 10 && currentAuction.length > 0 && !isOpeningContext && !ourSideHasBid);
+        const allowModelFallback = !isOpeningContext;
+
+        if ((rulesReturnedNull || rulesPassButStrong) && !forcedBid && allowModelFallback) {
             const why = rulesReturnedNull ? 'null from rules' : 'rules PASS with 10+ HCP';
-            console.log(`Rules fallback trigger for ${currentTurn}: ${why}. Consulting bidding model...`);
+            auctionLog(`Rules fallback trigger for ${currentTurn}: ${why}. Consulting bidding model...`);
             try {
                 const context = {
                     dealer: dealer,
@@ -1491,15 +1553,15 @@ async function makeSystemBid() {
                 const modelConfidence = (modelBidResult && typeof modelBidResult === 'object') ? modelBidResult.confidence : null;
 
                 if (modelConfidence !== null && modelConfidence !== undefined) {
-                    console.log(`Model fallback confidence for ${currentTurn}: ${(modelConfidence * 100).toFixed(1)}% (${modelBidToken || 'PASS'})`);
+                    auctionLog(`Model fallback confidence for ${currentTurn}: ${(modelConfidence * 100).toFixed(1)}% (${modelBidToken || 'PASS'})`);
                 }
 
                 const passesThreshold = modelBidToken && modelBidToken !== 'PASS' && (modelConfidence === null || modelConfidence >= MODEL_CONFIDENCE_THRESHOLD);
                 if (passesThreshold) {
                     recommendedBid = new window.Bid(modelBidToken);
-                    explanation = "Model Fallback"; // Indicate that the model made this bid
+                    auctionLog(`Model fallback applied for ${currentTurn}: ${modelBidToken}`);
                 } else if (modelConfidence !== null && modelConfidence < MODEL_CONFIDENCE_THRESHOLD) {
-                    console.log(`Model bid discarded due to low confidence (<${(MODEL_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%). Keeping rules recommendation ${recommendedBid?.token || 'PASS'}.`);
+                    auctionLog(`Model bid discarded due to low confidence (<${(MODEL_CONFIDENCE_THRESHOLD * 100).toFixed(0)}%). Keeping rules recommendation ${recommendedBid?.token || 'PASS'}.`);
                 }
             } catch (e) {
                 console.error("Bidding model fallback failed:", e);
@@ -1511,6 +1573,55 @@ async function makeSystemBid() {
             recommendedBid = new window.Bid('PASS');
             explanation = 'Pass';
         }
+
+        // Normalize shorthand NT tokens that may come back from the model (e.g., 4N -> 4NT)
+        try {
+            const tok = recommendedBid?.token || '';
+            if (/^[1-7]N$/.test(tok)) {
+                const normalized = `${tok}T`;
+                recommendedBid = new window.Bid(normalized);
+                if (!explanation) explanation = '';
+            }
+        } catch (_) { /* best-effort normalization */ }
+
+        // Do not let the auction die in opponents' suit after partner makes a cue-bid (one-round force)
+        try {
+            if (!forcedBid && recommendedBid && recommendedBid.token === 'PASS') {
+                const partnerSeat = partnerOf(currentTurn);
+                const lastPartnerAction = auctionHistory.slice().reverse().find(e => e.position === partnerSeat && e.bid && e.bid.token && e.bid.token !== 'PASS');
+                const partnerCue = lastPartnerAction && isCueBidOfOpponentsSuit(lastPartnerAction.position, lastPartnerAction.bid, auctionHistory);
+
+                if (partnerCue) {
+                    // Find our side's last strain (non-cue contract) to steer to game in that strain; else default to 4NT
+                    const sameSide = (seat) => (seat === 'N' || seat === 'S') ? 'NS' : 'EW';
+                    const sideTag = sameSide(currentTurn);
+                    const lastOurContract = auctionHistory.slice().reverse().find(e => {
+                        const tok = e?.bid?.token || 'PASS';
+                        if (!/^[1-7]/.test(tok)) return false;
+                        if (isCueBidOfOpponentsSuit(e.position, e.bid, auctionHistory)) return false;
+                        return sameSide(e.position) === sideTag;
+                    });
+
+                    const strain = lastOurContract ? lastOurContract.bid.token.replace(/^[1-7]/, '') : null;
+                    const gameLevelFor = (s) => {
+                        if (s === 'C' || s === 'D') return 5;
+                        if (s === 'H' || s === 'S') return 4;
+                        if (s === 'NT') return 4;
+                        return 4;
+                    };
+
+                    let fallbackToken = '4NT';
+                    if (strain) {
+                        const level = gameLevelFor(strain);
+                        fallbackToken = `${level}${strain === 'NT' ? 'NT' : strain}`;
+                    }
+
+                    recommendedBid = new window.Bid(fallbackToken);
+                    explanation = 'Forcing over partner cue-bid';
+                }
+            }
+        } catch (_) { /* best-effort cue-force safeguard */ }
+
         // If system recommended a takeout double, show a small inline hint with shape rationale
         try {
             if (recommendedBid && recommendedBid.isDouble) {
@@ -1557,7 +1668,7 @@ async function makeSystemBid() {
                 }
                 if (!firstByPartnerIs2C) {
                     // Not a partner 2C opening sequence; recompute a neutral explanation
-                    explanation = getConventionExplanation(recommendedBid, currentAuction) || 'Standard bid';
+                    explanation = getConventionExplanation(recommendedBid, currentAuction, currentTurn) || '';
                 }
             }
         } catch (_) { /* best-effort */ }
@@ -1650,7 +1761,7 @@ async function makeSystemBid() {
         const bidToken = recommendedBid.token || 'PASS';
         if (forcedBid) {
             // Forced bids always valid (e.g., Strong 2C responses)
-            console.log(`${currentTurn} making forced bid: ${bidToken}`);
+            auctionLog(`${currentTurn} making forced bid: ${bidToken}`);
         } else if (bidToken !== 'PASS' && !isValidSystemBid(bidToken, currentTurn)) {
             console.warn(`${currentTurn} recommended invalid bid ${bidToken}, passing instead`);
             recommendedBid = new window.Bid('PASS'); // Create proper PASS bid
@@ -1705,13 +1816,13 @@ async function makeSystemBid() {
         } catch (e) { /* non-fatal heuristic */ }
 
         // Log after finalizing legality and explanation so console reflects what will be recorded
-        console.log('Final recommended bid:', recommendedBid.token || 'PASS');
-        console.log(`${currentTurn} making bid:`);
-        console.log(`  Hand: ${hand.toString()}`);
-        console.log(`  HCP: ${hand.hcp}`);
-        console.log(`  Current auction length: ${currentAuction.length}`);
-        console.log(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
-        console.log(`  Explanation: ${explanation}`);
+        auctionLog('Final recommended bid:', recommendedBid.token || 'PASS');
+        auctionLog(`${currentTurn} making bid:`);
+        auctionLog(`  Hand: ${hand.toString()}`);
+        auctionLog(`  HCP: ${hand.hcp}`);
+        auctionLog(`  Current auction length: ${currentAuction.length}`);
+        auctionLog(`  Recommended bid: ${recommendedBid.token || 'PASS'}`);
+        auctionLog(`  Explanation: ${explanation}`);
 
         // Responder upgrade: after opener's 2NT, push to game with adequate points
         try {
@@ -1740,15 +1851,15 @@ async function makeSystemBid() {
         updateAuctionStatus();
 
         // Check if auction is over
-        console.log('Checking if auction is complete...');
-        console.log('Current auction length:', currentAuction.length);
-        console.log('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
+        auctionLog('Checking if auction is complete...');
+        auctionLog('Current auction length:', currentAuction.length);
+        auctionLog('Last 3 bids:', currentAuction.slice(-3).map(bid => bid.token || 'PASS'));
 
         if (isAuctionComplete()) {
-            console.log('Auction is complete, ending...');
+            auctionLog('Auction is complete, ending...');
             endAuction();
         } else {
-            console.log('Auction continues...');
+            auctionLog('Auction continues...');
             processTurn();
         }
 
@@ -1775,17 +1886,29 @@ function isCueBidOfOpponentsSuit(position, bid, history) {
     const token = bid.token;
     const suit = token.replace(/^[1-7]/, ''); // extract suit part like C,D,H,S,NT
     if (suit === 'NT' || suit === 'X' || suit === 'XX') return false;
+
     const opponents = (position === 'N' || position === 'S') ? ['E', 'W'] : ['N', 'S'];
-    // Look for any prior non-pass bid by opponents in the same suit
+    let seenOpponentSuit = false;
+
     for (let i = 0; i < history.length; i++) {
         const entry = history[i];
+
+        // Stop scanning once we reach the bid being tested; only consider prior opp bids
+        if (entry && entry.bid === bid) {
+            break;
+        }
+
         const t = entry?.bid?.token || 'PASS';
-        if (opponents.includes(entry.position) && t !== 'PASS' && t !== 'X' && t !== 'XX') {
+        if (opponents.includes(entry?.position) && t !== 'PASS' && t !== 'X' && t !== 'XX') {
             const entrySuit = t.replace(/^[1-7]/, '');
-            if (entrySuit === suit) return true;
+            if (entrySuit === suit) {
+                seenOpponentSuit = true;
+                break;
+            }
         }
     }
-    return false;
+
+    return seenOpponentSuit;
 }
 
 // Identify Michaels cue-bid and return a descriptive explanation when appropriate
@@ -1889,7 +2012,7 @@ function getRecommendedBid() {
         // Be permissive when currentTurn is unset (e.g., jsdom tests). Only block if it's explicitly not South.
         if ((currentTurn && currentTurn !== 'S') || !currentHands.S) {
             alert('Not your turn or no hand available');
-            console.log('getRecommendedBid: BLOCKED - not South turn or no hand');
+            auctionLog('getRecommendedBid: BLOCKED - not South turn or no hand');
             return;
         }
         // Ensure dealer is always defined when syncing to engine
@@ -1939,10 +2062,10 @@ function getRecommendedBid() {
         try {
             if (typeof system.getExplanationFor === 'function') {
                 const expl = system.getExplanationFor(recommendedBid, system.currentAuction);
-                if (expl && expl !== 'Your bid') explanation = expl;
+                if (expl && !isGenericExplanationLabel(expl)) explanation = expl;
             }
         } catch (_) { /* fallback below */ }
-        if (!explanation) explanation = 'Standard bid';
+        if (!explanation) explanation = '';
         // suppressed noisy diagnostics in UI/tests
 
         // Handle null token (which means Pass). If token is null (engine didn't
@@ -1980,17 +2103,17 @@ function getRecommendedBid() {
         const panelBid = document.getElementById('recommendedBidDisplay');
         const panelReason = document.getElementById('recommendationReason');
         const panelWrap = document.getElementById('recommendationResult');
-        console.log('getRecommendedBid: panel elements exist=', !!panelBid, !!panelReason, !!panelWrap);
+        auctionLog('getRecommendedBid: panel elements exist=', !!panelBid, !!panelReason, !!panelWrap);
         if (panelBid && panelReason && panelWrap) {
             panelBid.innerHTML = `<span class="bid-level">${bidDisplay}</span>`;
             panelReason.textContent = explanation;
             panelWrap.style.display = 'block';
-            console.log('getRecommendedBid: Updated legacy panel');
+            auctionLog('getRecommendedBid: Updated legacy panel');
         } else {
-            console.log('getRecommendedBid: Calling showInlineHintChip');
+            auctionLog('getRecommendedBid: Calling showInlineHintChip');
             try { showInlineHintChip(bidDisplay, explanation); }
             catch (e) {
-                console.log('getRecommendedBid: showInlineHintChip failed:', e.message);
+                auctionLog('getRecommendedBid: showInlineHintChip failed:', e.message);
                 alert(`Hint: ${bidDisplay}`);
             }
         }
@@ -2280,10 +2403,10 @@ function endAuction() {
             auctionGrid.appendChild(banner);
         }
     } catch (error) {
-        console.log('Could not add auction ended message:', error.message);
+        auctionLog('Could not add auction ended message:', error.message);
     }
 
-    console.log('Auction ended');
+    auctionLog('Auction ended');
 
     // Repurpose Hint button to allow user-triggered transition to Play
     try {
@@ -2529,7 +2652,7 @@ function formatBidForAuction(token, alertable) {
 
 function updateBidButtons() {
     // Enable/disable bid buttons based on auction state
-    console.log('updateBidButtons called');
+    auctionLog('updateBidButtons called');
     // If it's not user's turn, keep everything disabled
     if (currentTurn !== 'S') {
         try { setAllBidButtonsDisabled(true); } catch (_) { }
@@ -2586,17 +2709,17 @@ function setAllBidButtonsDisabled(disabled) {
 }
 
 function getLastNonPassBid() {
-    console.log('getLastNonPassBid called, currentAuction length:', currentAuction.length);
+    auctionLog('getLastNonPassBid called, currentAuction length:', currentAuction.length);
     for (let i = currentAuction.length - 1; i >= 0; i--) {
         const bid = currentAuction[i];
-        console.log(`Checking bid ${i}:`, bid, 'token:', bid?.token);
+        auctionLog(`Checking bid ${i}:`, bid, 'token:', bid?.token);
         const bidToken = bid?.token || 'PASS';
         if (bidToken !== 'PASS' && bidToken !== 'X' && bidToken !== 'XX') {
-            console.log('Found last non-pass bid:', bid);
+            auctionLog('Found last non-pass bid:', bid);
             return bid;
         }
     }
-    console.log('No non-pass bid found, returning null');
+    auctionLog('No non-pass bid found, returning null');
     return null;
 }
 
@@ -2856,7 +2979,7 @@ function addBidExplanation(position, bid, explanation) {
 
     // If explanation is generic and this is a jump to game in a major after partner previously bid that major, label it clearly
     try {
-        const isGeneric = !explanation || explanation === 'Your bid' || explanation === 'Standard bid';
+        const isGeneric = !explanation || isGenericExplanationLabel(explanation);
         if (isGeneric && /^4[HS]$/.test(bidDisplay)) {
             const suit = bidDisplay.slice(-1);
             const partnerSeat = (position === 'N') ? 'S' : (position === 'S' ? 'N' : (position === 'E' ? 'W' : 'E'));
@@ -2871,6 +2994,11 @@ function addBidExplanation(position, bid, explanation) {
             }
         }
     } catch (_) { /* best-effort enhancement */ }
+
+    // Strip generic placeholder labels before rendering to keep UI noise-free
+    if (isGenericExplanationLabel(explanation)) {
+        explanation = '';
+    }
     // For PASS bids, suppress the trailing explanation text to reduce noise
     const explText = (bidDisplay === 'PASS') ? '' : (explanation || '');
     const badgeClass = getExplanationBadgeClass(explText);
@@ -2943,7 +3071,7 @@ async function initializeConventionUI() {
         // Sync Active Conventions into engine configuration so bidding logic respects UI
         try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync Active Conventions to engine:', e); }
 
-        console.log('Convention UI initialized successfully');
+        pageLog('Convention UI initialized successfully');
     } catch (error) {
         console.error('Error initializing convention UI:', error);
     }
@@ -3238,7 +3366,7 @@ function createGeneralSettingsSection() {
                     // UI-only preference; persist and re-render the hands immediately
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated dp_display_type to', e.target.value);
+                    pageLog('Updated dp_display_type to', e.target.value);
                     saveGeneralSettings();
                     try { displayHands(); } catch (_) { }
                 } catch (err) {
@@ -3259,7 +3387,7 @@ function createGeneralSettingsSection() {
                     // Optional visual feedback
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated include_5422 to', e.target.checked);
+                    pageLog('Updated include_5422 to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update include_5422:', err);
@@ -3275,7 +3403,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.general.vulnerability_adjustments = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated vulnerability_adjustments to', e.target.checked);
+                    pageLog('Updated vulnerability_adjustments to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update vulnerability_adjustments:', err);
@@ -3291,7 +3419,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.general.relaxed_takeout_doubles = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated relaxed_takeout_doubles to', e.target.checked);
+                    pageLog('Updated relaxed_takeout_doubles to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update relaxed_takeout_doubles:', err);
@@ -3311,7 +3439,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.competitive.support_doubles.thru = val;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated support_doubles.thru to', val);
+                    pageLog('Updated support_doubles.thru to', val);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update support_doubles.thru:', err);
@@ -3329,7 +3457,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.competitive.responsive_doubles.thru_level = val;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated responsive_doubles.thru_level to', val);
+                    pageLog('Updated responsive_doubles.thru_level to', val);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update responsive_doubles.thru_level:', err);
@@ -3347,7 +3475,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.competitive.michaels.strength = val;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated michaels.strength to', val);
+                    pageLog('Updated michaels.strength to', val);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update michaels.strength:', err);
@@ -3366,7 +3494,7 @@ function createGeneralSettingsSection() {
                     cfg.notrump_defenses.unusual_nt.over_minors = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated unusual_nt.over_minors to', e.target.checked);
+                    pageLog('Updated unusual_nt.over_minors to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update unusual_nt.over_minors:', err);
@@ -3383,7 +3511,7 @@ function createGeneralSettingsSection() {
                     system.conventions.config.general.nt_over_minors_range = val;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated general.nt_over_minors_range to', val);
+                    pageLog('Updated general.nt_over_minors_range to', val);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update nt_over_minors_range:', err);
@@ -3398,7 +3526,7 @@ function createGeneralSettingsSection() {
                     // UI-only preference; just persist
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated show_all_hands_by_default to', showAllChk.checked);
+                    pageLog('Updated show_all_hands_by_default to', showAllChk.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update show_all_hands_by_default:', err);
@@ -3416,7 +3544,7 @@ function createGeneralSettingsSection() {
                     g.systems_on_over_1nt_interference.transfers = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated systems_on_over_1nt_interference.transfers to', e.target.checked);
+                    pageLog('Updated systems_on_over_1nt_interference.transfers to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update systems_on_over_1nt_interference.transfers:', err);
@@ -3434,7 +3562,7 @@ function createGeneralSettingsSection() {
                     g.systems_on_over_1nt_interference.stolen_bid_double = !!e.target.checked;
                     container.classList.add('flash-updated');
                     setTimeout(() => container.classList.remove('flash-updated'), 600);
-                    console.log('Updated systems_on_over_1nt_interference.stolen_bid_double to', e.target.checked);
+                    pageLog('Updated systems_on_over_1nt_interference.stolen_bid_double to', e.target.checked);
                     saveGeneralSettings();
                 } catch (err) {
                     console.warn('Failed to update systems_on_over_1nt_interference.stolen_bid_double:', err);
@@ -3579,6 +3707,10 @@ async function loadAvailableConventions() {
             // Process conventions in this category
             Object.keys(category).forEach(conventionKey => {
                 const convention = category[conventionKey];
+                // Hide advancer_raises from the UI while keeping it in engine config
+                if (categoryKey === 'competitive' && conventionKey === 'advancer_raises') {
+                    return;
+                }
                 // Skip items we will synthesize into other UI categories to avoid dupes
                 if (categoryKey === 'ace_asking' && conventionKey === 'blackwood') {
                     return; // synthesized under slam_bidding below
@@ -3754,7 +3886,7 @@ async function loadAvailableConventions() {
             }
         });
 
-        console.log('Conventions loaded from inline/default config:', Object.keys(availableConventions));
+        pageLog('Conventions loaded from inline/default config:', Object.keys(availableConventions));
 
         // Reorder categories for a balanced two-column layout, with Slam Bidding below Responses (first column)
         const desiredOrder = ['opening_bids', 'notrump_responses', 'responses', 'competitive', 'slam_bidding', 'notrump_defenses'];
@@ -3922,9 +4054,9 @@ function loadFallbackConventions() {
 }
 
 function createConventionCheckboxes() {
-    console.log('createConventionCheckboxes called');
-    console.log('conventionCategories:', conventionCategories);
-    console.log('availableConventions:', availableConventions);
+    pageLog('createConventionCheckboxes called');
+    pageLog('conventionCategories:', conventionCategories);
+    pageLog('availableConventions:', availableConventions);
 
     const container = document.getElementById('conventionCheckboxes');
     if (!container) {
@@ -4112,7 +4244,7 @@ function updateConventionStatus(conventionName, enabled) {
                         if (practiceConventions.includes(otherConvention)) {
                             practiceConventions = practiceConventions.filter(name => name !== otherConvention);
                         }
-                        console.log(`Convention ${otherConvention} auto-disabled due to mutual exclusivity with ${conventionName}`);
+                        pageLog(`Convention ${otherConvention} auto-disabled due to mutual exclusivity with ${conventionName}`);
                     }
                 });
             }
@@ -4132,7 +4264,7 @@ function updateConventionStatus(conventionName, enabled) {
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync convention change to engine:', e); }
 
     try { saveEnabledConventions(); } catch (_) { }
-    console.log(`Convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
+    pageLog(`Convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
 }
 
 function updatePracticeConvention(conventionName, enabled) {
@@ -4144,7 +4276,7 @@ function updatePracticeConvention(conventionName, enabled) {
         practiceConventions = practiceConventions.filter(name => name !== conventionName);
     }
 
-    console.log(`Practice convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
+    pageLog(`Practice convention ${conventionName} ${enabled ? 'enabled' : 'disabled'}`);
 }
 
 function updatePracticeConventionSelection(categoryKey, conventionName) {
@@ -4155,9 +4287,17 @@ function updatePracticeConventionSelection(categoryKey, conventionName) {
         selectedPracticeConventions[categoryKey] = conventionName;
     }
 
-    console.log(`Practice convention selection for ${categoryKey}: ${conventionName || 'None'}`);
-    console.log('Current practice selections:', selectedPracticeConventions);
+    pageLog(`Practice convention selection for ${categoryKey}: ${conventionName || 'None'}`);
+    pageLog('Current practice selections:', selectedPracticeConventions);
 }
+
+// Inline onchange handlers in the Active/Practice Conventions UI need these in global scope
+try {
+    if (typeof window !== 'undefined') {
+        window.updateConventionStatus = updateConventionStatus;
+        window.updatePracticeConventionSelection = updatePracticeConventionSelection;
+    }
+} catch (_) { /* no-op */ }
 
 function selectAllConventions() {
     Object.keys(availableConventions).forEach(conventionName => {
@@ -4179,7 +4319,7 @@ function selectAllConventions() {
     try { saveEnabledConventions(); } catch (_) { }
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after select all:', e); }
 
-    console.log('All conventions enabled (except general, Meckwell, and Regular Blackwood)');
+    pageLog('All conventions enabled (except general, Meckwell, and Regular Blackwood)');
 }
 
 function clearAllConventions() {
@@ -4202,7 +4342,7 @@ function clearAllConventions() {
     try { saveEnabledConventions(); } catch (_) { }
     try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after clear all:', e); }
 
-    console.log('All conventions disabled (except general)');
+    pageLog('All conventions disabled (except general)');
 }
 
 
@@ -4312,7 +4452,7 @@ function updateSystemConventions() {
         }
     } catch (_) { }
 
-    console.log('System conventions updated');
+    pageLog('System conventions updated');
 }
 
 function generateHandsForPractice() {
@@ -4321,7 +4461,7 @@ function generateHandsForPractice() {
         resetAuctionForNewDeal();
 
         const selectedConventions = Object.values(selectedPracticeConventions).filter(conv => conv !== null);
-        console.log(`Generating hands for selected practice conventions:`, selectedPracticeConventions);
+        pageLog(`Generating hands for selected practice conventions:`, selectedPracticeConventions);
 
         if (selectedConventions.length === 0) {
             // No practice conventions selected, generate random hands
@@ -4355,7 +4495,7 @@ function generateHandsForPractice() {
 
         // If not possible, use any one randomly selected convention
         const targetConvention = selectTargetConvention(selectedConventions);
-        console.log(`All-at-once generation failed; falling back to single target: ${targetConvention}`);
+        pageLog(`All-at-once generation failed; falling back to single target: ${targetConvention}`);
         if (generateConventionTargetedHand(targetConvention)) {
             displayHands();
             showAuctionSetup();
@@ -4363,7 +4503,7 @@ function generateHandsForPractice() {
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         } else {
             // Fall back to random generation if targeted generation fails entirely
-            console.log('Targeted generation failed, falling back to random');
+            pageLog('Targeted generation failed, falling back to random');
             generateRandomHands();
             try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
         }
@@ -4433,11 +4573,11 @@ function generateConventionTargetedHand(target) {
         // Must satisfy all selected conventions when multiple were provided
         const allSatisfied = targets.every(conv => validateHandForConvention(currentHands.S, conv));
         if (allSatisfied) {
-            console.log(`Successfully generated hand for [${targets.join(', ')}] in ${attempt + 1} attempts`);
+            pageLog(`Successfully generated hand for [${targets.join(', ')}] in ${attempt + 1} attempts`);
             return true;
         }
     }
-    console.log(`Failed to generate suitable hand for [${targets.join(', ')}] after ${maxAttemptsAll} attempts`);
+    pageLog(`Failed to generate suitable hand for [${targets.join(', ')}] after ${maxAttemptsAll} attempts`);
     return false;
 }
 
@@ -4641,6 +4781,8 @@ function updatePlayTabState() {
 // Debug helper: draw temporary overlays around play-area elements and log computed styles.
 function debugPlayLayout() {
     try {
+        const enabled = (typeof window !== 'undefined' && window.__debugPageLogs === true) || DEFAULT_PAGE_DEBUG;
+        if (!enabled) return;
         const ids = ['playNorthArea', 'playWestArea', 'playTableArea', 'playEastArea', 'playSouthArea', 'trickArea'];
         const colors = ['#ff7f7f', '#ffd07f', '#7fffd4', '#7fb3ff', '#c87fff', '#ffdf7f'];
         const overlays = [];
@@ -4679,11 +4821,11 @@ function debugPlayLayout() {
         if (trick) {
             const cs = window.getComputedStyle(trick);
             console.group('DEBUG: #trickArea computed styles');
-            console.log('width:', trick.offsetWidth, 'height:', trick.offsetHeight);
-            console.log('background-color:', cs.backgroundColor);
-            console.log('border-style:', cs.borderStyle, 'border-width:', cs.borderWidth, 'border-color:', cs.borderColor);
-            console.log('z-index:', cs.zIndex, 'position:', cs.position);
-            console.log('display:', cs.display, 'visibility:', cs.visibility, 'opacity:', cs.opacity);
+            pageLog('width:', trick.offsetWidth, 'height:', trick.offsetHeight);
+            pageLog('background-color:', cs.backgroundColor);
+            pageLog('border-style:', cs.borderStyle, 'border-width:', cs.borderWidth, 'border-color:', cs.borderColor);
+            pageLog('z-index:', cs.zIndex, 'position:', cs.position);
+            pageLog('display:', cs.display, 'visibility:', cs.visibility, 'opacity:', cs.opacity);
             console.groupEnd();
         }
 
@@ -4692,9 +4834,9 @@ function debugPlayLayout() {
         if (playBoard) {
             const pbCS = window.getComputedStyle(playBoard);
             console.group('DEBUG: .play-board and related values');
-            console.log('.play-board rect:', playBoard.getBoundingClientRect());
-            console.log('--trick-w:', pbCS.getPropertyValue('--trick-w'));
-            console.log('--play-card-width:', pbCS.getPropertyValue('--play-card-width'));
+            pageLog('.play-board rect:', playBoard.getBoundingClientRect());
+            pageLog('--trick-w:', pbCS.getPropertyValue('--trick-w'));
+            pageLog('--play-card-width:', pbCS.getPropertyValue('--play-card-width'));
             console.groupEnd();
         }
 
@@ -4703,8 +4845,8 @@ function debugPlayLayout() {
             if (!el) return;
             const cs = window.getComputedStyle(el);
             console.group(`DEBUG: ${id}`);
-            console.log('rect:', el.getBoundingClientRect());
-            console.log('position:', cs.position, 'left:', cs.left, 'right:', cs.right, 'width:', cs.width);
+            pageLog('rect:', el.getBoundingClientRect());
+            pageLog('position:', cs.position, 'left:', cs.left, 'right:', cs.right, 'width:', cs.width);
             console.groupEnd();
         });
 
@@ -4784,7 +4926,7 @@ function positionEWSeats() {
             east.style.zIndex = 1100;
         }
 
-        console.log('positionEWSeats: positioned E/W relative to trickArea', { boardRect, trickRect });
+        pageLog('positionEWSeats: positioned E/W relative to trickArea', { boardRect, trickRect });
     } catch (e) {
         console.warn('positionEWSeats failed', e);
     }
@@ -5586,7 +5728,7 @@ function getLegalPlaysFor(seat) {
 }
 
 async function pickAutoCardFor(seat) {
-    try { console.log('DEBUG: pickAutoCardFor playState.contract:', playState?.contract); } catch (_) { }
+    try { pageLog('DEBUG: pickAutoCardFor playState.contract:', playState?.contract); } catch (_) { }
     try {
         if (typeof window !== 'undefined' && window.__DEBUG_DISCARD) {
             // debug print removed
@@ -5596,7 +5738,7 @@ async function pickAutoCardFor(seat) {
     try { if (typeof window !== 'undefined' && window.currentHands) currentHands = window.currentHands; } catch (_) { }
     try { if (typeof window !== 'undefined' && window.playState) playState = window.playState; } catch (_) { }
 
-    // --- Integration of the new Playing Model ---
+    // --- Fallback heuristics for auto-play (used when tests stub out the model) ---
     const hand = currentHands?.[seat];
     if (!hand) return null;
 
@@ -5604,6 +5746,47 @@ async function pickAutoCardFor(seat) {
     if (!legalPlays || legalPlays.length === 0) {
         return null; // No legal plays
     }
+
+    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
+    const rankIndex = (code) => rankOrder.indexOf((code || '2')[0]);
+    const sortAsc = (arr) => arr.slice().sort((a, b) => rankIndex(a) - rankIndex(b));
+    const sortDesc = (arr) => arr.slice().sort((a, b) => rankIndex(b) - rankIndex(a));
+    const sameSide = (s) => {
+        if (!playState?.contractSide) return false;
+        if (playState.contractSide === 'NS') return s === 'N' || s === 'S';
+        return s === 'E' || s === 'W';
+    };
+
+    const selectFallbackCard = () => {
+        const lead = (playState.trick && playState.trick[0]) || null;
+        const leadSuit = lead ? lead.code.slice(-1) : null;
+        const hasLeadSuit = leadSuit && legalPlays.some(c => c.endsWith(leadSuit));
+        const ourSide = sameSide(seat);
+        const leaderSideMatches = lead ? sameSide(lead.seat) === ourSide : false;
+
+        if (hasLeadSuit) {
+            const leadPlays = legalPlays.filter(c => c.endsWith(leadSuit));
+            const leadIsHonor = lead ? rankIndex(lead.code) >= rankIndex('J') : false;
+            if (leaderSideMatches && leadIsHonor) {
+                // Partner led an honor; avoid overtaking unless forced
+                return sortAsc(leadPlays)[0];
+            }
+            if (leaderSideMatches && !leadIsHonor) {
+                // Partner led low; try to win if possible
+                return sortDesc(leadPlays)[0];
+            }
+            // Opponent led; try to win with the highest available in suit
+            return sortDesc(leadPlays)[0];
+        }
+
+        // Cannot follow suit: try to ruff low if we have trump, else shed the lowest card
+        const trumpSuit = playState?.trump;
+        const trumpCards = trumpSuit ? legalPlays.filter(c => c.endsWith(trumpSuit)) : [];
+        if (trumpCards.length) return sortAsc(trumpCards)[0];
+        return sortAsc(legalPlays)[0];
+    };
+
+    const fallbackCard = selectFallbackCard();
 
     // Derive a reliable hasCard fallback when hand.hasCard is missing
     const cardSet = new Set();
@@ -5613,7 +5796,6 @@ async function pickAutoCardFor(seat) {
         });
     } catch (_) { }
     const suitOrder = ['S', 'H', 'D', 'C'];
-    const rankOrder = ['2', '3', '4', '5', '6', '7', '8', '9', 'T', 'J', 'Q', 'K', 'A'];
     const hasCardFn = (typeof hand.hasCard === 'function')
         ? (i) => hand.hasCard(i)
         : (i) => {
@@ -5622,14 +5804,15 @@ async function pickAutoCardFor(seat) {
             return cardSet.has(`${rank}${suit}`);
         };
 
-    // Prepare the game state object for the model
+    // Prepare the game state object for the model (guard when contract is unset in unit tests)
+    const fallbackContract = playState.contract || { level: 1, strain: 'NT', dbl: false };
     const gameState = {
         hand: Array.from({ length: 52 }, (_, i) => !!hasCardFn(i)),
         contract: [
-            playState.contract.level,
-            playState.contract.strain,
-            playState.declarer,
-            playState.contract.dbl,
+            fallbackContract.level,
+            fallbackContract.strain,
+            playState.declarer || 'N',
+            fallbackContract.dbl,
             vulnerability.ns,
             vulnerability.ew,
             1 // has ddt
@@ -5640,7 +5823,14 @@ async function pickAutoCardFor(seat) {
         vulnerability: (vulnerability.ns << 1 | vulnerability.ew)
     };
 
-    const cardToPlay = await getModelPlay(gameState, legalPlays);
+    const shouldConsultModel = (typeof window !== 'undefined' && window.__USE_MODEL_PLAY);
+    let cardToPlay = fallbackCard;
+    if (shouldConsultModel) {
+        try {
+            const modelChoice = await getModelPlay(gameState, legalPlays);
+            if (modelChoice) cardToPlay = modelChoice;
+        } catch (_) { /* fall back to heuristic */ }
+    }
     removeCodeFromHand(hand, cardToPlay);
     return cardToPlay;
 }

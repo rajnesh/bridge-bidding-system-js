@@ -3,6 +3,8 @@
  */
 const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
 const { Bid } = require('../js/bridge-types');
+const fs = require('fs');
+const path = require('path');
 
 // Minimal DOM for hint UI
 function bootstrapDom() {
@@ -33,13 +35,14 @@ describe('Hint chip shows full explanation text', () => {
   test('Opening 1NT hint shows 15–17 explanation rather than "Standard bid"', () => {
     // Load app.js if not already loaded to register global functions
     if (typeof global.window.getRecommendedBid !== 'function') {
-      require('../js/app.js');
+      const src = fs.readFileSync(path.join(__dirname, '..', 'js', 'app.js'), 'utf8');
+      (global.window || global).eval(src);
     }
-    
+
     // Build state: South to open, balanced 16 HCP hand
     // Expose globals from app.js
     const w = global.window || global;
-    
+
     // Mock currentHands.S as balanced 16 HCP via simple buckets
     w.currentHands = w.currentHands || {};
     // Hand string: KQ2=5, QJ2=3, KJ2=4, Q32=2 => 14; add a K somewhere to reach 17 or use A for 18
@@ -63,7 +66,7 @@ describe('Hint chip shows full explanation text', () => {
       w.currentTurn = 'S';
       w.auctionActive = false;
     }
-    
+
     // Ensure system is initialized and has the correct hand
     if (!w.system || !w.system.currentAuction) {
       const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
@@ -83,11 +86,11 @@ describe('Hint chip shows full explanation text', () => {
       hintBtn.id = 'hintBtn';
       document.getElementById('auctionStatus').appendChild(hintBtn);
     }
-    
+
     // Mock alert to capture any errors
     const alerts = [];
     w.alert = (msg) => { alerts.push(msg); console.log('TEST ALERT:', msg); };
-    
+
     // Prefer direct listener over setAttribute for jsdom reliability
     hintBtn.addEventListener('click', () => {
       console.log('TEST: Hint button clicked, currentTurn=', w.currentTurn, 'currentHands.S=', !!w.currentHands.S);
@@ -107,7 +110,7 @@ describe('Hint chip shows full explanation text', () => {
       }
     });
     hintBtn.click();
-    
+
     console.log('TEST: After click, alerts=', alerts);
     console.log('TEST: inlineHint element=', document.getElementById('inlineHint'));
 

@@ -36,6 +36,14 @@
     "url": "https://github.com/rajnesh/bridge-bidding-system/issues"
   },
   "homepage": "https://github.com/rajnesh/bridge-bidding-system#readme",
+  "jest": {
+    "setupFiles": [
+      "<rootDir>/tests/jest-setup-strip-app.js"
+    ],
+    "setupFilesAfterEnv": [
+      "<rootDir>/tests/jest-setup-strip-app.js"
+    ]
+  },
   "dependencies": {
     "@tensorflow/tfjs-node": "^4.22.0",
     "@viz-js/lang-dot": "^1.0.5",

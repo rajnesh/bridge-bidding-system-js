@@ -16,7 +16,7 @@ class StubHand {
   constructor(map) {
     this.suitBuckets = { S: [], H: [], D: [], C: [] };
     if (!map) return;
-    ['S','H','D','C'].forEach(s => {
+    ['S', 'H', 'D', 'C'].forEach(s => {
       const arr = map[s] || [];
       this.suitBuckets[s] = arr.map(r => new StubCard(r, s));
     });
@@ -36,7 +36,7 @@ function loadApp(win) {
 }
 
 describe('Repro: partner-led J then East should not overtake with Q', () => {
-  test('East ducks Q over partner J (plays small heart)', () => {
+  test('East ducks Q over partner J (plays small heart)', async () => {
     const win = window; // jsdom global
     loadApp(win);
 
@@ -44,7 +44,7 @@ describe('Repro: partner-led J then East should not overtake with Q', () => {
     // Mutate module-scoped `window.currentHands` rather than replacing the object
     if (!win.currentHands) win.currentHands = { N: null, E: null, S: null, W: null };
     win.currentHands.N = new StubHand({});
-    win.currentHands.E = new StubHand({ H: ['Q','9'], C: ['K'] });
+    win.currentHands.E = new StubHand({ H: ['Q', '9'], C: ['K'] });
     win.currentHands.S = new StubHand({ H: ['A'] });
     // Make West lead JH by placing it in West's hand and playing it
     win.currentHands.W = new StubHand({ H: ['J'] });
@@ -53,12 +53,12 @@ describe('Repro: partner-led J then East should not overtake with Q', () => {
     // Play the lead
     win.playCardToTrick('W', 'JH');
     // Ensure contractSide is set so defender/declarer logic treats East as a defender
-    try { win.eval && win.eval("playState.contractSide = 'NS';"); } catch(_) {}
+    try { win.eval && win.eval("playState.contractSide = 'NS';"); } catch (_) { }
 
     console.log('--- START PLAY-LOG CAPTURE ---');
     console.log('DBG currentHands.E:', JSON.stringify(win.currentHands.E && win.currentHands.E.suitBuckets));
     console.log('DBG playState:', JSON.stringify(win.playState));
-    const pick = win.pickAutoCardFor('E');
+    const pick = await win.pickAutoCardFor('E');
     console.log('DBG pick ->', pick);
     console.log('--- END PLAY-LOG CAPTURE ---');
 

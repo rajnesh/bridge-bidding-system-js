@@ -16,7 +16,7 @@ class StubHand {
   constructor(map) {
     this.suitBuckets = { S: [], H: [], D: [], C: [] };
     if (!map) return;
-    ['S','H','D','C'].forEach(s => {
+    ['S', 'H', 'D', 'C'].forEach(s => {
       const arr = map[s] || [];
       this.suitBuckets[s] = arr.map(r => new StubCard(r, s));
     });
@@ -37,14 +37,14 @@ function loadApp(win) {
 }
 
 describe('Discard behavior (unit)', () => {
-  test('non-follow discard prefers smallest spot from shortest suit', () => {
+  test('non-follow discard prefers smallest spot from shortest suit', async () => {
     const win = window; // jsdom global
     loadApp(win);
 
     // East has no diamonds (lead is diamonds). East holds K,4,3 of hearts.
     win.currentHands = {
       N: new StubHand({}),
-      E: new StubHand({ H: ['K','4','3'] }),
+      E: new StubHand({ H: ['K', '4', '3'] }),
       S: new StubHand({}),
       W: new StubHand({})
     };
@@ -58,22 +58,22 @@ describe('Discard behavior (unit)', () => {
     win.playCardToTrick('N', '2D');
 
     console.log('DBG pickAutoCardFor exists?', typeof win.pickAutoCardFor);
-    console.log('DBG pickAutoCardFor fn:', win.pickAutoCardFor.toString().slice(0,200));
+    console.log('DBG pickAutoCardFor fn:', win.pickAutoCardFor.toString().slice(0, 200));
     console.log('DBG currentHands.E:', JSON.stringify(win.currentHands.E && win.currentHands.E.suitBuckets));
     console.log('DBG playState:', JSON.stringify(win.playState));
-    const pick = win.pickAutoCardFor('E');
+    const pick = await win.pickAutoCardFor('E');
     console.log('DBG pick ->', pick);
     expect(pick).toBe('3H');
   });
 
-  test('defender ruff prefers lowest trump (small spot)', () => {
+  test('defender ruff prefers lowest trump (small spot)', async () => {
     const win = window;
     loadApp(win);
 
     // East has 2 trumps and only one non-trump card (so nonTrumpCount <=1)
     win.currentHands = {
       N: new StubHand({}),
-      E: new StubHand({ S: ['K','4'], H: ['6'] }),
+      E: new StubHand({ S: ['K', '4'], H: ['6'] }),
       S: new StubHand({}),
       W: new StubHand({})
     };
@@ -82,26 +82,26 @@ describe('Discard behavior (unit)', () => {
     win.currentHands.N = new StubHand({ D: ['2'] });
     win.playCardToTrick('N', '2D');
     // Set trump and contract side via small helper: use renderPlayTab to initialize playState fields then set trump
-    try { win.renderPlayTab(); } catch(_) {}
+    try { win.renderPlayTab(); } catch (_) { }
     // Update trump and contractSide directly on the module-scoped playState via a small helper function if available
-    try { win.eval && win.eval("playState.trump = 'S'; playState.contractSide = 'NS';"); } catch(_) {}
+    try { win.eval && win.eval("playState.trump = 'S'; playState.contractSide = 'NS';"); } catch (_) { }
 
     console.log('DBG pickAutoCardFor exists?', typeof win.pickAutoCardFor);
     console.log('DBG currentHands.E:', JSON.stringify(win.currentHands.E && win.currentHands.E.suitBuckets));
     console.log('DBG playState:', JSON.stringify(win.playState));
-    const pick = win.pickAutoCardFor('E');
+    const pick = await win.pickAutoCardFor('E');
     console.log('DBG pick ->', pick);
     expect(pick).toBe('4S');
   });
 
-  test('partner-led signaling: play minimal winning honor to encourage', () => {
+  test('partner-led signaling: play minimal winning honor to encourage', async () => {
     const win = window;
     loadApp(win);
 
     // West (partner) led 5H. East has KH,4H,3H and can beat 5H with KH.
     win.currentHands = {
       N: new StubHand({}),
-      E: new StubHand({ H: ['K','4','3'] }),
+      E: new StubHand({ H: ['K', '4', '3'] }),
       S: new StubHand({}),
       W: new StubHand({})
     };
@@ -113,7 +113,7 @@ describe('Discard behavior (unit)', () => {
     console.log('DBG pickAutoCardFor exists?', typeof win.pickAutoCardFor);
     console.log('DBG currentHands.E:', JSON.stringify(win.currentHands.E && win.currentHands.E.suitBuckets));
     console.log('DBG playState:', JSON.stringify(win.playState));
-    const pick = win.pickAutoCardFor('E');
+    const pick = await win.pickAutoCardFor('E');
     console.log('DBG pick ->', pick);
     expect(pick).toBe('KH');
   });

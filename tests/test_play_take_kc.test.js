@@ -16,7 +16,7 @@ class StubHand {
   constructor(map) {
     this.suitBuckets = { S: [], H: [], D: [], C: [] };
     if (!map) return;
-    ['S','H','D','C'].forEach(s => {
+    ['S', 'H', 'D', 'C'].forEach(s => {
       const arr = map[s] || [];
       this.suitBuckets[s] = arr.map(r => new StubCard(r, s));
     });
@@ -36,7 +36,7 @@ function loadApp(win) {
 }
 
 describe('Repro: West leads small club, East should take K♣', () => {
-  test('East overtakes with K♣ when partner led small club', () => {
+  test('East overtakes with K♣ when partner led small club', async () => {
     const win = window;
     loadApp(win);
 
@@ -54,12 +54,12 @@ describe('Repro: West leads small club, East should take K♣', () => {
     // Play the lead
     win.playCardToTrick('W', '2C');
     // Ensure contractSide is set so East is treated as defender
-    try { win.eval && win.eval("playState.contractSide = 'NS';"); } catch(_) {}
+    try { win.eval && win.eval("playState.contractSide = 'NS';"); } catch (_) { }
 
     console.log('--- START PLAY-LOG KC CAPTURE ---');
     console.log('DBG currentHands.E:', JSON.stringify(win.currentHands.E && win.currentHands.E.suitBuckets));
     console.log('DBG playState (module):', typeof win.playState === 'undefined' ? 'undefined' : JSON.stringify(win.playState));
-    const pick = win.pickAutoCardFor('E');
+    const pick = await win.pickAutoCardFor('E');
     console.log('DBG pick ->', pick);
     console.log('--- END PLAY-LOG KC CAPTURE ---');
 

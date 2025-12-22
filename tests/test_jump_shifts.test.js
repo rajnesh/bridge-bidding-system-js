@@ -1,11 +1,18 @@
 /**
  * @jest-environment jsdom
  */
+const fs = require('fs');
+const path = require('path');
 const { SAYCBiddingSystem } = require('../js/combined-bidding-system');
 const { Bid } = require('../js/bridge-types');
 const { makeHandFromPattern } = require('./test-helpers');
 
-function setupAuction(system, tokens, ourSeat='E', dealer='N') {
+function evalInWindow(win, filePath) {
+  const src = fs.readFileSync(filePath, 'utf8');
+  win.eval(src);
+}
+
+function setupAuction(system, tokens, ourSeat = 'E', dealer = 'N') {
   system.startAuction(ourSeat);
   if (typeof system.currentAuction.reseat === 'function') system.currentAuction.reseat(dealer);
   tokens.forEach(t => system.currentAuction.add(new Bid(t)));
@@ -22,8 +29,8 @@ describe('One-level suit jump shifts: overcalls (weak) and responder (strong)', 
     const bid = system.getBid(hand);
     expect(bid && bid.token).toBe('2H');
     const exp = system.getExplanationFor(bid, system.currentAuction);
-    expect((exp||'').toLowerCase()).toContain('jump overcall');
-    expect((exp||'').toLowerCase()).toContain('weak');
+    expect((exp || '').toLowerCase()).toContain('jump overcall');
+    expect((exp || '').toLowerCase()).toContain('weak');
   });
 
   test('Do not choose weak jump overcall when 11+ HCP', () => {
@@ -42,8 +49,8 @@ describe('One-level suit jump shifts: overcalls (weak) and responder (strong)', 
     const bid = system.getBid(hand);
     expect(bid && bid.token).toBe('2S');
     const exp = system.getExplanationFor(bid, system.currentAuction);
-    expect((exp||'').toLowerCase()).toContain('responder jump shift');
-    expect((exp||'').toLowerCase()).toContain('strong');
+    expect((exp || '').toLowerCase()).toContain('responder jump shift');
+    expect((exp || '').toLowerCase()).toContain('strong');
   });
 });
 
@@ -84,7 +91,7 @@ describe('General Settings footnote for jump shifts', () => {
     `;
 
     // Load app UI; initializeSystem will create general settings
-    require('../js/app.js');
+    evalInWindow(window, path.join(__dirname, '..', 'js', 'app.js'));
     if (typeof window.initializeSystem === 'function') {
       window.initializeSystem();
     }

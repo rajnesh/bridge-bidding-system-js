@@ -17,22 +17,22 @@ let playModel = null;
  */
 export async function loadPlayModel(modelPath = './models/play_rl_model/model.json') {
     if (playModel) {
-        console.log("Play model already loaded.");
+        //console.log("Play model already loaded.");
         return;
     }
-    console.log(`Loading play model from ${modelPath}...`);
-    console.log(`Play model will use backend: ${tf.getBackend ? tf.getBackend() : 'unknown'}`);
+    //console.log(`Loading play model from ${modelPath}...`);
+    //console.log(`Play model will use backend: ${tf.getBackend ? tf.getBackend() : 'unknown'}`);
     try {
         playModel = await tf.loadGraphModel(modelPath);
-        console.log("Play model loaded successfully.");
+        //console.log("Play model loaded successfully.");
 
         const dummyObs = tf.zeros([1, PLAY_OBS_TENSOR_SIZE]);
         try {
             const result = playModel.execute(dummyObs);
             tf.dispose(result);
-            console.log("Play model warmed up.");
+            //console.log("Play model warmed up.");
         } catch (e) {
-            console.warn("Play model warmup failed (continuing):", e);
+            //console.warn("Play model warmup failed (continuing):", e);
         } finally {
             tf.dispose(dummyObs);
         }

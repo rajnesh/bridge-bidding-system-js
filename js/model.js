@@ -41,21 +41,21 @@ export async function loadModel(modelPath = './models/bid_rl_model/model.json', 
     }
 
     try {
-        console.log(`Loading bidding model from ${modelPath}...`);
+        //console.log(`Loading bidding model from ${modelPath}...`);
 
         // Prefer webgl for performance; fall back to current/default backend if unavailable.
         if (tf?.setBackend) {
             try {
                 await tf.setBackend('webgl');
                 await tf.ready();
-                console.log(`Bidding model using backend: ${tf.getBackend()}`);
+                //console.log(`Bidding model using backend: ${tf.getBackend()}`);
             } catch (be) {
                 console.warn('WebGL backend unavailable, using default:', be?.message || be);
             }
         }
 
         model = await tf.loadGraphModel(modelPath);
-        console.log('Bidding model loaded. Warming up...');
+        // console.log('Bidding model loaded. Warming up...');
 
         // Warmup with representative shapes/values on the active backend.
         try {
@@ -83,16 +83,16 @@ export async function loadModel(modelPath = './models/bid_rl_model/model.json', 
             try {
                 const out = await model.executeAsync(inputMap);
                 Array.isArray(out) ? tf.dispose(out) : tf.dispose(out);
-                console.log(`Bidding model warmup (map async, backend=${tf.getBackend ? tf.getBackend() : 'unknown'}) complete.`);
+                // console.log(`Bidding model warmup (map async, backend=${tf.getBackend ? tf.getBackend() : 'unknown'}) complete.`);
             } catch (e1) {
                 const outArr = await model.executeAsync(ordered);
                 Array.isArray(outArr) ? tf.dispose(outArr) : tf.dispose(outArr);
-                console.log(`Bidding model warmup (array async, backend=${tf.getBackend ? tf.getBackend() : 'unknown'}) complete.`);
+                //console.log(`Bidding model warmup (array async, backend=${tf.getBackend ? tf.getBackend() : 'unknown'}) complete.`);
             } finally {
                 tf.dispose([auctionTensor, handFeatsTensor, convFeatsTensor, auxFeatsTensor]);
             }
         } catch (warmErr) {
-            console.warn('Bidding model warmup failed (continuing):', warmErr);
+            //console.warn('Bidding model warmup failed (continuing):', warmErr);
         }
     } catch (err) {
         console.error('Failed to load bidding model:', err);

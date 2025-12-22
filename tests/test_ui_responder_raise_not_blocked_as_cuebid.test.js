@@ -40,7 +40,7 @@ function installStubSystem() {
         bids: [], dealer: null, ourSeat: ourSeat,
         reseat(d) { this.dealer = d; },
         add(bid) {
-          const order = (window.Auction && window.Auction.TURN_ORDER) || ['N','E','S','W'];
+          const order = (window.Auction && window.Auction.TURN_ORDER) || ['N', 'E', 'S', 'W'];
           const base = this.dealer ? order.indexOf(this.dealer) : 0;
           const seat = order[(base + this.bids.length) % 4];
           bid.seat = seat; this.bids.push(bid);
@@ -82,7 +82,7 @@ function setDealer(value) {
 describe('Responder raise is not misclassified as Michaels cue-bid', () => {
   test('1D — Pass — [engine recommends 2D as responder] is not blocked to PASS', () => {
     buildDOM();
-    window.Auction = { TURN_ORDER: ['N','E','S','W'] };
+    window.Auction = { TURN_ORDER: ['N', 'E', 'S', 'W'] };
     window.Bid = StubBid;
     window.Hand = StubHand;
 
@@ -90,7 +90,7 @@ describe('Responder raise is not misclassified as Michaels cue-bid', () => {
 
     // Load app and initialize
     evalInWindow(window, path.join(__dirname, '..', 'js', 'app.js'));
-    window.switchTab = () => {};
+    window.switchTab = () => { };
     window.initializeSystem();
 
     // South opens 1D (human)
@@ -112,18 +112,19 @@ describe('Responder raise is not misclassified as Michaels cue-bid', () => {
     window.makeSystemBid();
 
     // Verify last bid is 2D, not PASS
-  // Assert from data source via test getter to avoid DOM brittleness
-  expect(typeof window.__getAuctionHistoryForTests).toBe('function');
-  const hist = window.__getAuctionHistoryForTests();
-  expect(Array.isArray(hist)).toBe(true);
-  const last = hist[hist.length - 1];
-  expect(last && last.position).toBe('N');
-  expect(last && last.bid && last.bid.token).toBe('2D');
+    // Assert from data source via test getter to avoid DOM brittleness
+    expect(typeof window.__getAuctionHistoryForTests).toBe('function');
+    const hist = window.__getAuctionHistoryForTests();
+    expect(Array.isArray(hist)).toBe(true);
+    const last = hist[hist.length - 1];
+    expect(last && last.position).toBe('N');
+    expect(last && last.bid && last.bid.token).toBe('2D');
 
-  // Light DOM sanity check (non-normative)
-  const bidsEl = document.getElementById('auctionBids');
-  expect(bidsEl).toBeTruthy();
-  const text = bidsEl.textContent || '';
-  expect(text).toMatch(/PASS/);
+    // Light DOM sanity check (non-normative)
+    const bidsEl = document.getElementById('auctionBids');
+    expect(bidsEl).toBeTruthy();
+    const text = bidsEl.textContent || '';
+    // Should render our auction entries; presence of 2D (or ♦ glyph) is the key signal
+    expect(text).toMatch(/2(D|♦)/);
   });
 });
