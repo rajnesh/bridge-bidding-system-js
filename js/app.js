@@ -841,14 +841,14 @@ function setDealerVulnerabilityDisabled(disabled) {
 
 // Auction Management Functions
 function showAuctionSetup() {
-    auctionLog('showAuctionSetup called');
     const auctionSetupElement = document.getElementById('auctionSetup');
     if (auctionSetupElement) {
+        auctionLog('showAuctionSetup called');
         auctionSetupElement.style.display = 'block';
         auctionLog('Auction setup made visible');
     } else {
-        // This is optional - auction works without it
-        auctionLog('auctionSetup element not found (optional)');
+        // Optional container is not present on some layouts; treat as no-op
+        pageLog('auctionSetup element not found (optional)');
     }
 }
 
@@ -1089,7 +1089,7 @@ function isPartnerResponse(auctionLength) {
 // Debug logging toggles
 // Set window.__debugPageLogs or window.__debugAuctionLogs to true to enable ad-hoc logging without code changes.
 const DEFAULT_PAGE_DEBUG = false;
-const DEFAULT_AUCTION_DEBUG = true;
+const DEFAULT_AUCTION_DEBUG = false;
 
 function pageLog(...args) {
     try {
@@ -1155,6 +1155,46 @@ function getConventionExplanation(bid, auction, seat = currentTurn) {
     return explanation || defaultLabel;
 }
 
+// Ensure the explanation aligns with the actual bid token (prevents stale/mismatched labels).
+function normalizeExplanationForBid(bid, explanation, auctionCtx = currentAuction, seat = currentTurn) {
+    try {
+        const token = bid?.token || (bid?.isDouble ? 'X' : bid?.isRedouble ? 'XX' : null);
+        if (!token) return explanation;
+        const lower = (explanation || '').toLowerCase();
+
+        const tokenIsDouble = token === 'X' || token === 'XX';
+        if (!tokenIsDouble && lower.includes('double')) {
+            return getConventionExplanation(bid, auctionCtx, seat) || '';
+        }
+
+        const denom = token.replace(/^[1-7]/, '');
+        const suitWords = {
+            C: ['club', 'clubs'],
+            D: ['diamond', 'diamonds'],
+            H: ['heart', 'hearts'],
+            S: ['spade', 'spades']
+        };
+        const mentionsSuitWord = Object.values(suitWords).flat().some(w => lower.includes(w));
+        const mentionsNT = lower.includes('nt') || lower.includes('notrump');
+
+        if (denom === 'NT') {
+            if (mentionsSuitWord && !mentionsNT) {
+                return getConventionExplanation(bid, auctionCtx, seat) || '';
+            }
+        } else if (['C', 'D', 'H', 'S'].includes(denom)) {
+            const ourWords = suitWords[denom] || [];
+            const mentionsOurSuit = ourWords.some(w => lower.includes(w));
+            if (mentionsNT || (mentionsSuitWord && !mentionsOurSuit)) {
+                return getConventionExplanation(bid, auctionCtx, seat) || '';
+            }
+        }
+
+        return explanation;
+    } catch (_) {
+        return explanation;
+    }
+}
+
 function makeBid(bidString) {
     try {
         if (currentTurn !== 'S') return;
@@ -1170,6 +1210,9 @@ function makeBid(bidString) {
             // Check for known conventions based on the bid and auction context
             explanation = getConventionExplanation(bid, currentAuction, 'S');
         }
+
+        // Sanity-check: avoid stale/mismatched labels (e.g., leftover "double" text on suit bids)
+        explanation = normalizeExplanationForBid(bid, explanation, currentAuction, 'S');
 
         auctionHistory.push({
             position: 'S',
@@ -1236,6 +1279,8 @@ function checkForcedResponse(hand, auction) {
     auctionLog('First bid:', auction.length > 0 ? auction[0].token : 'none');
     auctionLog('System object:', !!system);
     auctionLog('System conventions:', !!system?.conventions);
+    auctionLog('Hand HCP (forced-check):', hand?.hcp);
+    auctionLog('Hand lengths (C,D,H,S):', hand?.lengths);
     // Be robust when conventions API is stubbed in tests (isEnabled may be undefined)
     const strong2cOn = !!(system?.conventions?.isEnabled?.('strong_2_clubs', 'opening_bids'));
     auctionLog('Strong 2C enabled:', strong2cOn);
@@ -1414,6 +1459,12 @@ function checkForcedResponse(hand, auction) {
 
 async function makeSystemBid() {
     try {
+        // Never allow the engine to bid for South (human seat)
+        if (currentTurn === 'S') {
+            auctionLog('Skipped system bid because currentTurn is South');
+            return;
+        }
+
         // Get system's bid for current position
         const hand = currentHands[currentTurn];
         const seatNumber = getSeatNumber(currentTurn);
@@ -1708,6 +1759,10 @@ async function makeSystemBid() {
                 const isNS = (s) => s === 'N' || s === 'S';
                 const isEW = (s) => s === 'E' || s === 'W';
                 const onOpenersSide = openingSeat ? ((isNS(openingSeat) && isNS(currentTurn)) || (isEW(openingSeat) && isEW(currentTurn))) : false;
+                // If we're on opener's side (responder or opener), never treat a 2-level bid of opener's suit as a Michaels cue.
+                if (onOpenersSide) {
+                    throw new Error('skip_cue_guard_on_side');
+                }
 
                 // Determine if there was any intervening non-pass action after the opening (i.e., not direct seat)
                 let nonPassAfterOpening = false;
@@ -1815,6 +1870,38 @@ async function makeSystemBid() {
             }
         } catch (e) { /* non-fatal heuristic */ }
 
+        // Guard: avoid raising partner without support or values
+        try {
+            if (!forcedBid && recommendedBid && recommendedBid.token && /^[1-7][CDHS]$/.test(recommendedBid.token)) {
+                const partnerSeat = partnerOf(currentTurn);
+                const partnerLastContract = auctionHistory.slice().reverse().find(e => e.position === partnerSeat && /^[1-7][CDHS]$/.test(e?.bid?.token || ''));
+                if (partnerLastContract) {
+                    const partnerTok = partnerLastContract.bid.token || '';
+                    const partnerSuit = partnerTok.replace(/^[1-7]/, '');
+                    const partnerLevel = parseInt(partnerTok[0], 10) || 0;
+                    const ourSuit = recommendedBid.token.replace(/^[1-7]/, '');
+                    const ourLevel = parseInt(recommendedBid.token[0], 10) || 0;
+                    const raisingPartnerSuit = (ourSuit === partnerSuit) && (ourLevel > partnerLevel);
+
+                    // Only enforce the guard when we have concrete shape/strength info; avoid blocking when hand data is stubbed/missing.
+                    const hasShapeInfo = !!(hand?.lengths && Object.values(hand.lengths || {}).some(v => v > 0));
+                    const hasHcpInfo = typeof hand?.hcp === 'number' && !Number.isNaN(hand.hcp);
+                    const support = hasShapeInfo ? (hand.lengths[partnerSuit] || 0) : null;
+                    const hcp = hasHcpInfo ? hand.hcp : null;
+                    const weakSupport = hasShapeInfo ? support < 3 : false;
+                    const weakHcp = hasHcpInfo ? hcp < 7 : false;
+
+                    if (raisingPartnerSuit && (weakSupport || weakHcp)) {
+                        recommendedBid = new window.Bid('PASS');
+                        explanation = 'Pass (insufficient strength/support to raise partner)';
+                    }
+                }
+            }
+        } catch (_) { /* best-effort safeguard */ }
+
+        // Normalize any stale labels that don't match the actual bid token
+        explanation = normalizeExplanationForBid(recommendedBid, explanation, currentAuction, currentTurn);
+
         // Log after finalizing legality and explanation so console reflects what will be recorded
         auctionLog('Final recommended bid:', recommendedBid.token || 'PASS');
         auctionLog(`${currentTurn} making bid:`);
@@ -1835,6 +1922,18 @@ async function makeSystemBid() {
                 explanation = 'Game after opener\'s 2NT';
             }
         } catch (e) { console.warn('Responder game check failed:', e?.message || e); }
+
+        // Keep the engine auction in sync so legality checks see the latest seat/action
+        try {
+            if (system?.currentAuction) {
+                if (!recommendedBid.seat) recommendedBid.seat = currentTurn;
+                if (typeof system.currentAuction.add === 'function') {
+                    system.currentAuction.add(recommendedBid);
+                } else if (Array.isArray(system.currentAuction.bids)) {
+                    system.currentAuction.bids.push(recommendedBid);
+                }
+            }
+        } catch (_) { /* best-effort sync */ }
 
         auctionHistory.push({
             position: currentTurn,
@@ -1867,6 +1966,16 @@ async function makeSystemBid() {
         console.error('Error making system bid:', error);
         // Make a pass bid as fallback
         const passBid = new window.Bid('PASS');
+        try {
+            if (system?.currentAuction) {
+                if (!passBid.seat) passBid.seat = currentTurn;
+                if (typeof system.currentAuction.add === 'function') {
+                    system.currentAuction.add(passBid);
+                } else if (Array.isArray(system.currentAuction.bids)) {
+                    system.currentAuction.bids.push(passBid);
+                }
+            }
+        } catch (_) { /* best-effort sync */ }
         auctionHistory.push({
             position: currentTurn,
             bid: passBid,
@@ -2066,6 +2175,9 @@ function getRecommendedBid() {
             }
         } catch (_) { /* fallback below */ }
         if (!explanation) explanation = '';
+
+        // Normalize hint explanations to the actual bid token
+        explanation = normalizeExplanationForBid(recommendedBid, explanation, system.currentAuction, 'S');
         // suppressed noisy diagnostics in UI/tests
 
         // Handle null token (which means Pass). If token is null (engine didn't
@@ -2683,7 +2795,14 @@ function updateBidButtons() {
         const match = onclickAttr.match(/makeBid\('(.+?)'\)/);
         const bidText = match ? match[1] : null;
         if (!bidText) return;
-        const legal = isEngineLegal(bidText);
+        // Only apply partner guards when a prior contract exists; otherwise allow engine legality to drive initial state
+        const hasPriorContract = !!getLastNonPassBidWithPosition();
+        const partnerGuard = (bidText === 'X')
+            ? (!hasPriorContract || canDouble())
+            : (bidText === 'XX')
+                ? (!hasPriorContract || canRedouble())
+                : true;
+        const legal = isEngineLegal(bidText) && partnerGuard;
         btn.disabled = !legal;
         // Visual cue: legal bid buttons get a light blue background
         if (legal) btn.classList.add('legal-bid'); else btn.classList.remove('legal-bid');
@@ -2692,13 +2811,15 @@ function updateBidButtons() {
     // Update special buttons using engine legality
     const doubleBtn = document.getElementById('doubleBtn');
     if (doubleBtn) {
-        const legalX = isEngineLegal('X');
+        const hasPriorContract = !!getLastNonPassBidWithPosition();
+        const legalX = isEngineLegal('X') && (!hasPriorContract || canDouble());
         doubleBtn.disabled = !legalX;
         if (legalX) doubleBtn.classList.add('legal-bid'); else doubleBtn.classList.remove('legal-bid');
     }
     const redoubleBtn = document.getElementById('redoubleBtn');
     if (redoubleBtn) {
-        const legalXX = isEngineLegal('XX');
+        const hasPriorContract = !!getLastNonPassBidWithPosition();
+        const legalXX = isEngineLegal('XX') && (!hasPriorContract || canRedouble());
         redoubleBtn.disabled = !legalXX;
         if (legalXX) redoubleBtn.classList.add('legal-bid'); else redoubleBtn.classList.remove('legal-bid');
     }
