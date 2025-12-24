@@ -319,34 +319,55 @@ class BiddingSystem {
                     }
                 }
                 // Responder cue-bid raise (cue of opponents' suit showing fit for opener)
-                if (tokens.length === 2 && firstNonPassIdx === 0 && /^[1][CDHS]$/.test(tokens[0]) && /^[12][CDHS]$/.test(tokens[1]) && isSuit) {
+                if (tokens.length >= 2 && firstNonPassIdx === 0 && /^[1][CDHS]$/.test(tokens[0]) && isSuit) {
                     const openerSuit = tokens[0].slice(-1);
-                    const theirSuit = tokens[1].slice(-1);
                     const ourSuit = bidToken.slice(-1);
+
+                    // Identify opponents' first suit call after the opening bid
+                    let theirIdx = -1;
+                    let theirTok = null;
+                    for (let i = 1; i < tokens.length - 1; i++) {
+                        const t = tokens[i];
+                        if (t !== 'PASS' && t !== 'X' && t !== 'XX') { theirIdx = i; theirTok = t; break; }
+                    }
+                    const theirSuit = (theirTok && /^[1-7][CDHS]$/.test(theirTok)) ? theirTok.slice(-1) : null;
+
+                    // Seat awareness to avoid mislabeling partner vs opponents
+                    const seatsCtx = (() => {
+                        const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
+                        const openerSeat = this._seatAtIndex(auct, 0) || auct?.bids?.[0]?.seat || null;
+                        const theirSeat = (theirIdx !== -1) ? (this._seatAtIndex(auct, theirIdx) || auct?.bids?.[theirIdx]?.seat || null) : null;
+                        const currentSeat = this._seatAtIndex(auct, (auct?.bids?.length || 1) - 1) || auct?.bids?.[auct?.bids?.length - 1]?.seat || null;
+                        return { openerSeat, theirSeat, currentSeat };
+                    })();
                     const sameSideAsOpener = (() => {
-                        try {
-                            const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
-                            const openerSeat = this._seatAtIndex(auct, 0) || auct?.bids?.[0]?.seat || null;
-                            const lastSeat = auct?.bids?.[auct.bids.length - 1]?.seat || null;
-                            const inferredSeat = this._seatAtIndex(auct, auct?.bids?.length || 0);
-                            const actorSeat = lastSeat || inferredSeat || null;
-                            if (openerSeat && actorSeat) return this._sameSideAs(openerSeat, actorSeat);
-                        } catch (_) { }
+                        const { openerSeat, currentSeat } = seatsCtx;
+                        if (openerSeat && currentSeat) return this._sameSideAs(openerSeat, currentSeat);
                         return true; // assume responder when seats are unknown
                     })();
+                    const theirCallByOpponents = (() => {
+                        const { openerSeat, theirSeat } = seatsCtx;
+                        if (openerSeat && theirSeat) return !this._sameSideAs(openerSeat, theirSeat);
+                        return !!theirSuit; // assume opponents if a suit overcall exists but seats are unknown
+                    })();
 
-                    // Cue-bid of their suit by opener's partner = limit+/GF raise
-                    if (sameSideAsOpener && ourSuit === theirSuit && ourSuit !== openerSuit) {
-                        return `Cue Bid Raise (limit+ raise of partner's ${suitName(openerSuit)})`;
-                    }
-
-                    // Responder new suit after opponent overcalls
-                    if (ourSuit !== openerSuit) {
-                        // If we're forced to the 2-level (free bid) after interference, note the strength implication
-                        if (/^2[CDHS]$/.test(bidToken)) {
-                            return `New suit at 2-level over interference (free bid): natural ${suitName(ourSuit)}, about 10+ total points`;
+                    if (theirSuit && sameSideAsOpener && theirCallByOpponents) {
+                        // Cue-bid of their suit by opener's partner = limit+/GF raise
+                        if (ourSuit === theirSuit && ourSuit !== openerSuit) {
+                            return `Cue Bid Raise (limit+ raise of partner's ${suitName(openerSuit)})`;
                         }
-                        return `Natural new suit (${suitName(ourSuit)})`;
+
+                        // Responder new suit after opponent overcalls
+                        if (ourSuit !== openerSuit) {
+                            const level = parseInt(bidToken[0], 10) || 0;
+                            if (level === 1) {
+                                return `Responder new suit after overcall: natural, 4+ ${suitName(ourSuit)}, about 6+ points`;
+                            }
+                            if (level === 2) {
+                                return `New suit at 2-level over interference (free bid): natural ${suitName(ourSuit)}, about 10+ total points`;
+                            }
+                            return `Natural new suit (${suitName(ourSuit)})`;
+                        }
                     }
                 }
                 // Negative Double (UI mapping): opener made a 1-level suit bid, RHO overcalled a suit at 1–2 level, and we doubled
@@ -5065,18 +5086,23 @@ class SAYCBiddingSystem extends BiddingSystem {
 
             // If we opened 1NT/2NT and partner asked/transfered, accept
             const effOurSeat = ctx?.effectiveOurSeat || this.ourSeat || null;
-            const weOpened1NT = bids.some((b, i) => {
-                if (b.token !== '1NT') return false;
-                const seat = b.seat || this._seatAtIndex(this.currentAuction, i);
-                if (effOurSeat && seat) return this._sameSideAs(seat, effOurSeat);
-                return !seat;
-            });
-            const weOpened2NT = bids.some((b, i) => {
-                if (b.token !== '2NT') return false;
-                const seat = b.seat || this._seatAtIndex(this.currentAuction, i);
-                if (effOurSeat && seat) return this._sameSideAs(seat, effOurSeat);
-                return !seat;
-            });
+            // Only treat 1NT/2NT as OUR opening bids when they are the FIRST contract of the auction and by our side.
+            const firstContractIdx = (() => {
+                for (let i = 0; i < bids.length; i++) {
+                    const t = bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) return i;
+                }
+                return -1;
+            })();
+            let weOpened1NT = false;
+            let weOpened2NT = false;
+            if (firstContractIdx !== -1) {
+                const firstTok = bids[firstContractIdx]?.token || '';
+                const firstSeat = bids[firstContractIdx]?.seat || this._seatAtIndex(this.currentAuction, firstContractIdx) || null;
+                const firstByUs = (!effOurSeat || !firstSeat) ? true : this._sameSideAs(firstSeat, effOurSeat);
+                if (firstByUs && firstTok === '1NT') weOpened1NT = true;
+                if (firstByUs && firstTok === '2NT') weOpened2NT = true;
+            }
             if (weOpened1NT) {
                 const op = this._handle1NTOpenerRebid(hand);
                 if (op) return op;
