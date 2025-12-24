@@ -318,10 +318,29 @@ class BiddingSystem {
                         }
                     }
                 }
-                // Responder new suit after opponent overcalls
+                // Responder cue-bid raise (cue of opponents' suit showing fit for opener)
                 if (tokens.length === 2 && firstNonPassIdx === 0 && /^[1][CDHS]$/.test(tokens[0]) && /^[12][CDHS]$/.test(tokens[1]) && isSuit) {
                     const openerSuit = tokens[0].slice(-1);
+                    const theirSuit = tokens[1].slice(-1);
                     const ourSuit = bidToken.slice(-1);
+                    const sameSideAsOpener = (() => {
+                        try {
+                            const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
+                            const openerSeat = this._seatAtIndex(auct, 0) || auct?.bids?.[0]?.seat || null;
+                            const lastSeat = auct?.bids?.[auct.bids.length - 1]?.seat || null;
+                            const inferredSeat = this._seatAtIndex(auct, auct?.bids?.length || 0);
+                            const actorSeat = lastSeat || inferredSeat || null;
+                            if (openerSeat && actorSeat) return this._sameSideAs(openerSeat, actorSeat);
+                        } catch (_) { }
+                        return true; // assume responder when seats are unknown
+                    })();
+
+                    // Cue-bid of their suit by opener's partner = limit+/GF raise
+                    if (sameSideAsOpener && ourSuit === theirSuit && ourSuit !== openerSuit) {
+                        return `Cue Bid Raise (limit+ raise of partner's ${suitName(openerSuit)})`;
+                    }
+
+                    // Responder new suit after opponent overcalls
                     if (ourSuit !== openerSuit) {
                         // If we're forced to the 2-level (free bid) after interference, note the strength implication
                         if (/^2[CDHS]$/.test(bidToken)) {
@@ -2810,17 +2829,28 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
 
             try {
-                console.log('[DEBUG-1NT-INTERF]', {
-                    bids: auction.bids.map(b => b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS')),
-                    firstContractIdx,
-                    firstContractTok,
-                    isOpening1NT,
-                    directSeat,
-                    openerSeat,
-                    openerSideSameAsUs,
-                    hcp: hand?.hcp,
-                    lengths: hand?.lengths
-                });
+                const debugOn = (() => {
+                    try {
+                        if (typeof window !== 'undefined') {
+                            if (window.__debugAuctionLogs === true) return true;
+                            if (window.DEFAULT_AUCTION_DEBUG === true) return true;
+                        }
+                    } catch (_) { /* ignore */ }
+                    return false;
+                })();
+                if (debugOn) {
+                    console.log('[DEBUG-1NT-INTERF]', {
+                        bids: auction.bids.map(b => b?.token || (b?.isDouble ? 'X' : b?.isRedouble ? 'XX' : 'PASS')),
+                        firstContractIdx,
+                        firstContractTok,
+                        isOpening1NT,
+                        directSeat,
+                        openerSeat,
+                        openerSideSameAsUs,
+                        hcp: hand?.hcp,
+                        lengths: hand?.lengths
+                    });
+                }
             } catch (_) { /* best-effort debug */ }
 
             if (isOpening1NT) {
@@ -4177,14 +4207,27 @@ class SAYCBiddingSystem extends BiddingSystem {
     _handle1NTOpenerRebid(hand) {
         const bids = this.currentAuction.bids;
         if (bids.length < 1) return null;
-        const lastBid = bids[bids.length - 1];
+        const ctx = this._seatContext();
+        const partnerSeat = ctx?.partnerSeat || null;
+        const lastCall = (() => {
+            for (let i = bids.length - 1; i >= 0; i--) {
+                const b = bids[i];
+                if (!b) continue;
+                const tok = b.token || (b.isDouble ? 'X' : b.isRedouble ? 'XX' : null);
+                if (!tok || this._isPassToken(tok)) continue;
+                if (partnerSeat && b.seat && !this._sameSideAs(b.seat, partnerSeat)) continue;
+                return { bid: b, token: tok };
+            }
+            return null;
+        })();
+        const lastToken = lastCall?.token || null;
         const staymanOn = this.conventions?.isEnabled('stayman', 'notrump_responses');
         const transfersOn = this.conventions?.isEnabled('jacoby_transfers', 'notrump_responses');
         const texasOn = this.conventions?.isEnabled('texas_transfers', 'notrump_responses');
         const minorOn = this.conventions?.isEnabled('minor_suit_transfers', 'notrump_responses');
 
         // Respond to Stayman (2C)
-        if (staymanOn && lastBid.token === '2C') {
+        if (staymanOn && lastToken === '2C') {
             if (hand.lengths['H'] >= 4) {
                 const bid = new window.Bid('2H'); bid.conventionUsed = 'Stayman response (4 hearts)'; return bid;
             }
@@ -4196,27 +4239,27 @@ class SAYCBiddingSystem extends BiddingSystem {
         }
 
         // Accept Jacoby transfers (2D->2H, 2H->2S)
-        if (transfersOn && lastBid.token === '2D') {
+        if (transfersOn && lastToken === '2D') {
             const bid = new window.Bid('2H'); bid.conventionUsed = 'Jacoby transfer accepted to hearts'; return bid;
         }
-        if (transfersOn && lastBid.token === '2H') {
+        if (transfersOn && lastToken === '2H') {
             // debug print removed
             const bid = new window.Bid('2S'); bid.conventionUsed = 'Jacoby transfer accepted to spades'; return bid;
         }
 
         // Texas transfers (4D->4H, 4H->4S)
-        if (texasOn && lastBid.token === '4D') {
+        if (texasOn && lastToken === '4D') {
             const bid = new window.Bid('4H'); bid.conventionUsed = 'Texas transfer accepted to hearts'; return bid;
         }
-        if (texasOn && lastBid.token === '4H') {
+        if (texasOn && lastToken === '4H') {
             const bid = new window.Bid('4S'); bid.conventionUsed = 'Texas transfer accepted to spades'; return bid;
         }
 
         // Minor-suit transfers (2S->3C, 2NT->3D) when enabled
-        if (minorOn && lastBid.token === '2S') {
+        if (minorOn && lastToken === '2S') {
             const bid = new window.Bid('3C'); bid.conventionUsed = 'Minor transfer accepted to clubs'; return bid;
         }
-        if (minorOn && lastBid.token === '2NT') {
+        if (minorOn && lastToken === '2NT') {
             const bid = new window.Bid('3D'); bid.conventionUsed = 'Minor transfer accepted to diamonds'; return bid;
         }
 
@@ -5021,8 +5064,19 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
 
             // If we opened 1NT/2NT and partner asked/transfered, accept
-            const weOpened1NT = bids.some((b, i) => b.token === '1NT' && this._sameSideAs(b.seat, bids[i + 1]?.seat || ctx.partnerSeat));
-            const weOpened2NT = bids.some((b, i) => b.token === '2NT' && this._sameSideAs(b.seat, bids[i + 1]?.seat || ctx.partnerSeat));
+            const effOurSeat = ctx?.effectiveOurSeat || this.ourSeat || null;
+            const weOpened1NT = bids.some((b, i) => {
+                if (b.token !== '1NT') return false;
+                const seat = b.seat || this._seatAtIndex(this.currentAuction, i);
+                if (effOurSeat && seat) return this._sameSideAs(seat, effOurSeat);
+                return !seat;
+            });
+            const weOpened2NT = bids.some((b, i) => {
+                if (b.token !== '2NT') return false;
+                const seat = b.seat || this._seatAtIndex(this.currentAuction, i);
+                if (effOurSeat && seat) return this._sameSideAs(seat, effOurSeat);
+                return !seat;
+            });
             if (weOpened1NT) {
                 const op = this._handle1NTOpenerRebid(hand);
                 if (op) return op;

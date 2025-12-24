@@ -1089,7 +1089,7 @@ function isPartnerResponse(auctionLength) {
 // Debug logging toggles
 // Set window.__debugPageLogs or window.__debugAuctionLogs to true to enable ad-hoc logging without code changes.
 const DEFAULT_PAGE_DEBUG = false;
-const DEFAULT_AUCTION_DEBUG = false;
+const DEFAULT_AUCTION_DEBUG = true;
 
 function pageLog(...args) {
     try {
