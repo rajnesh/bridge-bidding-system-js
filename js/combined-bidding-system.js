@@ -2756,6 +2756,111 @@ class SAYCBiddingSystem extends BiddingSystem {
         }
 
         const lastBid = auction.bids[auction.bids.length - 1];
+        // Balancing seat after our 1-level suit opening was overcalled and both hands passed:
+        // reopen with shape/values instead of passing out.
+        try {
+            const balancing = this._isBalancingSeat(auction);
+            if (balancing && auction.bids.length >= 3) {
+                // Identify opener (first contract) and overcall
+                let openerIdx = -1;
+                for (let i = 0; i < auction.bids.length; i++) {
+                    const t = auction.bids[i]?.token;
+                    if (t && /^[1-7](C|D|H|S|NT)$/.test(t)) { openerIdx = i; break; }
+                }
+                if (openerIdx !== -1) {
+                    const openerTok = auction.bids[openerIdx]?.token || '';
+                    const openerSuit = openerTok.slice(-1);
+                    const openerSeat = this._seatAtIndex(auction, openerIdx) || auction.bids[openerIdx]?.seat || null;
+                    // Find first suit call by opponents after opener = overcall
+                    let overIdx = -1, overTok = null, overSeat = null;
+                    for (let i = openerIdx + 1; i < auction.bids.length; i++) {
+                        const b = auction.bids[i];
+                        const tok = b?.token;
+                        if (tok && /^[1-7][CDHS]$/.test(tok)) {
+                            overIdx = i; overTok = tok; overSeat = this._seatAtIndex(auction, i) || b?.seat || null; break;
+                        }
+                        if (tok && tok === '1NT') { overIdx = i; overTok = tok; overSeat = this._seatAtIndex(auction, i) || b?.seat || null; break; }
+                    }
+                    const actorSeat = (() => {
+                        const ctxSeats = (typeof this._seatContext === 'function') ? this._seatContext(auction) : null;
+                        return ctxSeats?.currentSeat || this._seatAtIndex(auction, auction.bids.length) || this._seatAtIndex(auction, auction.bids.length - 1) || null;
+                    })();
+                    const openerSide = (openerSeat && actorSeat) ? this._sameSideAs(openerSeat, actorSeat) : true;
+                    const overByOpp = (openerSeat && overSeat) ? !this._sameSideAs(openerSeat, overSeat) : !!overTok;
+                    if (openerSide && overByOpp && /^[1][CDHS]$/.test(openerTok) && overTok) {
+                        const oppSuit = overTok.slice(-1);
+                        const hcp = hand.hcp || 0;
+                        const dist = hand.distributionPoints || 0;
+                        const totalPts = hcp + dist;
+                        const shortOpp = (hand.lengths?.[oppSuit] || 0) <= 2;
+
+                        // Cheapest legal level helper over the last contract in the auction
+                        const lastContractTok = (() => {
+                            for (let i = auction.bids.length - 1; i >= 0; i--) {
+                                const bt = auction.bids[i]?.token;
+                                if (bt && /^[1-7](C|D|H|S|NT)$/.test(bt)) return bt;
+                            }
+                            return null;
+                        })();
+                        const suitOrder = ['C', 'D', 'H', 'S', 'NT'];
+                        const higherThan = (aTok, bTok) => {
+                            if (!bTok) return true;
+                            const la = parseInt(aTok[0], 10); const lb = parseInt(bTok[0], 10);
+                            const sa = aTok.slice(1); const sb = bTok.slice(1);
+                            if (Number.isNaN(la) || Number.isNaN(lb)) return true;
+                            if (la > lb) return true;
+                            if (la < lb) return false;
+                            return suitOrder.indexOf(sa) > suitOrder.indexOf(sb);
+                        };
+                        const cheapestOver = (suit) => {
+                            if (!lastContractTok || !/^[1-7](C|D|H|S|NT)$/.test(lastContractTok)) return 1;
+                            const lastLevel = parseInt(lastContractTok[0], 10) || 1;
+                            let lvl = lastLevel;
+                            while (lvl <= 7) {
+                                const tok = `${lvl}${suit}`;
+                                if (higherThan(tok, lastContractTok)) return lvl;
+                                lvl += 1;
+                            }
+                            return 7;
+                        };
+
+                        // Prefer length in opener suit, else a strong second suit
+                        const openerLen = hand.lengths?.[openerSuit] || 0;
+                        const secondSuit = (() => {
+                            const prefs = ['S', 'H', 'D', 'C'];
+                            // prefer majors first, longest first, skip opponents' suit and opener suit
+                            const cand = prefs
+                                .filter(s => s !== oppSuit && s !== openerSuit && (hand.lengths?.[s] || 0) >= 5)
+                                .sort((a, b) => (hand.lengths[b] - hand.lengths[a]) || (prefs.indexOf(a) - prefs.indexOf(b)));
+                            return cand[0] || null;
+                        })();
+
+                        if (openerLen >= 6 || (openerLen >= 5 && totalPts >= 12)) {
+                            const lvl = Math.min(7, Math.max(2, cheapestOver(openerSuit)));
+                            const tok = `${lvl}${openerSuit}`;
+                            const bid = new window.Bid(tok);
+                            bid.conventionUsed = 'Balancing suit rebid (extra length in opener suit)';
+                            return bid;
+                        }
+                        if (secondSuit) {
+                            const lvl = Math.min(7, Math.max(2, cheapestOver(secondSuit)));
+                            const tok = `${lvl}${secondSuit}`;
+                            const bid = new window.Bid(tok);
+                            bid.conventionUsed = 'Balancing suit rebid (second suit shown)';
+                            return bid;
+                        }
+
+                        // Otherwise, with shortness in their suit and values, reopen with a double
+                        if (shortOpp && hcp >= 12 && this.conventions?.isEnabled('reopening_doubles', 'competitive')) {
+                            const bid = new window.Bid(null, { isDouble: true });
+                            bid.conventionUsed = 'Balancing reopening double (after overcall)';
+                            return bid;
+                        }
+                    }
+                }
+            }
+        } catch (_) { /* fall through */ }
+
         if (this._isPassToken(lastBid.token)) return null;
 
         // Get opponent's level and suit
