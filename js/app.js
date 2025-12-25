@@ -1541,6 +1541,24 @@ async function makeSystemBid() {
                     return t === '3NT' || /^[4-7]/.test(t);
                 });
 
+                // If opponents have acted between our last bid and partner's last contract, treat the auction as competitive
+                // and avoid auto-promoting partner's competitive raise to a game force.
+                let contestedSinceOurLast = false;
+                try {
+                    const findLastIndex = (arr, pred) => { for (let i = arr.length - 1; i >= 0; i--) { if (pred(arr[i], i)) return i; } return -1; };
+                    const ourIdx = findLastIndex(currentAuction, (b) => b && b.seat === currentTurn && /^[1-7]/.test(b.token || ''));
+                    const partnerIdx = findLastIndex(currentAuction, (b) => b && b.seat === partnerSeat && /^[1-7]/.test(b.token || ''));
+                    if (ourIdx >= 0 && partnerIdx > ourIdx) {
+                        for (let i = ourIdx + 1; i < partnerIdx; i++) {
+                            const b = currentAuction[i];
+                            if (b && b.seat && b.seat !== currentTurn && b.seat !== partnerSeat && /^[1-7]/.test(b.token || '')) {
+                                contestedSinceOurLast = true;
+                                break;
+                            }
+                        }
+                    }
+                } catch (_) { contestedSinceOurLast = false; }
+
                 const ourLastToken = ourLast?.bid?.token || '';
                 const partnerToken = partnerLastContract?.bid?.token || '';
                 const partnerLevel = parseInt(partnerToken[0], 10) || 0;
@@ -1549,7 +1567,7 @@ async function makeSystemBid() {
                 const partnerSimpleRaise = (!!ourLastSuit && partnerSuit === ourLastSuit && partnerLevel === 2);
                 const partnerInviteOrBetter = partnerLevel >= 3 || partnerToken === '2NT' || partnerToken === '3NT';
                 const strongHandForcing = (hand.hcp || 0) >= 15 && !partnerSimpleRaise;
-                const shouldForceGame = ourLast && partnerLastContract && !auctionReachedGame && !partnerSimpleRaise && (partnerInviteOrBetter || strongHandForcing);
+                const shouldForceGame = ourLast && partnerLastContract && !auctionReachedGame && !partnerSimpleRaise && !contestedSinceOurLast && (partnerInviteOrBetter || strongHandForcing);
 
                 if (shouldForceGame) {
                     const suit = partnerSuit;
@@ -2899,45 +2917,6 @@ function isValidBid(bidString, lastBid) {
     }
 }
 
-function isValidUserBid(bidString, lastBid) {
-    // More permissive validation for user bids
-    if (bidString === 'PASS') return true;
-
-    // If no previous bid, any opening bid is valid
-    if (!lastBid) {
-        return true;
-    }
-
-    // User can make any bid that's higher than the last bid
-    try {
-        const newBid = new window.Bid(bidString);
-
-        const parseParts = (b) => {
-            const tok = (typeof b === 'string') ? b : (b?.token || '');
-            const m = /^([1-7])(C|D|H|S|NT)$/.exec(tok);
-            if (m) return { level: parseInt(m[1], 10), suit: m[2] };
-            return { level: Number.NEGATIVE_INFINITY, suit: null };
-        };
-        const nb = {
-            level: (newBid.level != null) ? newBid.level : parseParts(newBid).level,
-            suit: newBid.suit || parseParts(newBid).suit
-        };
-        const lb = {
-            level: (lastBid.level != null) ? lastBid.level : parseParts(lastBid).level,
-            suit: lastBid.suit || parseParts(lastBid).suit
-        };
-
-        // Must be higher level or same level with higher suit
-        const isHigherLevel = nb.level > lb.level;
-        const isSameLevelHigherSuit = (nb.level === lb.level &&
-            getSuitRank(nb.suit) > getSuitRank(lb.suit));
-
-        return isHigherLevel || isSameLevelHigherSuit;
-    } catch (e) {
-        return false;
-    }
-}
-
 function getSuitRank(suit) {
     const ranks = { 'C': 1, 'D': 2, 'H': 3, 'S': 4, 'NT': 5 };
     return ranks[suit] || 0;
@@ -3695,72 +3674,6 @@ function createGeneralSettingsSection() {
     }
 }
 
-// Update the RKCB label in-place without resetting all user selections, then re-render UI
-function updateRKCBLabelAndRerender() {
-    if (!system?.conventions) return;
-    const variant = (system.conventions.getConventionSetting('blackwood', 'responses', 'ace_asking')) || '1430';
-    const newLabel = `RKC Blackwood ${variant}`;
-    const possibleOld = ['RKC Blackwood 1430', 'RKC Blackwood 3014'];
-
-    // If label already correct, just re-render to be safe
-    let oldLabel = possibleOld.find(n => n !== newLabel && availableConventions[n]);
-    if (!oldLabel && availableConventions[newLabel]) {
-        // No rename needed; still update mutual exclusivity label and UI
-        updateMutualExclusivityForRKCB(newLabel);
-        createConventionCheckboxes();
-        createPracticeConventionOptions();
-        // Subtle highlight to indicate update
-        try { flashRKCBLabel(newLabel); } catch (_) { }
-        return;
-    }
-
-    // Move availableConventions entry
-    const oldEntry = oldLabel ? availableConventions[oldLabel] : null;
-    // Preserve enabled state
-    if (oldLabel && enabledConventions.hasOwnProperty(oldLabel)) {
-        enabledConventions[newLabel] = enabledConventions[oldLabel];
-        delete enabledConventions[oldLabel];
-    } else if (!enabledConventions.hasOwnProperty(newLabel)) {
-        enabledConventions[newLabel] = true;
-    }
-
-    // Update category lists (slam_bidding contains RKCB)
-    if (conventionCategories['slam_bidding']?.conventions) {
-        const list = conventionCategories['slam_bidding'].conventions;
-        for (let i = 0; i < list.length; i++) {
-            if (possibleOld.includes(list[i])) {
-                list[i] = newLabel;
-            }
-        }
-        // Ensure uniqueness
-        conventionCategories['slam_bidding'].conventions = Array.from(new Set(conventionCategories['slam_bidding'].conventions));
-    }
-
-    // Update practice selections referring to old label
-    if (Array.isArray(practiceConventions)) {
-        practiceConventions = practiceConventions.map(n => (possibleOld.includes(n) ? newLabel : n));
-    }
-    if (selectedPracticeConventions && typeof selectedPracticeConventions === 'object') {
-        Object.keys(selectedPracticeConventions).forEach(cat => {
-            const val = selectedPracticeConventions[cat];
-            if (possibleOld.includes(val)) {
-                selectedPracticeConventions[cat] = newLabel;
-            }
-        });
-    }
-
-    // Update mutual exclusivity groups
-    updateMutualExclusivityForRKCB(newLabel);
-
-    // Re-render panels
-    createConventionCheckboxes();
-    createPracticeConventionOptions();
-    // Persist enabled conventions after relabeling to keep storage in sync
-    try { saveEnabledConventions(); } catch (_) { }
-    // Subtle highlight to indicate update
-    try { flashRKCBLabel(newLabel); } catch (_) { }
-}
-
 function updateMutualExclusivityForRKCB(rkcbLabel) {
     if (!Array.isArray(mutuallyExclusiveGroups)) return;
     for (let i = 0; i < mutuallyExclusiveGroups.length; i++) {
@@ -4420,54 +4333,6 @@ try {
     }
 } catch (_) { /* no-op */ }
 
-function selectAllConventions() {
-    Object.keys(availableConventions).forEach(conventionName => {
-        const convention = availableConventions[conventionName];
-
-        // Skip general conventions (always enabled), Meckwell (user must manually enable),
-        // and Regular Blackwood (RKC Blackwood 1430 is preferred)
-        if (convention.isGeneral || conventionName === 'Meckwell' || conventionName === 'Regular Blackwood') {
-            return;
-        }
-
-        enabledConventions[conventionName] = true;
-        const checkbox = document.getElementById(`conv_${conventionName.replace(/\s+/g, '_')}`);
-        if (checkbox) checkbox.checked = true;
-    });
-
-    // Refresh practice convention checkboxes
-    createPracticeConventionOptions();
-    try { saveEnabledConventions(); } catch (_) { }
-    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after select all:', e); }
-
-    pageLog('All conventions enabled (except general, Meckwell, and Regular Blackwood)');
-}
-
-function clearAllConventions() {
-    Object.keys(availableConventions).forEach(conventionName => {
-        const convention = availableConventions[conventionName];
-
-        // Skip general conventions (always enabled)
-        if (convention.isGeneral) {
-            return;
-        }
-
-        enabledConventions[conventionName] = false;
-        const checkbox = document.getElementById(`conv_${conventionName.replace(/\s+/g, '_')}`);
-        if (checkbox) checkbox.checked = false;
-    });
-
-    // Clear all practice conventions and refresh
-    practiceConventions = [];
-    createPracticeConventionOptions();
-    try { saveEnabledConventions(); } catch (_) { }
-    try { updateSystemConventions(); } catch (e) { console.warn('Failed to sync after clear all:', e); }
-
-    pageLog('All conventions disabled (except general)');
-}
-
-
-
 function updateSystemConventions() {
     // Update the system's convention configuration based on enabled conventions
     if (!system || !system.conventions || !system.conventions.config) return;
@@ -4575,69 +4440,6 @@ function updateSystemConventions() {
 
     pageLog('System conventions updated');
 }
-
-function generateHandsForPractice() {
-    try {
-        // Cancel any in-progress auction before creating a new deal
-        resetAuctionForNewDeal();
-
-        const selectedConventions = Object.values(selectedPracticeConventions).filter(conv => conv !== null);
-        pageLog(`Generating hands for selected practice conventions:`, selectedPracticeConventions);
-
-        if (selectedConventions.length === 0) {
-            // No practice conventions selected, generate random hands
-            return generateBasicRandomHands();
-        }
-
-        // First, try to satisfy ALL selected conventions at once
-        if (generateConventionTargetedHand(selectedConventions)) {
-            displayHands();
-            showAuctionSetup();
-            addPracticeIndicator(selectedConventions);
-            try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-            return;
-        }
-
-        // Next, try all pairs (combinations of two) before falling back to a single
-        if (selectedConventions.length >= 2) {
-            const pairs = buildPairs(selectedConventions);
-            // Try pairs in random order to avoid bias
-            shuffleArrayInPlace(pairs);
-            for (const pair of pairs) {
-                if (generateConventionTargetedHand(pair)) {
-                    displayHands();
-                    showAuctionSetup();
-                    addPracticeIndicator(pair);
-                    try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-                    return;
-                }
-            }
-        }
-
-        // If not possible, use any one randomly selected convention
-        const targetConvention = selectTargetConvention(selectedConventions);
-        pageLog(`All-at-once generation failed; falling back to single target: ${targetConvention}`);
-        if (generateConventionTargetedHand(targetConvention)) {
-            displayHands();
-            showAuctionSetup();
-            addPracticeIndicator(targetConvention);
-            try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-        } else {
-            // Fall back to random generation if targeted generation fails entirely
-            pageLog('Targeted generation failed, falling back to random');
-            generateRandomHands();
-            try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-        }
-
-    } catch (error) {
-        console.error('Error generating practice hands:', error);
-        generateRandomHands();
-        try { switchTab('auction'); } catch (e) { console.warn('Could not switch to auction tab:', e); }
-    }
-}
-
-// Note: Previously there was a one-click 'Generate and Start Auction' helper.
-// This flow has been removed to avoid duplication with generateRandomHands + auto-switch.
 
 function generateBasicRandomHands() {
     const deck = createDeck();
@@ -4979,80 +4781,6 @@ function debugPlayLayout() {
     }
 }
 
-// Position East and West play-seat containers adjacent to the trick-area.
-function positionEWSeats() {
-    // Do nothing unless explicitly enabled for debugging purposes.
-    try {
-        if (!(window && window.__enablePositionEWSeats)) return;
-        const trick = document.getElementById('trickArea');
-        const board = document.querySelector('.play-board');
-        const west = document.getElementById('playWestArea');
-        const east = document.getElementById('playEastArea');
-        if (!trick || !board || (!west && !east)) return;
-
-        // Force trick-area to a visible, square green table using inline styles
-        try {
-            const vw = Math.max(320, Math.min(520, Math.round(window.innerWidth * 0.48)));
-            trick.style.width = vw + 'px';
-            trick.style.height = vw + 'px';
-            trick.style.backgroundColor = '#e6ffed';
-            trick.style.border = '3px solid #86e59f';
-            trick.style.borderRadius = '14px';
-            trick.style.boxShadow = '0 8px 30px rgba(34,90,50,0.06)';
-            trick.style.overflow = 'visible';
-            // Position the trick area absolutely and center it within the play board
-            trick.style.position = 'absolute';
-            trick.style.left = '50%';
-            trick.style.top = '50%';
-            trick.style.transform = 'translate(-50%, -50%)';
-            trick.style.zIndex = 1200;
-        } catch (e) { /* ignore */ }
-
-        // Clear any previous inline positioning so natural sizes can be measured
-        [west, east].forEach(el => { if (el) { el.style.position = ''; el.style.left = ''; el.style.top = ''; el.style.transform = ''; } });
-
-        const boardRect = board.getBoundingClientRect();
-        const trickRect = trick.getBoundingClientRect();
-
-        const gap = 8; // px gap between trick-area and seat
-
-        if (west) {
-            // Measure the inner card row if present (the play-seat container may be full-width)
-            const westRow = west.querySelector('.card-button-row') || west;
-            const wRectInner = westRow.getBoundingClientRect();
-            const wWidth = Math.min(wRectInner.width || 0, boardRect.width * 0.6) || (wRectInner.width || 180);
-            const wHeight = wRectInner.height || 40;
-            const left = Math.max(0, (trickRect.left - boardRect.left) - wWidth - gap);
-            const top = (trickRect.top - boardRect.top) + ((trickRect.height - wHeight) / 2);
-            west.style.position = 'absolute';
-            west.style.left = left + 'px';
-            west.style.top = top + 'px';
-            west.style.width = wWidth + 'px';
-            west.style.transform = 'none';
-            west.style.zIndex = 1100;
-        }
-
-        if (east) {
-            const eastRow = east.querySelector('.card-button-row') || east;
-            const eRectInner = eastRow.getBoundingClientRect();
-            const eWidth = Math.min(eRectInner.width || 0, boardRect.width * 0.6) || (eRectInner.width || 180);
-            const eHeight = eRectInner.height || 40;
-            const left = Math.min(boardRect.width - eWidth, (trickRect.right - boardRect.left) + gap);
-            const top = (trickRect.top - boardRect.top) + ((trickRect.height - eHeight) / 2);
-            east.style.position = 'absolute';
-            east.style.left = left + 'px';
-            east.style.top = top + 'px';
-            east.style.width = eWidth + 'px';
-            east.style.transform = 'none';
-            east.style.zIndex = 1100;
-        }
-
-        pageLog('positionEWSeats: positioned E/W relative to trickArea', { boardRect, trickRect });
-    } catch (e) {
-        console.warn('positionEWSeats failed', e);
-    }
-}
-
 // Helper function for startAuction compatibility
 function showTab(tabId) {
     if (tabId === 'practice-bids') {
@@ -5173,21 +4901,13 @@ function renderPlayTab() {
                 appendPlayDebug('renderPlayTab: moved playPanel into .tab-content');
             }
         } catch (_) { }
-        // Show a brief loading status while initializing the Play view
+        // Clear any pending status so the Play tab renders without transient banners
         try {
             const ps = document.getElementById('playStatus');
             if (ps) {
-                ps.className = 'alert alert-info';
-                ps.style.display = 'block';
-                ps.innerHTML = '<span style="display:inline-block;width:12px;height:12px;border:2px solid #1e88e5;border-top-color:transparent;border-radius:50%;margin-right:6px;vertical-align:-2px;animation:spin .8s linear infinite"></span> Loading play layout…';
-                // Inject minimal spinner keyframes if not present
-                const styleId = 'play-spinner-style';
-                if (!document.getElementById(styleId)) {
-                    const st = document.createElement('style');
-                    st.id = styleId;
-                    st.textContent = '@keyframes spin{to{transform:rotate(360deg)}}';
-                    document.head.appendChild(st);
-                }
+                ps.textContent = '';
+                ps.className = 'alert';
+                ps.style.display = 'none';
             }
         } catch (_) { }
 
@@ -5391,21 +5111,21 @@ function renderPlayTab() {
         try { const scoreEl = document.getElementById('playInlineScore'); if (scoreEl) scoreEl.textContent = ''; } catch (_) { }
         try { const rs = document.getElementById('playResultSummary'); if (rs) { rs.textContent = ''; rs.style.display = 'none'; } } catch (_) { }
         try { const ul = document.getElementById('playScoreBreakdown'); if (ul) { ul.innerHTML = ''; ul.style.display = 'none'; } } catch (_) { }
-        // Status line: opening lead prompt or all-pass message
-        if (!details.contract) {
-            showPlayStatus('All Pass — no play.', 'light');
-        } else {
-            showPlayStatus('Opening lead: ' + seatName(playState.leader), 'light');
-        }
+        // Do not show transient status banners on initial render; leave status area hidden
+        try {
+            const ps = document.getElementById('playStatus');
+            if (ps) {
+                ps.textContent = '';
+                ps.style.display = 'none';
+            }
+        } catch (_) { }
 
         // If next to play is E/W, auto-play to keep the trick moving
         try { if (typeof updateLeadHighlight === 'function') updateLeadHighlight(); } catch (_) { }
         setTimeout(() => autoPlayIfNeeded(), 200);
         try { appendPlayDebug('renderPlayTab: finished'); } catch (_) { }
-        // Position East/West seats deterministically so they sit flush to the trick area
-        // NOTE: layout should be handled by CSS grid; avoid runtime inline positioning
-        // which causes a visual 'shift' after render. Leave `positionEWSeats` defined
-        // for debugging, but do not call it here.
+        // Positioning for East/West seats now relies solely on CSS grid to avoid
+        // runtime inline shifts during render.
     } catch (e) {
         // Ensure user sees an error instead of a blank Play tab
         try { showPlayStatus('Failed to render Play view: ' + (e?.message || e), 'danger'); } catch (_) { }
