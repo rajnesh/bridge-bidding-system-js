@@ -23,7 +23,13 @@ export async function loadPlayModel(modelPath = './models/play_rl_model/model.js
     //console.log(`Loading play model from ${modelPath}...`);
     //console.log(`Play model will use backend: ${tf.getBackend ? tf.getBackend() : 'unknown'}`);
     try {
-        playModel = await tf.loadGraphModel(modelPath);
+        if (typeof window === 'undefined') {
+            const { resolve } = await import('path');
+            const handler = tf.io.fileSystem(resolve(modelPath));
+            playModel = await tf.loadGraphModel(handler);
+        } else {
+            playModel = await tf.loadGraphModel(modelPath);
+        }
         //console.log("Play model loaded successfully.");
 
         const dummyObs = tf.zeros([1, PLAY_OBS_TENSOR_SIZE]);

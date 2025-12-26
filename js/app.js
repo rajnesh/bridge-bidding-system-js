@@ -107,6 +107,8 @@ function initializeSystem() {
                     // The paths point to the directories where your converted models will be.
                     await loadBiddingModel('./models/bid_rl_model/model.json', './bid_tokens.json');
                     await loadPlayModel('./models/play_rl_model/model.json');
+                    // Enable play model decisions by default
+                    try { window.__USE_MODEL_PLAY = true; } catch (_) { /* ignore if not in browser */ }
                     pageLog("All AI models initialized successfully.");
                 } catch (error) {
                     console.error("Failed to initialize AI models:", error);
@@ -1089,7 +1091,7 @@ function isPartnerResponse(auctionLength) {
 // Debug logging toggles
 // Set window.__debugPageLogs or window.__debugAuctionLogs to true to enable ad-hoc logging without code changes.
 const DEFAULT_PAGE_DEBUG = false;
-const DEFAULT_AUCTION_DEBUG = true;
+const DEFAULT_AUCTION_DEBUG = false;
 
 function pageLog(...args) {
     try {
@@ -1515,6 +1517,13 @@ async function makeSystemBid() {
                 system.currentAuction.ourSeat = currentTurn;
                 // Keep engine's side-tracking helpers (which rely on system.ourSeat) aligned with the actor
                 system.ourSeat = currentTurn;
+                // Ensure dealer is retained for seat inference; reseat if missing
+                if (!system.currentAuction.dealer && dealer) {
+                    system.currentAuction.dealer = dealer;
+                }
+                if (typeof system.currentAuction.reseat === 'function' && system.currentAuction.dealer) {
+                    try { system.currentAuction.reseat(system.currentAuction.dealer); } catch (_) { /* best-effort */ }
+                }
             }
         } catch (e) { /* ignore */ }
 
@@ -1599,13 +1608,22 @@ async function makeSystemBid() {
         })();
 
         const rulesReturnedNull = !recommendedBid || recommendedBid.token == null;
-        // Only treat a PASS as suspicious when we have NOT previously bid (first action). If our side has already acted, allow disciplined PASS.
+        // Only treat a PASS as suspicious when we have NOT previously bid (first action).
+        // Allow model consult when partner has acted (so advancer/responder can override a silent PASS),
+        // but avoid having the model invent speculative direct overcalls when our side has not yet entered the auction.
         let ourSideHasBid = false;
+        let weHaveActed = false;
         try {
             const ctx = (system && typeof system._seatContext === 'function') ? system._seatContext() : null;
             if (ctx?.lastOur && ctx.lastOur.token) ourSideHasBid = true;
-        } catch (_) { ourSideHasBid = false; }
-        const rulesPassButStrong = (!rulesReturnedNull && !forcedBid && recommendedBid.token === 'PASS' && (hand.hcp || 0) >= 10 && currentAuction.length > 0 && !isOpeningContext && !ourSideHasBid);
+            if (ctx?.weHaveBid) weHaveActed = true;
+        } catch (_) { ourSideHasBid = false; weHaveActed = false; }
+        try {
+            // Fallback detection for whether we personally have already bid a contract
+            const lastSelf = auctionHistory.find(e => e.position === currentTurn && e?.bid && e.bid.token && e.bid.token !== 'PASS');
+            if (lastSelf) weHaveActed = true;
+        } catch (_) { /* ignore */ }
+        const rulesPassButStrong = (!rulesReturnedNull && !forcedBid && recommendedBid.token === 'PASS' && (hand.hcp || 0) >= 10 && currentAuction.length > 0 && !isOpeningContext && !weHaveActed && ourSideHasBid);
         const allowModelFallback = !isOpeningContext;
 
         if ((rulesReturnedNull || rulesPassButStrong) && !forcedBid && allowModelFallback) {
@@ -1949,6 +1967,10 @@ async function makeSystemBid() {
                     system.currentAuction.add(recommendedBid);
                 } else if (Array.isArray(system.currentAuction.bids)) {
                     system.currentAuction.bids.push(recommendedBid);
+                    // Ensure seats are populated after direct push
+                    if (typeof system.currentAuction.reseat === 'function' && system.currentAuction.dealer) {
+                        try { system.currentAuction.reseat(system.currentAuction.dealer); } catch (_) { /* best-effort */ }
+                    }
                 }
             }
         } catch (_) { /* best-effort sync */ }
@@ -1991,6 +2013,10 @@ async function makeSystemBid() {
                     system.currentAuction.add(passBid);
                 } else if (Array.isArray(system.currentAuction.bids)) {
                     system.currentAuction.bids.push(passBid);
+                    // Ensure seats are populated after direct push
+                    if (typeof system.currentAuction.reseat === 'function' && system.currentAuction.dealer) {
+                        try { system.currentAuction.reseat(system.currentAuction.dealer); } catch (_) { /* best-effort */ }
+                    }
                 }
             }
         } catch (_) { /* best-effort sync */ }
@@ -2184,11 +2210,11 @@ function getRecommendedBid() {
         try { if (system.currentAuction) system.currentAuction.ourSeat = 'S'; } catch (_) { }
 
         const recommendedBid = system.getBid(currentHands.S);
-        // Derive a full textual explanation consistent with the explanations panel
+        // Derive a full textual explanation consistent with the explanations panel. Prefer the seated auction.
         let explanation = recommendedBid.conventionUsed || '';
         try {
             if (typeof system.getExplanationFor === 'function') {
-                const expl = system.getExplanationFor(recommendedBid, system.currentAuction);
+                const expl = system.getExplanationFor(recommendedBid, system.currentAuction || currentAuction);
                 if (expl && !isGenericExplanationLabel(expl)) explanation = expl;
             }
         } catch (_) { /* fallback below */ }
@@ -5042,14 +5068,17 @@ function renderPlayTab() {
             // but the engine will play for North automatically. If North is visible, make it clickable.
             // Additionally, when East or West is the dummy, do NOT show the North hand at all
             // (no card backs) so the layout matches E/W-dummy conventions.
-            const showNorth = (playState.declarer === 'N' || playState.dummy === 'N');
-            const northClickable = !!showNorth;
+            const dummyVisible = !!playState.dummyRevealed;
+            const showNorth = (playState.declarer === 'N') || (dummyVisible && playState.dummy === 'N');
+            const northClickable = !!showNorth && playState.declarer === 'N';
             if (currentHands && currentHands.N) {
                 try { appendPlayDebug('renderPlayTab: showNorth=' + showNorth + ' northClickable=' + northClickable + ' dummy=' + playState.dummy + ' contractSide=' + playState.contractSide); } catch (_) { }
                 if (!showNorth && northRow) {
-                    // If dummy is E or W, hide North entirely (no card backs). Otherwise show backs.
+                    // If North is dummy but not yet visible, show card backs; if North is a defender, show backs; otherwise hide.
                     northRow.innerHTML = '';
-                    if (playState.dummy !== 'E' && playState.dummy !== 'W') {
+                    if (playState.dummy === 'N') {
+                        renderCardBacks('playNorthHand', 'N');
+                    } else if (playState.contractSide === 'EW') {
                         renderCardBacks('playNorthHand', 'N');
                     }
                 } else if (showNorth) {
@@ -5062,15 +5091,28 @@ function renderPlayTab() {
             try {
                 if (currentHands && currentHands.E) {
                     if (playState.dummy === 'E') {
-                        // Reveal dummy East (non-clickable, SVG rows)
-                        if (eastRow) { eastRow.innerHTML = ''; renderPlayHand('playEastHand', 'E', false); }
+                        if (eastRow) {
+                            eastRow.innerHTML = '';
+                            if (dummyVisible) {
+                                renderPlayHand('playEastHand', 'E', false);
+                            } else {
+                                renderCardBacks('playEastHand', 'E');
+                            }
+                        }
                     } else {
                         if (eastRow) { eastRow.innerHTML = ''; renderCardBacks('playEastHand', 'E'); }
                     }
                 }
                 if (currentHands && currentHands.W) {
                     if (playState.dummy === 'W') {
-                        if (westRow) { westRow.innerHTML = ''; renderPlayHand('playWestHand', 'W', false); }
+                        if (westRow) {
+                            westRow.innerHTML = '';
+                            if (dummyVisible) {
+                                renderPlayHand('playWestHand', 'W', false);
+                            } else {
+                                renderCardBacks('playWestHand', 'W');
+                            }
+                        }
                     } else {
                         if (westRow) { westRow.innerHTML = ''; renderCardBacks('playWestHand', 'W'); }
                     }
@@ -5539,6 +5581,13 @@ async function autoPlayIfNeeded() {
         };
         while (playState.nextSeat && isAutomatedSeat(playState.nextSeat) && playState.trick.length < 4) {
             const seat = playState.nextSeat;
+            // Prevent the same seat from acting twice in a single trick
+            try {
+                if ((playState.trick || []).some(t => t.seat === seat)) {
+                    playState.nextSeat = leftOf(playState.nextSeat);
+                    continue;
+                }
+            } catch (_) { }
             const code = await pickAutoCardFor(seat);
             if (!code) break;
             playCardToTrick(seat, code);
@@ -5592,6 +5641,22 @@ async function pickAutoCardFor(seat) {
     const rankIndex = (code) => rankOrder.indexOf((code || '2')[0]);
     const sortAsc = (arr) => arr.slice().sort((a, b) => rankIndex(a) - rankIndex(b));
     const sortDesc = (arr) => arr.slice().sort((a, b) => rankIndex(b) - rankIndex(a));
+    const suitOrder = ['S', 'H', 'D', 'C'];
+    const codeToIndex = (code) => {
+        if (!code || code.length < 2) return -1;
+        const rank = code[0];
+        const suit = code.slice(-1);
+        const r = rankOrder.indexOf(rank);
+        const s = suitOrder.indexOf(suit);
+        if (r === -1 || s === -1) return -1;
+        return s * 13 + r;
+    };
+    const indexToCode = (idx) => {
+        if (typeof idx !== 'number' || idx < 0 || idx > 51) return null;
+        const s = suitOrder[Math.floor(idx / 13)];
+        const r = rankOrder[idx % 13];
+        return `${r}${s}`;
+    };
     const sameSide = (s) => {
         if (!playState?.contractSide) return false;
         if (playState.contractSide === 'NS') return s === 'N' || s === 'S';
@@ -5605,24 +5670,50 @@ async function pickAutoCardFor(seat) {
         const ourSide = sameSide(seat);
         const leaderSideMatches = lead ? sameSide(lead.seat) === ourSide : false;
 
+        const trickTargetSuit = (() => {
+            if (!leadSuit) return null;
+            const trumpPlayed = playState.trump && playState.trick.some(t => t.code.endsWith(playState.trump));
+            return trumpPlayed ? playState.trump : leadSuit;
+        })();
+        const highestInTarget = (() => {
+            if (!trickTargetSuit) return -1;
+            let best = -1;
+            (playState.trick || []).forEach(t => {
+                if (t.code.endsWith(trickTargetSuit)) {
+                    best = Math.max(best, rankIndex(t.code));
+                }
+            });
+            return best;
+        })();
+        const winningCards = (cards) => cards.filter(c => c.endsWith(trickTargetSuit) && rankIndex(c) > highestInTarget);
+
         if (hasLeadSuit) {
             const leadPlays = legalPlays.filter(c => c.endsWith(leadSuit));
             const leadIsHonor = lead ? rankIndex(lead.code) >= rankIndex('J') : false;
+            const winningOptions = trickTargetSuit ? winningCards(leadPlays) : [];
             if (leaderSideMatches && leadIsHonor) {
                 // Partner led an honor; avoid overtaking unless forced
-                return sortAsc(leadPlays)[0];
+                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
             }
             if (leaderSideMatches && !leadIsHonor) {
-                // Partner led low; try to win if possible
-                return sortDesc(leadPlays)[0];
+                // Partner led low; try to win with the cheapest winning card, else lowest
+                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
             }
-            // Opponent led; try to win with the highest available in suit
-            return sortDesc(leadPlays)[0];
+            // Opponent led: cover only if we can win cheaply; otherwise play low
+            return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
         }
 
-        // Cannot follow suit: try to ruff low if we have trump, else shed the lowest card
+        // Cannot follow suit: prefer discard if partner is already winning; otherwise ruff low
         const trumpSuit = playState?.trump;
         const trumpCards = trumpSuit ? legalPlays.filter(c => c.endsWith(trumpSuit)) : [];
+        const currentLeader = (playState?.trick && playState.trick.length)
+            ? computeTrickWinner(playState.trick, playState.trump)
+            : null;
+        const leaderOnOurSide = currentLeader ? sameSide(currentLeader) : false;
+        if (leaderOnOurSide) {
+            const discards = trumpSuit ? legalPlays.filter(c => !c.endsWith(trumpSuit)) : legalPlays.slice();
+            if (discards.length) return sortAsc(discards)[0];
+        }
         if (trumpCards.length) return sortAsc(trumpCards)[0];
         return sortAsc(legalPlays)[0];
     };
@@ -5636,7 +5727,6 @@ async function pickAutoCardFor(seat) {
             (arr || []).forEach(c => cardSet.add(`${c.rank}${suit}`));
         });
     } catch (_) { }
-    const suitOrder = ['S', 'H', 'D', 'C'];
     const hasCardFn = (typeof hand.hasCard === 'function')
         ? (i) => hand.hasCard(i)
         : (i) => {
@@ -5647,6 +5737,8 @@ async function pickAutoCardFor(seat) {
 
     // Prepare the game state object for the model (guard when contract is unset in unit tests)
     const fallbackContract = playState.contract || { level: 1, strain: 'NT', dbl: false };
+    const trickHistoryIdx = Array.from(playState.played || []).map(codeToIndex).filter(i => i >= 0);
+    const currentTrickIdx = playState.trick.map(p => codeToIndex(p.code)).filter(i => i >= 0);
     const gameState = {
         hand: Array.from({ length: 52 }, (_, i) => !!hasCardFn(i)),
         contract: [
@@ -5658,8 +5750,8 @@ async function pickAutoCardFor(seat) {
             vulnerability.ew,
             1 // has ddt
         ],
-        trickHistory: playState.played,
-        currentTrick: playState.trick.map(p => p.code),
+        trickHistory: trickHistoryIdx,
+        currentTrick: currentTrickIdx,
         currentPlayer: getSeatNumber(seat),
         vulnerability: (vulnerability.ns << 1 | vulnerability.ew)
     };
@@ -5668,8 +5760,12 @@ async function pickAutoCardFor(seat) {
     let cardToPlay = fallbackCard;
     if (shouldConsultModel) {
         try {
-            const modelChoice = await getModelPlay(gameState, legalPlays);
-            if (modelChoice) cardToPlay = modelChoice;
+            const legalIdx = legalPlays.map(codeToIndex).filter(i => i >= 0);
+            const modelChoice = await getModelPlay(gameState, legalIdx);
+            if (modelChoice !== null && modelChoice !== undefined) {
+                const fromModel = (typeof modelChoice === 'number') ? indexToCode(modelChoice) : modelChoice;
+                if (fromModel) cardToPlay = fromModel;
+            }
         } catch (_) { /* fall back to heuristic */ }
     }
     removeCodeFromHand(hand, cardToPlay);
@@ -5677,6 +5773,12 @@ async function pickAutoCardFor(seat) {
 }
 
 function playCardToTrick(seat, code) {
+    // Safety: do not allow the same seat to place multiple cards in one trick
+    try {
+        if (playState && Array.isArray(playState.trick) && playState.trick.some(t => t.seat === seat)) {
+            return;
+        }
+    } catch (_) { }
     // Log play event and current hands for diagnostics
     try {
         // If tests set `window.currentHands` or `window.playState`, use those so test fixtures are respected
@@ -5957,15 +6059,21 @@ function finishTrick() {
 function continueAfterTrick() {
     try {
         playState.awaitingContinue = false;
-        // Clear trick slots (but keep history if you later want to show it)
+        // Clear trick area completely to avoid stray cards (e.g., if a seat lacked a slot)
+        // then rebuild the four seat slots and the hint.
         const area = document.getElementById('trickArea');
         if (area) {
-            // Remove all children from trick-slot elements, keep hint appended later
-            const slots = area.querySelectorAll('.trick-slot');
-            slots.forEach(s => { try { s.innerHTML = ''; } catch (_) { } });
-            // Replace hint for next trick or done message
-            const prev = area.querySelector('.trick-hint'); if (prev) prev.remove();
-            const hint = document.createElement('div'); hint.className = 'trick-hint'; hint.textContent = 'Click a card to play'; area.appendChild(hint);
+            try { area.innerHTML = ''; } catch (_) { }
+            ['N', 'E', 'S', 'W'].forEach(s => {
+                const slot = document.createElement('div');
+                slot.className = `trick-slot trick-slot-${s === 'N' ? 'north' : s === 'S' ? 'south' : s === 'E' ? 'east' : 'west'}`;
+                slot.dataset.seat = s;
+                area.appendChild(slot);
+            });
+            const hint = document.createElement('div');
+            hint.className = 'trick-hint';
+            hint.textContent = 'Click a card to play';
+            area.appendChild(hint);
         }
         // Update the lead highlight for the upcoming trick: remove any existing
         // highlight and then add it to the current leader/nextSeat so the UI
@@ -6041,12 +6149,21 @@ function revealDummy() {
     const dummy = playState.dummy;
     if (!dummy) return;
     try {
-        if (dummy === 'N' && currentHands?.N) {
-            const row = document.getElementById('playNorthHand');
-            if (row && row.childElementCount === 0) renderHandCards('playNorthHand', 'N');
-        } else if (dummy === 'S' && currentHands?.S) {
-            const row = document.getElementById('playSouthHand');
-            if (row && row.childElementCount === 0) renderHandCards('playSouthHand', 'S');
+        const containerMap = {
+            N: 'playNorthHand',
+            E: 'playEastHand',
+            S: 'playSouthHand',
+            W: 'playWestHand'
+        };
+        const cid = containerMap[dummy];
+        if (cid && currentHands?.[dummy]) {
+            const row = document.getElementById(cid);
+            if (row) {
+                row.innerHTML = '';
+                // Let the user play dummy when our side declared; opponents' dummy stays locked.
+                const dummyClickable = playState && playState.contractSide === 'NS';
+                renderPlayHand(cid, dummy, dummyClickable);
+            }
         }
         playState.dummyRevealed = true;
     } catch (_) { }

@@ -319,14 +319,15 @@ class BiddingSystem {
                     }
                 }
                 // Responder cue-bid raise (cue of opponents' suit showing fit for opener)
-                if (tokens.length >= 2 && firstNonPassIdx === 0 && /^[1][CDHS]$/.test(tokens[0]) && isSuit) {
-                    const openerSuit = tokens[0].slice(-1);
+                if (firstNonPassIdx !== -1 && /^[1][CDHS]$/.test(tokens[firstNonPassIdx]) && isSuit) {
+                    const openerIdx = firstNonPassIdx;
+                    const openerSuit = tokens[openerIdx].slice(-1);
                     const ourSuit = bidToken.slice(-1);
 
                     // Identify opponents' first suit call after the opening bid
                     let theirIdx = -1;
                     let theirTok = null;
-                    for (let i = 1; i < tokens.length - 1; i++) {
+                    for (let i = openerIdx + 1; i < tokens.length - 1; i++) {
                         const t = tokens[i];
                         if (t !== 'PASS' && t !== 'X' && t !== 'XX') { theirIdx = i; theirTok = t; break; }
                     }
@@ -335,7 +336,7 @@ class BiddingSystem {
                     // Seat awareness to avoid mislabeling partner vs opponents
                     const seatsCtx = (() => {
                         const auct = (auctionLike && auctionLike.bids) ? auctionLike : this.currentAuction;
-                        const openerSeat = this._seatAtIndex(auct, 0) || auct?.bids?.[0]?.seat || null;
+                        const openerSeat = this._seatAtIndex(auct, firstNonPassIdx) || auct?.bids?.[firstNonPassIdx]?.seat || null;
                         const theirSeat = (theirIdx !== -1) ? (this._seatAtIndex(auct, theirIdx) || auct?.bids?.[theirIdx]?.seat || null) : null;
                         const currentSeat = this._seatAtIndex(auct, (auct?.bids?.length || 1) - 1) || auct?.bids?.[auct?.bids?.length - 1]?.seat || null;
                         return { openerSeat, theirSeat, currentSeat };
@@ -2525,6 +2526,42 @@ class SAYCBiddingSystem extends BiddingSystem {
             }
         } catch (_) { }
 
+        // Advancer simple raise of partner's natural overcall: if partner overcalled a suit and we have
+        // 5+ card support with invitational values, make a natural raise instead of passing out.
+        try {
+            const bids = auction.bids || [];
+            // Identify last non-pass contract and its seat
+            let lastIdx = -1;
+            for (let i = bids.length - 1; i >= 0; i--) {
+                const tok = bids[i]?.token || '';
+                if (/^[1-7][CDHS]$/.test(tok)) { lastIdx = i; break; }
+            }
+            if (lastIdx !== -1) {
+                const lastTok = bids[lastIdx].token;
+                const lastSeat = this._seatAtIndex(auction, lastIdx) || bids[lastIdx]?.seat || null;
+                const ctx = (typeof this._seatContext === 'function') ? this._seatContext(auction) : null;
+                const currentSeat = ctx?.currentSeat || this._seatAtIndex(auction, bids.length) || null;
+                const partnerSeat = ctx?.partnerSeat || (currentSeat ? this._partnerOf(currentSeat) : null);
+                // Only consider when partner made the last contract bid and it was a natural suit overcall (not opener)
+                const openerSeat = this._seatAtIndex(auction, 0) || bids[0]?.seat || null;
+                const partnerLast = partnerSeat && lastSeat && this._sameSideAs(partnerSeat, lastSeat) && (!openerSeat || !this._sameSideAs(openerSeat, lastSeat));
+                if (partnerLast) {
+                    const suit = lastTok.slice(-1);
+                    const level = parseInt(lastTok[0], 10) || 1;
+                    const support = hand.lengths?.[suit] || 0;
+                    const hcp = hand.hcp || 0;
+                    if (support >= 5 && hcp >= 10) {
+                        // Raise by one level, but at least to the 3-level to show values over a 1-level overcall
+                        const targetLevel = Math.max(level + 1, 3);
+                        const tok = `${Math.min(targetLevel, 7)}${suit}`;
+                        const b = new window.Bid(tok);
+                        b.conventionUsed = 'Advancer raise of partner overcall (5+ support, invitational values)';
+                        return b;
+                    }
+                }
+            }
+        } catch (_) { /* non-fatal: fall through */ }
+
         // If opponents made a 2-level conventional overcall (Michaels) and the advancer
         // has since doubled, require partner-of-overcaller to reply with 2NT ask.
         try {
@@ -3794,6 +3831,11 @@ class SAYCBiddingSystem extends BiddingSystem {
                     if (openerSeat && currentSeat && typeof this._sameSideAs === 'function') {
                         onOpenersSide = this._sameSideAs(openerSeat, currentSeat);
                     }
+                    // Fallback: when seat attribution is missing, assume same-side parity with the opener
+                    // (indices 0,2,4… belong to opener's side in alternating turn order).
+                    if (!onOpenersSide && !currentSeat) {
+                        onOpenersSide = (openerIndex % 2) === (bids.length % 2);
+                    }
 
                     // Only allow these raises when: opponents interfered and we are on opener's side
                     if (oppInterfered && onOpenersSide && hand.lengths[openedSuit] >= 3) {
@@ -3969,6 +4011,13 @@ class SAYCBiddingSystem extends BiddingSystem {
 
             // 1NT opening
             if (opening === '1NT') {
+                // Partner opened 1NT (lastSide === 'we'): run responder structure directly
+                if (lastSide === 'we') {
+                    const responseBid = this._handle1NTResponse(hand);
+                    if (responseBid) return responseBid;
+                    return new window.Bid('PASS');
+                }
+
                 if (lastSide === null || lastSide === 'they') {
                     const interferenceBid = this._handleInterference(this.currentAuction, hand);
                     if (interferenceBid) return interferenceBid;
