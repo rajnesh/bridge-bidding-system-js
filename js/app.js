@@ -108,7 +108,7 @@ function initializeSystem() {
                     await loadBiddingModel('./models/bid_rl_model/model.json', './bid_tokens.json');
                     await loadPlayModel('./models/play_rl_model/model.json');
                     // Enable play model decisions by default
-                    try { window.__USE_MODEL_PLAY = true; } catch (_) { /* ignore if not in browser */ }
+                    try { window.__USE_MODEL_PLAY = false; } catch (_) { /* ignore if not in browser */ }
                     pageLog("All AI models initialized successfully.");
                 } catch (error) {
                     console.error("Failed to initialize AI models:", error);
@@ -5669,6 +5669,98 @@ async function pickAutoCardFor(seat) {
         const hasLeadSuit = leadSuit && legalPlays.some(c => c.endsWith(leadSuit));
         const ourSide = sameSide(seat);
         const leaderSideMatches = lead ? sameSide(lead.seat) === ourSide : false;
+        const trump = playState?.trump || null;
+        const partner = partnerOf(seat);
+        try {
+            if (!playState.holdUpSuits) playState.holdUpSuits = {};
+            if (!playState.throwInSuits) playState.throwInSuits = {};
+        } catch (_) { }
+        try { if ((playState?.trick?.length || 0) === 0) playState.finessePlan = null; } catch (_) { }
+        const finessePlan = playState?.finessePlan || null;
+        const suitLen = (s, h) => ((h?.suitBuckets?.[s] || []).length || 0);
+        const combinedLen = (s) => suitLen(s, currentHands?.[seat]) + suitLen(s, currentHands?.[partner]);
+        const combinedTrumpLen = (() => {
+            if (!trump) return 0;
+            const ours = suitLen(trump, currentHands?.[seat]);
+            const partnerLen = suitLen(trump, currentHands?.[partner]);
+            return ours + partnerLen;
+        })();
+        const oppTrumpLeft = (() => {
+            try {
+                return (playState?.opponentsCombined && typeof playState.opponentsCombined[trump] === 'number')
+                    ? playState.opponentsCombined[trump]
+                    : null;
+            } catch (_) { return null; }
+        })();
+        const trumpHonorCount = (() => {
+            if (!trump) return 0;
+            const honors = new Set(['A', 'K', 'Q', 'J']);
+            let count = 0;
+            (currentHands?.[seat]?.suitBuckets?.[trump] || []).forEach(c => { if (honors.has(c.rank)) count++; });
+            (currentHands?.[partner]?.suitBuckets?.[trump] || []).forEach(c => { if (honors.has(c.rank)) count++; });
+            return count;
+        })();
+        const shortSuitRuffPotential = (() => {
+            if (!trump) return false;
+            const suits = ['S', 'H', 'D', 'C'];
+            for (const s of suits) {
+                if (s === trump) continue;
+                const lenSeat = suitLen(s, currentHands?.[seat]);
+                const lenPartner = suitLen(s, currentHands?.[partner]);
+                if (Math.min(lenSeat, lenPartner) <= 1 && Math.max(lenSeat, lenPartner) >= 3) return true;
+            }
+            return false;
+        })();
+        const entryCount = (() => {
+            const suits = ['S', 'H', 'D', 'C'];
+            let c = 0;
+            for (const s of suits) {
+                if (s === trump) continue;
+                if (suitLen(s, currentHands?.[seat]) > 0) c++;
+                if (suitLen(s, currentHands?.[partner]) > 0) c++;
+            }
+            return c;
+        })();
+        // Defense signal memory (shared via playState)
+        const defensePreferredSuit = playState?.defensePreferredSuit || null;
+        const defenseDiscourageSuit = playState?.defenseDiscourageSuit || null;
+        const holdUpSuits = playState?.holdUpSuits || null;
+        const throwInSuits = playState?.throwInSuits || null;
+        const cardsInSuit = (s, handObj) => (handObj?.suitBuckets?.[s] || []).map(c => `${c.rank}${s}`);
+        const pickLowest = (arr) => arr.slice().sort((a, b) => rankIndex(a) - rankIndex(b))[0];
+        const pickLowestSpot = (arr) => {
+            const spots = arr.filter(c => !['A', 'K', 'Q', 'J', 'T'].includes(c[0]));
+            return spots.length ? pickLowest(spots) : pickLowest(arr);
+        };
+
+        // Simple declarer finesse plan: if partner holds a tenace (AQ, KJ with ace support, QJ with top cover), lead low toward it and ask partner to play the honor third hand.
+        const chooseFinesseLead = () => {
+            if (leadSuit) return null;
+            if (!ourSide) return null;
+            const suits = ['S', 'H', 'D', 'C'].filter(s => s !== trump);
+            for (const s of suits) {
+                const myCards = cardsInSuit(s, currentHands?.[seat]);
+                if (!myCards.length) continue;
+                const partnerCards = cardsInSuit(s, currentHands?.[partner]);
+                if (partnerCards.length < 2) continue;
+                const partnerRanks = new Set(partnerCards.map(c => c[0]));
+                const combinedRanks = new Set([...myCards, ...partnerCards].map(c => c[0]));
+                const setPlan = (targetHonor) => {
+                    try { playState.finessePlan = { suit: s, target: targetHonor, honorSeat: partner }; } catch (_) { }
+                    return pickLowestSpot(myCards);
+                };
+                if (partnerRanks.has('A') && partnerRanks.has('Q') && !combinedRanks.has('K')) {
+                    return setPlan('Q');
+                }
+                if (partnerRanks.has('K') && partnerRanks.has('J') && combinedRanks.has('A') && !combinedRanks.has('Q')) {
+                    return setPlan('J');
+                }
+                if (partnerRanks.has('Q') && partnerRanks.has('J') && combinedRanks.has('A') && !combinedRanks.has('K')) {
+                    return setPlan('Q');
+                }
+            }
+            return null;
+        };
 
         const trickTargetSuit = (() => {
             if (!leadSuit) return null;
@@ -5687,17 +5779,247 @@ async function pickAutoCardFor(seat) {
         })();
         const winningCards = (cards) => cards.filter(c => c.endsWith(trickTargetSuit) && rankIndex(c) > highestInTarget);
 
+        const handCount = (() => {
+            const suits = ['S', 'H', 'D', 'C'];
+            return suits.reduce((sum, s) => sum + suitLen(s, currentHands?.[seat]), 0);
+        })();
+
+        // If we are on lead, pick a suit/card with NT/trump awareness and honor safety.
+        if (!leadSuit) {
+            // Endplay-style throw-in: when we have a tenace (e.g., AQx missing K) and a truly worthless exit suit, throw the opps in late to force a return
+            if (ourSide && throwInSuits) {
+                const tenaceSuits = ['S', 'H', 'D', 'C'].filter(s => {
+                    const ranks = new Set(cardsInSuit(s, currentHands?.[seat]).concat(cardsInSuit(s, currentHands?.[partner])).map(c => c[0]));
+                    return ranks.has('A') && ranks.has('Q') && !ranks.has('K');
+                });
+                const exitSuit = ['S', 'H', 'D', 'C']
+                    .map(s => {
+                        const cards = legalPlays.filter(c => c.endsWith(s));
+                        if (!cards.length) return null;
+                        const honorCount = cards.filter(c => ['A', 'K', 'Q', 'J', 'T'].includes(c[0])).length;
+                        return { suit: s, cards, honorCount };
+                    })
+                    .filter(Boolean)
+                    .filter(o => o.honorCount === 0 && !tenaceSuits.includes(o.suit));
+                const nearEnd = handCount <= 6;
+                if (tenaceSuits.length && exitSuit.length) {
+                    const pickExit = exitSuit.find(o => (throwInSuits[o.suit] || 0) < 1 && o.cards.length);
+                    const oppTrumpsGone = (!trump || oppTrumpLeft === 0 || oppTrumpLeft === null);
+                    const haveEntryAfter = legalPlays.some(c => ['A', 'K', 'Q', 'J'].includes(c[0]));
+                    if (pickExit && (nearEnd || oppTrumpsGone) && haveEntryAfter) {
+                        try { throwInSuits[pickExit.suit] = (throwInSuits[pickExit.suit] || 0) + 1; } catch (_) { }
+                        return sortAsc(pickExit.cards)[0];
+                    }
+                }
+            }
+
+            // Late-stage squeeze pressure: cash top winners from longest honor suit when trumps are drawn or in NT
+            if (ourSide) {
+                const late = handCount <= 5;
+                const trumpsGone = (!trump || oppTrumpLeft === 0 || oppTrumpLeft === null);
+                if (late && trumpsGone) {
+                    const squeezeSuit = ['S', 'H', 'D', 'C']
+                        .map(s => {
+                            const cards = legalPlays.filter(c => c.endsWith(s));
+                            if (!cards.length) return null;
+                            const honorCount = cards.filter(c => ['A', 'K', 'Q', 'J', 'T'].includes(c[0])).length;
+                            return { suit: s, cards, honorCount };
+                        })
+                        .filter(Boolean)
+                        .filter(o => o.honorCount > 0)
+                        .sort((a, b) => b.honorCount - a.honorCount || b.cards.length - a.cards.length || rankIndex(sortDesc(a.cards)[0]) - rankIndex(sortDesc(b.cards)[0]));
+                    const pick = squeezeSuit[0];
+                    if (pick) {
+                        const desc = sortDesc(pick.cards);
+                        let topSequenceCard = null;
+                        for (let i = 0; i < desc.length - 1; i++) {
+                            if (rankIndex(desc[i]) - rankIndex(desc[i + 1]) === 1) { topSequenceCard = desc[i]; break; }
+                        }
+                        return topSequenceCard || desc[0];
+                    }
+                }
+            }
+
+            const finesseLead = chooseFinesseLead();
+            if (finesseLead) return finesseLead;
+            const suitChoices = ['S', 'H', 'D', 'C']
+                .map(s => {
+                    const cards = legalPlays.filter(c => c.endsWith(s));
+                    if (!cards.length) return null;
+                    const honorCount = cards.filter(c => ['A', 'K', 'Q', 'J', 'T'].includes(c[0])).length;
+                    const length = cards.length;
+                    let score = length * 2 + honorCount;
+                    const hasHighHonor = cards.some(c => ['A', 'K', 'Q'].includes(c[0]));
+                    const hasHonor = honorCount > 0;
+                    const loneOrShortHonor = hasHighHonor && length <= 3 && honorCount === 1;
+                    const isNT = !trump;
+                    if (trump && s === trump) {
+                        // Declarer: draw trumps when holding honors and no clear ruff plan; otherwise save for ruffs/entries
+                        if (ourSide) {
+                            const wantToDraw = (oppTrumpLeft === null || oppTrumpLeft > 0) && trumpHonorCount >= 2 && !shortSuitRuffPotential;
+                            if (wantToDraw) {
+                                score += (combinedTrumpLen >= 4 ? 12 : 8);
+                                if (entryCount >= 3) score += 2; // pull trump when we have entries to cash side suits
+                            }
+                            else score -= 4;
+                        } else {
+                            score -= (length >= 5 ? 0 : 6); // defense: generally avoid leading trump without length
+                        }
+                    } else if (trump && ourSide && s !== trump) {
+                        // Declarer: modest bonus for leading a long side suit when entries exist to establish it
+                        if (length >= 5 && honorCount > 0 && entryCount >= 2) score += 2;
+                    } else if (isNT) {
+                        // NT: prefer longest/best suit; avoid leading from single honor; reward length >=4
+                        const seqBonus = (() => {
+                            const desc = cards.slice().sort((a, b) => rankIndex(b) - rankIndex(a));
+                            for (let i = 0; i < desc.length - 1; i++) {
+                                if (rankIndex(desc[i]) - rankIndex(desc[i + 1]) === 1) return 3; // touching honors
+                            }
+                            return 0;
+                        })();
+                        score += (length >= 4 ? 6 : 0) + (honorCount ? 2 : 0) + seqBonus;
+                        if (loneOrShortHonor) score -= 4;
+                        // Declarer: favor longest suit for establishment; Defense: also longest, but avoid ace-empty
+                        const hasAceOnly = cards.some(c => c[0] === 'A') && honorCount === 1;
+                        if (!ourSide && hasAceOnly) score -= 3;
+                        // Declarer preference: combined length for establishment and entry count
+                        if (ourSide) {
+                            score += combinedLen(s);
+                            if (entryCount >= 2 && length >= 4) score += 3; // Establish when we have entries to come back
+                            if (hasAceOnly && playState?.ntPlanSuit && playState.ntPlanSuit !== s) score -= 5;
+                        }
+                        if (!ourSide) {
+                            if (!hasHonor) score -= 3;
+                            if (length >= 5 && hasHonor) score += 4;
+                            if (length <= 2 && hasHonor) score -= 5;
+                        }
+                    }
+                    try {
+                        if (isNT && ourSide && playState?.ntPlanSuit && playState.ntPlanSuit === s) score += 5;
+                        if (isNT && ourSide && playState?.ntPlanSuit && playState.ntPlanSuit !== s && combinedLen(playState.ntPlanSuit) > combinedLen(s)) score -= 5;
+                    } catch (_) { }
+                    // Use stored defensive signals: prefer partner-encouraged suit, avoid discouraged suit
+                    if (!ourSide && defensePreferredSuit && defensePreferredSuit === s) score += 4;
+                    if (!ourSide && defenseDiscourageSuit && defenseDiscourageSuit === s) score -= 3;
+                    // Prefer partner's previous lead suit on defense
+                    try {
+                        if (!ourSide && playState?.lastLeadSuit && playState.lastLeadSuit === s) score += 5;
+                    } catch (_) { }
+                    // Avoid burning singleton/doubleton honors on defense
+                    if (!ourSide && hasHighHonor && length <= 2) score -= 4;
+                    if (!ourSide && loneOrShortHonor) score -= 3;
+                    // Avoid leading from a lone honor unless we have length behind it
+                    if (hasHighHonor && length <= 2) score -= 2;
+                    return { suit: s, cards, score, length, honorCount };
+                })
+                .filter(Boolean)
+                .sort((a, b) => b.score - a.score || b.length - a.length || b.honorCount - a.honorCount);
+
+            const pick = suitChoices[0];
+            if (pick) {
+                const desc = sortDesc(pick.cards);
+                // Lead top of an honor sequence when it exists; otherwise select by strain logic.
+                let topSequenceCard = null;
+                for (let i = 0; i < desc.length - 1; i++) {
+                    if (rankIndex(desc[i]) - rankIndex(desc[i + 1]) === 1) {
+                        topSequenceCard = desc[i];
+                        break;
+                    }
+                }
+                const isNT = !trump;
+                const trumpLeadAsDeclarer = ourSide && trump && pick.suit === trump && (oppTrumpLeft === null || oppTrumpLeft > 0);
+                if (isNT && ourSide && (!playState.ntPlanSuit || !legalPlays.some(c => c.endsWith(playState.ntPlanSuit)))) {
+                    try { playState.ntPlanSuit = pick.suit; } catch (_) { }
+                }
+                if (trumpLeadAsDeclarer) {
+                    // When drawing trump as declarer, take them cleanly with the highest available or top of sequence
+                    return topSequenceCard || desc[0];
+                }
+                if (isNT) {
+                    // NT leads: Declarer sticks to plan/length; defense favors 4th-best from length+honor
+                    if (topSequenceCard) return topSequenceCard;
+                    const asc = sortAsc(pick.cards);
+                    if (!ourSide) {
+                        if (pick.length >= 4 && pick.honorCount > 0) {
+                            const idx = Math.min(3, asc.length - 1);
+                            return asc[idx];
+                        }
+                        return asc[0];
+                    }
+                    const idx = Math.min(3, asc.length - 1);
+                    return idx >= 0 ? asc[idx] : asc[0];
+                }
+                // Suit contracts: on defense, lead 4th-best from length when possible to give count/attitude
+                // Suit contracts: on defense, lead 4th-best from length when possible to give count/attitude
+                if (!ourSide && trump && pick.suit !== trump && pick.length >= 4) {
+                    const asc = sortAsc(pick.cards);
+                    const idx = Math.min(3, asc.length - 1);
+                    return asc[idx];
+                }
+                return topSequenceCard || sortAsc(pick.cards)[0];
+            }
+        }
+
         if (hasLeadSuit) {
             const leadPlays = legalPlays.filter(c => c.endsWith(leadSuit));
             const leadIsHonor = lead ? rankIndex(lead.code) >= rankIndex('J') : false;
             const winningOptions = trickTargetSuit ? winningCards(leadPlays) : [];
+            if (leaderSideMatches && ourSide && finessePlan && finessePlan.suit === leadSuit && finessePlan.honorSeat === seat) {
+                const targetCard = leadPlays.find(c => c[0] === finessePlan.target);
+                if (targetCard) return targetCard;
+                const altHonor = leadPlays.find(c => ['A', 'K', 'Q', 'J'].includes(c[0]));
+                if (altHonor) return altHonor;
+            }
+            // If we have an NT plan suit and can follow it instead of auto-following lead (when not required), bias to stay on plan
+            try {
+                if (!leadSuit && playState?.ntPlanSuit && ourSide) {
+                    const planPlays = legalPlays.filter(c => c.endsWith(playState.ntPlanSuit));
+                    if (planPlays.length) return sortAsc(planPlays)[0];
+                }
+            } catch (_) { }
+            // Defensive attitude signal when partner led: high encourage, low discourage (if not winning)
+            if (leaderSideMatches && !ourSide && !winningOptions.length) {
+                const hasHonorInSuit = leadPlays.some(c => ['A', 'K', 'Q'].includes(c[0]));
+                const encourage = hasHonorInSuit || leadPlays.length >= 4;
+                const asc = sortAsc(leadPlays);
+                const desc = sortDesc(leadPlays);
+                try {
+                    if (encourage) { playState.defensePreferredSuit = leadSuit; playState.defenseDiscourageSuit = null; }
+                    else { playState.defenseDiscourageSuit = leadSuit; }
+                } catch (_) { }
+                return encourage ? desc[0] : asc[0];
+            }
+            if (!trump && ourSide && !leaderSideMatches && trickTargetSuit === leadSuit) {
+                const hasAce = leadPlays.some(c => c[0] === 'A');
+                if (hasAce && leadPlays.length >= 2 && holdUpSuits) {
+                    const used = holdUpSuits[leadSuit] || 0;
+                    if (used < 1) {
+                        try { holdUpSuits[leadSuit] = used + 1; } catch (_) { }
+                        return sortAsc(leadPlays)[0];
+                    }
+                }
+            }
+            if (!leaderSideMatches && leadIsHonor && trickTargetSuit === leadSuit) {
+                // Opponent led an honor in NT or side suit: cover only with touching/next honor; otherwise play low
+                const touching = leadPlays.filter(c => rankIndex(c) === rankIndex(lead.code) + 1);
+                if (touching.length) return touching.sort((a, b) => rankIndex(a) - rankIndex(b))[0];
+                const higher = winningOptions.filter(c => rankIndex(c) <= rankIndex(lead.code) + 2);
+                if (higher.length) return higher.sort((a, b) => rankIndex(a) - rankIndex(b))[0];
+                return sortAsc(leadPlays)[0];
+            }
+            if (trump && leadSuit === trump && ourSide) {
+                // When drawing trump as declarer, prefer to take the trick decisively rather than finessing low
+                return winningOptions.length
+                    ? winningOptions.sort((a, b) => rankIndex(b) - rankIndex(a))[0]
+                    : sortDesc(leadPlays)[0];
+            }
             if (leaderSideMatches && leadIsHonor) {
-                // Partner led an honor; avoid overtaking unless forced
-                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
+                // Partner led an honor; third hand high to secure the trick if possible
+                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(b) - rankIndex(a))[0] : sortAsc(leadPlays)[0];
             }
             if (leaderSideMatches && !leadIsHonor) {
-                // Partner led low; try to win with the cheapest winning card, else lowest
-                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
+                // Partner led low; play third hand high if we can win
+                return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(b) - rankIndex(a))[0] : sortAsc(leadPlays)[0];
             }
             // Opponent led: cover only if we can win cheaply; otherwise play low
             return winningOptions.length ? winningOptions.sort((a, b) => rankIndex(a) - rankIndex(b))[0] : sortAsc(leadPlays)[0];
@@ -5712,9 +6034,35 @@ async function pickAutoCardFor(seat) {
         const leaderOnOurSide = currentLeader ? sameSide(currentLeader) : false;
         if (leaderOnOurSide) {
             const discards = trumpSuit ? legalPlays.filter(c => !c.endsWith(trumpSuit)) : legalPlays.slice();
-            if (discards.length) return sortAsc(discards)[0];
+            if (discards.length) {
+                // Suit-preference discard: choose high card from longest side suit to point partner there
+                const suits = ['S', 'H', 'D', 'C'].filter(s => s !== trumpSuit);
+                let bestSuit = null;
+                let bestLen = -1;
+                for (const s of suits) {
+                    const len = discards.filter(c => c.endsWith(s)).length;
+                    if (len > bestLen) { bestLen = len; bestSuit = s; }
+                }
+                const suitCards = bestSuit ? discards.filter(c => c.endsWith(bestSuit)) : [];
+                try { if (bestSuit) playState.defensePreferredSuit = bestSuit; } catch (_) { }
+                if (suitCards.length) return sortDesc(suitCards)[0];
+                return sortAsc(discards)[0];
+            }
         }
-        if (trumpCards.length) return sortAsc(trumpCards)[0];
+        if (trumpCards.length) {
+            const highestTrump = Math.max(-1, ...((playState?.trick || [])
+                .filter(t => t.code.endsWith(trumpSuit))
+                .map(t => rankIndex(t.code))));
+            const winningTrumps = trumpCards.filter(c => rankIndex(c) > highestTrump);
+            if (winningTrumps.length) {
+                // Preserve entries: ruff low if possible, keep higher trumps for control
+                return sortAsc(winningTrumps)[0];
+            }
+            // If our trump cannot win, prefer pitching a non-trump if available instead of wasting trump
+            const pitch = legalPlays.filter(c => !c.endsWith(trumpSuit));
+            if (pitch.length) return sortAsc(pitch)[0];
+            return sortAsc(trumpCards)[0];
+        }
         return sortAsc(legalPlays)[0];
     };
 
@@ -5805,6 +6153,11 @@ function playCardToTrick(seat, code) {
     // Record
     playState.trick.push({ seat, code });
     playState.played.add(code);
+    try {
+        if (playState.trick.length === 1) {
+            playState.lastLeadSuit = code.slice(-1);
+        }
+    } catch (_) { }
     // Show in trick area
     const area = document.getElementById('trickArea');
     if (area) {

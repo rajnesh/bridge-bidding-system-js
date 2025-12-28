@@ -113,7 +113,7 @@ function encodePlayObservation(gameState) {
  * @param {Array<number>} legalPlays - An array of legal card indices.
  * @returns {Promise<number>} The index of the predicted card to play.
  */
-export async function getModelPlay(gameState, legalPlays) {
+async function runModelPlay(gameState, legalPlays) {
     const formatCard = (c) => {
         if (typeof c === 'number') {
             const suit = SUITS[Math.floor(c / 13)] || '?';
@@ -126,7 +126,7 @@ export async function getModelPlay(gameState, legalPlays) {
     if (!playModel) {
         const choice = legalPlays[0];
         console.log(`DEBUG play choice: ${formatCard(choice)} [fallback:unloaded]`);
-        return choice; // Safe fallback
+        return { card: choice, confidence: 0 }; // Safe fallback
     }
 
     // 1. Prepare model inputs
@@ -141,31 +141,64 @@ export async function getModelPlay(gameState, legalPlays) {
         tf.dispose(obsTensor);
         const choice = legalPlays[0];
         console.log(`DEBUG play choice: ${formatCard(choice)} [fallback:exec-error]`);
-        return choice;
+        return { card: choice, confidence: 0 };
     }
 
     const logits = await resultTensor.data();
 
-    // 3. Mask illegal moves and find best
+    // 3. Mask illegal moves and find best + confidence
     let bestCard = -1;
     let maxLogit = -Infinity;
-
+    const legalLogits = [];
     for (const card of legalPlays) {
         const logit = logits[card];
+        legalLogits.push(logit);
         if (logit > maxLogit) {
             maxLogit = logit;
             bestCard = card;
         }
     }
 
+    // Compute softmax probability among legal plays for the selected card
+    let confidence = 0;
+    if (legalLogits.length && bestCard !== -1) {
+        const maxLegal = Math.max(...legalLogits);
+        const expSum = legalLogits.reduce((sum, l) => sum + Math.exp(l - maxLegal), 0);
+        const bestIdx = legalPlays.indexOf(bestCard);
+        if (bestIdx >= 0 && expSum > 0) {
+            confidence = Math.exp(legalLogits[bestIdx] - maxLegal) / expSum;
+        }
+    }
+
+    // Safety: if numerical issues produce 0/NaN, or model logits unavailable, fall back to uniform confidence
+    if (!Number.isFinite(confidence) || confidence <= 0 || bestCard === -1) {
+        bestCard = bestCard === -1 && legalPlays.length ? legalPlays[0] : bestCard;
+        confidence = legalPlays.length ? (1 / legalPlays.length) : 0;
+    }
+
     tf.dispose([obsTensor, resultTensor]);
 
     if (bestCard !== -1) {
         console.log(`DEBUG play choice: ${formatCard(bestCard)} [model]`);
-        return bestCard;
+        return { card: bestCard, confidence }; // confidence as probability (0-1)
     } else {
         const choice = legalPlays[0];
         console.log(`DEBUG play choice: ${formatCard(choice)} [fallback:no-legal-logit]`);
-        return choice;
+        return { card: choice, confidence: 0 };
     }
+}
+
+/**
+ * Returns only the chosen card index (backward compatible).
+ */
+export async function getModelPlay(gameState, legalPlays) {
+    const { card } = await runModelPlay(gameState, legalPlays);
+    return card;
+}
+
+/**
+ * Returns both the chosen card index and the model confidence (softmax over legal plays).
+ */
+export async function getModelPlayWithConfidence(gameState, legalPlays) {
+    return runModelPlay(gameState, legalPlays);
 }
